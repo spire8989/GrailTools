@@ -452,11 +452,15 @@ CONTENT_FILES = {
     "encounters": ("js/encounter-data.js", "ENCOUNTER_DEFINITIONS"),
     "injuries": ("js/injury-data.js", "INJURY_DEFINITIONS"),
     "campEvents": ("js/camp-data.js", "CAMP_EVENT_DEFINITIONS"),
+    "dialogues": ("js/dialogue-data.js", "DIALOGUE_DEFINITIONS"),
     "expeditions": ("js/expedition-data.js", "EXPEDITION_DEFINITIONS"),
     "recipes": ("js/crafting-data.js", "RECIPE_DEFINITIONS"),
     "materials": ("js/crafting-data.js", "MATERIAL_DEFINITIONS"),
     "craftingProviders": ("js/crafting-data.js", "CRAFTING_PROVIDER_DEFINITIONS"),
     "shops": ("js/location-data.js", "SHOP_DEFINITIONS"),
+    "npcs": ("js/location-data.js", "NPC_DEFINITIONS"),
+    "destinations": ("js/location-data.js", "DESTINATION_DEFINITIONS"),
+    "locations": ("js/location-data.js", "LOCATION_DEFINITIONS"),
     "items": ("js/data.js", "ITEM_DEFINITIONS"),
     "combats": ("js/combat-data.js", "COMBAT_DEFINITIONS"),
     "abilities": ("js/combat-data.js", "COMBAT_ABILITY_DEFINITIONS"),
@@ -475,6 +479,9 @@ REFERENCE_FILES = {
     "rarities": ("js/crafting-data.js", "RARITY_DEFINITIONS"),
     "campEventTables": ("js/camp-data.js", "CAMP_EVENT_TABLE_DEFINITIONS"),
     "campEvents": ("js/camp-data.js", "CAMP_EVENT_DEFINITIONS"),
+    "dialogues": ("js/dialogue-data.js", "DIALOGUE_DEFINITIONS"),
+    "npcs": ("js/location-data.js", "NPC_DEFINITIONS"),
+    "destinations": ("js/location-data.js", "DESTINATION_DEFINITIONS"),
     "locations": ("js/location-data.js", "LOCATION_DEFINITIONS"),
     "knowledge": ("js/data.js", "KNOWLEDGE_DEFINITIONS"),
     "companions": ("js/data.js", "COMPANION_DEFINITIONS"),
@@ -526,6 +533,13 @@ def _ref_type_for_key(key: str) -> str | None:
         "campEventId": "campEvents",
         "knowledgeId": "knowledge",
         "companionId": "companions",
+        "dialogueId": "dialogues",
+        "dialogueSequenceId": "dialogues",
+        "introDialogueSequenceId": "dialogues",
+        "speakerId": "npcs",
+        "npcId": "npcs",
+        "destinationId": "destinations",
+        "locationId": "locations",
     }.get(key)
 
 
@@ -537,10 +551,16 @@ def collect_references(value: Any, source: str, references: dict[str, list[dict[
             for key, child in node.items():
                 child_path = f"{path}.{key}" if path else str(key)
                 ref_type = _ref_type_for_key(key)
-                if ref_type and isinstance(child, str):
+                if ref_type and isinstance(child, str) and not (key == "speakerId" and child == "arthur"):
                     references.setdefault(ref_type, []).append({"source": source, "path": child_path, "id": child})
-                elif key in {"pathIds", "shopIds", "shops", "expeditionIds", "availableExpeditions", "recipeIds"} and isinstance(child, list):
-                    ref_type = "paths" if key == "pathIds" else "shops" if key in {"shopIds", "shops"} else "expeditions" if key in {"expeditionIds", "availableExpeditions"} else "recipes"
+                elif key in {"pathIds", "shopIds", "shops", "expeditionIds", "availableExpeditions", "recipeIds", "npcIds", "locationIds", "destinationIds", "destinations", "npcs", "locations"} and isinstance(child, list):
+                    ref_type = {
+                        "pathIds": "paths", "shopIds": "shops", "shops": "shops",
+                        "expeditionIds": "expeditions", "availableExpeditions": "expeditions",
+                        "recipeIds": "recipes", "npcIds": "npcs", "locationIds": "locations",
+                        "destinationIds": "destinations", "destinations": "destinations",
+                        "npcs": "npcs", "locations": "locations",
+                    }[key]
                     for index, item in enumerate(child):
                         if isinstance(item, str):
                             references.setdefault(ref_type, []).append({"source": source, "path": f"{child_path}[{index}]", "id": item})
@@ -687,6 +707,10 @@ def load_catalog(project_root: Path) -> dict[str, Any]:
     known["abilities"] = sorted(_id_map(values.get("abilities")))
     known["injuries"] = sorted(_id_map(values.get("injuries")))
     known["campEvents"] = sorted(_id_map(values.get("campEvents")))
+    known["dialogues"] = sorted(_id_map(values.get("dialogues")))
+    known["npcs"] = sorted(_id_map(values.get("npcs")))
+    known["destinations"] = sorted(_id_map(values.get("destinations")))
+    known["locations"] = sorted(_id_map(values.get("locations")))
     known["enemies"] = sorted(_id_map(values.get("enemyDefinitions")))
     known["enemyActions"] = sorted(_id_map(values.get("enemyActions")))
     known["lootTables"] = sorted(_id_map(values.get("lootTables")))
@@ -727,6 +751,10 @@ def load_catalog(project_root: Path) -> dict[str, Any]:
     injury_labels = {key: value.get("name", key) for key, value in injury_map.items() if isinstance(value, dict)}
     camp_event_map = _id_map(values.get("campEvents"))
     camp_event_labels = {key: value.get("title", key) for key, value in camp_event_map.items() if isinstance(value, dict)}
+    dialogue_map = _id_map(values.get("dialogues"))
+    npc_map = _id_map(values.get("npcs"))
+    destination_map = _id_map(values.get("destinations"))
+    location_map = _id_map(values.get("locations"))
 
     return {
         "projectRoot": str(project_root),
@@ -735,11 +763,15 @@ def load_catalog(project_root: Path) -> dict[str, Any]:
         "encounters": values["encounters"],
         "injuries": values["injuries"],
         "campEvents": values["campEvents"],
+        "dialogues": values["dialogues"],
         "expeditions": values["expeditions"],
         "recipes": values["recipes"],
         "materials": values["materials"],
         "craftingProviders": values["craftingProviders"],
         "shops": values["shops"],
+        "npcs": values["npcs"],
+        "destinations": values["destinations"],
+        "locations": values["locations"],
         "items": values["items"],
         "combats": values["combats"],
         "abilities": values["abilities"],
@@ -754,6 +786,10 @@ def load_catalog(project_root: Path) -> dict[str, Any]:
         "abilityLabels": ability_labels,
         "injuryLabels": injury_labels,
         "campEventLabels": camp_event_labels,
+        "dialogueLabels": {key: value.get("title", value.get("name", key)) for key, value in dialogue_map.items() if isinstance(value, dict)},
+        "npcLabels": {key: value.get("name", key) for key, value in npc_map.items() if isinstance(value, dict)},
+        "destinationLabels": {key: value.get("name", key) for key, value in destination_map.items() if isinstance(value, dict)},
+        "locationLabels": {key: value.get("name", key) for key, value in location_map.items() if isinstance(value, dict)},
         "references": refs,
         "validation": validation,
     }
@@ -1610,13 +1646,130 @@ def _validate_recipes(recipes: Any, known: dict[str, list[str]], errors: list[di
             errors.append(_issue("error", "Recipe craftingDurationMs must be a positive number when authored.", source, "craftingDurationMs"))
 
 
+def _validate_dialogues(dialogues: Any, known: dict[str, list[str]], errors: list[dict[str, str]]) -> None:
+    if not isinstance(dialogues, dict):
+        errors.append(_issue("error", "Dialogue definitions must be an object.", "dialogues"))
+        return
+    for entry_id, dialogue in dialogues.items():
+        source = f"dialogue:{entry_id}"
+        if not isinstance(dialogue, dict):
+            errors.append(_issue("error", "Dialogue must be an object.", source))
+            continue
+        if dialogue.get("id") != entry_id:
+            errors.append(_issue("error", f"Definition key {entry_id!r} does not match its id field.", source, "id"))
+        if not isinstance(dialogue.get("start"), str) or not dialogue.get("start"):
+            errors.append(_issue("error", "Dialogue start node is required.", source, "start"))
+        nodes = dialogue.get("nodes")
+        if not isinstance(nodes, dict) or not nodes:
+            errors.append(_issue("error", "Dialogue must contain a non-empty nodes object.", source, "nodes"))
+            continue
+        if isinstance(dialogue.get("start"), str) and dialogue["start"] not in nodes:
+            errors.append(_issue("error", f"Dialogue start node {dialogue['start']!r} does not exist.", source, "start"))
+        for node_id, node in nodes.items():
+            node_path = f"nodes.{node_id}"
+            if not isinstance(node, dict):
+                errors.append(_issue("error", "Dialogue node must be an object.", source, node_path))
+                continue
+            if not isinstance(node.get("speakerId"), str) or not node.get("speakerId"):
+                errors.append(_issue("error", "Dialogue node speakerId is required.", source, f"{node_path}.speakerId"))
+            if not isinstance(node.get("text"), str):
+                errors.append(_issue("error", "Dialogue node text is required.", source, f"{node_path}.text"))
+            if "next" in node and (not isinstance(node.get("next"), str) or node.get("next") not in nodes):
+                errors.append(_issue("error", f"Dialogue node next target {node.get('next')!r} does not exist.", source, f"{node_path}.next"))
+            _validate_requirements(node.get("requirements"), source, f"{node_path}.requirements", errors)
+            if "effects" in node:
+                _validate_resolution_outcomes(node.get("effects"), known, source, f"{node_path}.effects", errors)
+            choices = node.get("choices", [])
+            if not isinstance(choices, list):
+                errors.append(_issue("error", "Dialogue node choices must be an array.", source, f"{node_path}.choices"))
+                continue
+            choice_ids: set[str] = set()
+            for index, choice in enumerate(choices):
+                choice_path = f"{node_path}.choices[{index}]"
+                if not isinstance(choice, dict):
+                    errors.append(_issue("error", "Dialogue choice must be an object.", source, choice_path))
+                    continue
+                choice_id = choice.get("id")
+                if not isinstance(choice_id, str) or not choice_id:
+                    errors.append(_issue("error", "Dialogue choice id is required.", source, f"{choice_path}.id"))
+                elif choice_id in choice_ids:
+                    errors.append(_issue("error", f"Duplicate dialogue choice ID {choice_id!r} in node.", source, f"{choice_path}.id"))
+                else:
+                    choice_ids.add(choice_id)
+                if not isinstance(choice.get("label"), str) or not choice.get("label"):
+                    errors.append(_issue("error", "Dialogue choice label is required.", source, f"{choice_path}.label"))
+                if "next" in choice and (not isinstance(choice.get("next"), str) or choice.get("next") not in nodes):
+                    errors.append(_issue("error", f"Dialogue choice next target {choice.get('next')!r} does not exist.", source, f"{choice_path}.next"))
+                _validate_requirements(choice.get("requirements"), source, f"{choice_path}.requirements", errors)
+                _validate_requirements(choice.get("conditions"), source, f"{choice_path}.conditions", errors)
+                if "effects" in choice:
+                    _validate_resolution_outcomes(choice.get("effects"), known, source, f"{choice_path}.effects", errors)
+
+
+def _validate_npcs(npcs: Any, known: dict[str, list[str]], errors: list[dict[str, str]]) -> None:
+    if not isinstance(npcs, dict):
+        errors.append(_issue("error", "NPC definitions must be an object.", "npcs"))
+        return
+    for entry_id, npc in npcs.items():
+        source = f"npc:{entry_id}"
+        if not isinstance(npc, dict):
+            errors.append(_issue("error", "NPC must be an object.", source))
+            continue
+        if npc.get("id") != entry_id:
+            errors.append(_issue("error", f"Definition key {entry_id!r} does not match its id field.", source, "id"))
+        for field_name in ("name", "role", "description"):
+            if not isinstance(npc.get(field_name), str):
+                errors.append(_issue("error", f"NPC {field_name} must be a string.", source, field_name))
+        for field_name in ("dialogue", "rumors", "locationIds"):
+            if field_name in npc and not isinstance(npc[field_name], list):
+                errors.append(_issue("error", f"NPC {field_name} must be an array.", source, field_name))
+
+
+def _validate_destinations(destinations: Any, known: dict[str, list[str]], errors: list[dict[str, str]]) -> None:
+    if not isinstance(destinations, dict):
+        errors.append(_issue("error", "Destination definitions must be an object.", "destinations"))
+        return
+    for entry_id, destination in destinations.items():
+        source = f"destination:{entry_id}"
+        if not isinstance(destination, dict):
+            errors.append(_issue("error", "Destination must be an object.", source))
+            continue
+        if destination.get("id") != entry_id:
+            errors.append(_issue("error", f"Definition key {entry_id!r} does not match its id field.", source, "id"))
+        for field_name in ("name", "type", "description"):
+            if field_name in destination and not isinstance(destination[field_name], str):
+                errors.append(_issue("error", f"Destination {field_name} must be a string.", source, field_name))
+        for field_name in ("npcIds", "actions"):
+            if field_name in destination and not isinstance(destination[field_name], list):
+                errors.append(_issue("error", f"Destination {field_name} must be an array.", source, field_name))
+
+
+def _validate_locations(locations: Any, known: dict[str, list[str]], errors: list[dict[str, str]]) -> None:
+    if not isinstance(locations, dict):
+        errors.append(_issue("error", "Location definitions must be an object.", "locations"))
+        return
+    for entry_id, location in locations.items():
+        source = f"location:{entry_id}"
+        if not isinstance(location, dict):
+            errors.append(_issue("error", "Location must be an object.", source))
+            continue
+        if location.get("id") != entry_id:
+            errors.append(_issue("error", f"Definition key {entry_id!r} does not match its id field.", source, "id"))
+        for field_name in ("name", "type", "description"):
+            if field_name in location and not isinstance(location[field_name], str):
+                errors.append(_issue("error", f"Location {field_name} must be a string.", source, field_name))
+        for field_name in ("destinations", "npcs", "shops", "availableExpeditions", "availableQuests", "requirements"):
+            if field_name in location and not isinstance(location[field_name], list):
+                errors.append(_issue("error", f"Location {field_name} must be an array.", source, field_name))
+
+
 def validate_catalog(values: dict[str, Any], known: dict[str, list[str]], references: dict[str, list[dict[str, str]]] | None = None, parse_duplicates: list[dict[str, str]] | None = None) -> dict[str, list[dict[str, str]]]:
     errors: list[dict[str, str]] = []
     warnings: list[dict[str, str]] = []
     effective_known = {key: list(value) for key, value in known.items()}
     item_ids = sorted(_id_map(values.get("items"))) if "items" in values else list(known.get("items", []))
     effective_known["items"] = item_ids
-    for value_key, known_key in (("combats", "combats"), ("abilities", "abilities"), ("injuries", "injuries"), ("campEvents", "campEvents"), ("enemyDefinitions", "enemies"), ("enemyActions", "enemyActions"), ("lootTables", "lootTables")):
+    for value_key, known_key in (("combats", "combats"), ("abilities", "abilities"), ("injuries", "injuries"), ("campEvents", "campEvents"), ("dialogues", "dialogues"), ("npcs", "npcs"), ("destinations", "destinations"), ("locations", "locations"), ("enemyDefinitions", "enemies"), ("enemyActions", "enemyActions"), ("lootTables", "lootTables")):
         if value_key in values:
             effective_known[known_key] = sorted(_id_map(values.get(value_key)))
     if "expeditions" in values:
@@ -1635,6 +1788,14 @@ def validate_catalog(values: dict[str, Any], known: dict[str, list[str]], refere
         _validate_injuries(values.get("injuries"), effective_known, errors)
     if "campEvents" in values:
         _validate_camp_events(values.get("campEvents"), effective_known, errors)
+    if "dialogues" in values:
+        _validate_dialogues(values.get("dialogues"), effective_known, errors)
+    if "npcs" in values:
+        _validate_npcs(values.get("npcs"), effective_known, errors)
+    if "destinations" in values:
+        _validate_destinations(values.get("destinations"), effective_known, errors)
+    if "locations" in values:
+        _validate_locations(values.get("locations"), effective_known, errors)
     if "expeditions" in values:
         _validate_expeditions(values.get("expeditions"), effective_known, errors)
     if "recipes" in values:
@@ -1677,6 +1838,7 @@ def validate_catalog(values: dict[str, Any], known: dict[str, list[str]], refere
                     "combats": "combat", "items": "item", "shops": "shop", "materials": "material",
                     "recipes": "recipe", "enemies": "enemy", "injuries": "injury", "expeditions": "expedition",
                     "craftingProviders": "crafting provider", "campEvents": "camp event",
+                    "dialogues": "dialogue", "npcs": "NPC", "destinations": "destination", "locations": "location",
                 }.get(ref_type, ref_type[:-1] if ref_type.endswith("s") else ref_type)
                 errors.append(_issue("error", f"Unknown {label} ID {entry['id']!r}.", entry["source"], entry["path"]))
 

@@ -96,6 +96,16 @@ The default project is discovered as the sibling `../../Grail` relative to
   limits, staged choices, requirements, costs, and recursively editable
   outcomes. Camp-event table references remain linked to the editable event
   entries.
+- Dialogue: reusable `DIALOGUE_DEFINITIONS` sequences with searchable CRUD,
+  node and choice branching, speaker and node-link selectors, shared
+  requirement/effect editing, reverse references, and safe deletion.
+- NPCs: the canonical `NPC_DEFINITIONS` editor for identity, simple dialogue,
+  rumors, dialogue-sequence hooks, and location membership with Open buttons.
+- Destinations: the canonical `DESTINATION_DEFINITIONS` editor for scene
+  metadata, shops, crafting providers, NPCs, actions, and intro gating.
+- Locations: the canonical `LOCATION_DEFINITIONS` editor for chapter/region
+  metadata, visual keys, destination/NPC/shop/expedition/quest lists, and
+  shared requirements.
 
 Encounter and camp-event effects/requirements use the same recursive,
 schema-aware editor at supported nesting depths. This includes conditional
@@ -105,12 +115,14 @@ collections and random options; Advanced JSON remains available for uncommon
 future shapes.
 
 Selectors are populated from the current game definitions in `data.js`,
-`combat-data.js`, `injury-data.js`, `loot-data.js`, and `expedition-data.js`.
+`dialogue-data.js`, `location-data.js`, `combat-data.js`, `injury-data.js`,
+`loot-data.js`, and `expedition-data.js`.
 Item references also include current recipes and camp events. Cross-content
 Open buttons connect encounter combat/loot references, item ability grants,
 combat enemy/action references, and nested loot-table references. The editor
 also connects encounters, derived Paths, canonical Expeditions, Recipes,
-Crafting Providers, Items, and Loot Tables. It keeps
+Crafting Providers, Items, Dialogue, NPCs, Destinations, Locations, and Loot
+Tables. It keeps
 the live game definitions as the source of truth and does not change them
 until Save is explicitly clicked. Loot Tables expose the existing direct
 `type: "recipe"` unlock entries with recipe selectors and Open Recipe links;
@@ -147,8 +159,9 @@ are retained for each changed source file.
 
 Validation reports duplicate keys, missing required encounter structure,
 unknown item/combat/ability/enemy-action/injury/path/region/loot references,
-unknown recipe/provider/material references, invalid recipe ingredient and
-output quantities, malformed recipe/provider definitions,
+unknown recipe/provider/material/dialogue/NPC/destination/location references,
+invalid recipe ingredient and output quantities, malformed recipe/provider
+definitions, malformed dialogue node links and choice branches,
 invalid chance values, malformed combat-resolution branches, invalid loot
 rolls and direct reward quantities, invalid combat damage and stat ranges,
 invalid loot weights/quantities, invalid distance ranges, invalid shop
@@ -163,15 +176,23 @@ The editor never silently repairs authored content.
 - The editor writes encounters, injuries, and camp events in their existing
   files, items in
   `Grail/js/data.js`, combat/ability/loot definitions in their existing
-  source files, and Expeditions in `Grail/js/expedition-data.js`. Paths do not
-  have a standalone authored constant in the current game, so their metadata
+  source files, dialogue in `Grail/js/dialogue-data.js`, and
+  shops/NPCs/destinations/locations in `Grail/js/location-data.js`.
+  Expeditions are written to `Grail/js/expedition-data.js`. Paths do not have
+  a standalone authored constant in the current game, so their metadata
   remains derived and only encounter membership is editable from the Path
-  view. Locations remain read-only reference sources.
+  view.
 - Combat no longer owns copies of enemy stats or action definitions: those
   shared definitions are edited in the Enemies and Enemy Actions categories.
-- The editor does not yet provide NPC, dialogue, location, or standalone Path
-  editors. It does not invent standalone Path definitions for the current
-  distributed path-ID architecture.
+- Paths remain derived from encounter and expedition relationships; the editor
+  does not invent standalone Path definitions for the current distributed
+  path-ID architecture.
+- Dialogue requirements and effects reuse the encounter evaluator vocabulary.
+  Expedition-only requirements/effects remain context-dependent and are
+  rejected or evaluate false when authored for a town-only invocation.
+- Dialogue nodes expose the current speaker, portrait, text, links, choices,
+  requirements, and effects. Uncommon future node metadata remains available
+  through Advanced JSON.
 - Crafting providers currently have only the authored ID/name fields. Recipe
   unlocks are direct loot-table `recipe` entries; no recipe item or separate
   unlock database exists in the current game.

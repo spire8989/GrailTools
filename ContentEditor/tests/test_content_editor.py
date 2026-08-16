@@ -1146,6 +1146,74 @@ class ContentEditorTests(unittest.TestCase):
         validation = validate_catalog(invalid, after["known"], after["references"])
         self.assertTrue(any("Unknown injury ID 'missing_injury'" in issue["message"] for issue in validation["errors"]))
 
+    def test_phase7_dialogue_npc_destination_location_round_trip_and_links(self) -> None:
+        temp, project = self.temporary_grail()
+        self.addCleanup(temp.cleanup)
+        before = load_catalog(project)
+
+        dialogues = clone(before["dialogues"])
+        dialogue = dialogues["reeve_after_intro"]
+        dialogue["nodes"]["objective"]["requirements"] = [{"type": "campaignFlag", "flag": "broceliande_intro_complete"}]
+        dialogue["nodes"]["objective"]["effects"] = [{"type": "setCampaignFlag", "flag": "dialogue_editor_test", "value": True}]
+        dialogue["nodes"]["objective"]["choices"][0]["label"] = "Ask about the forest (edited)"
+        added_id = "__phase7_dialogue"
+        added = clone(dialogue)
+        added["id"] = added_id
+        added["start"] = "objective"
+        dialogues[added_id] = added
+
+        npcs = clone(before["npcs"])
+        npcs["village_reeve"]["description"] += " (editor test)"
+        destinations = clone(before["destinations"])
+        destinations["inn"]["scenePosition"] = "north"
+        locations = clone(before["locations"])
+        locations["broceliande_village"]["visualKey"] = "broceliande_village_editor_test"
+        locations["broceliande_village"]["availableQuests"].append("__phase7_quest")
+
+        save_catalog(
+            project,
+            {"dialogues": dialogues, "npcs": npcs, "destinations": destinations, "locations": locations},
+            before["sourceHashes"],
+            Path(temp.name) / "backups",
+        )
+        after = load_catalog(project)
+        self.assertEqual(after["dialogues"]["reeve_after_intro"]["nodes"]["objective"]["choices"][0]["label"], "Ask about the forest (edited)")
+        self.assertEqual(after["dialogues"][added_id]["nodes"]["objective"]["effects"][0]["type"], "setCampaignFlag")
+        self.assertIn("dialogue_editor_test", after["dialogues"]["reeve_after_intro"]["nodes"]["objective"]["effects"][0]["flag"])
+        self.assertTrue(after["npcs"]["village_reeve"]["description"].endswith("(editor test)"))
+        self.assertEqual(after["destinations"]["inn"]["scenePosition"], "north")
+        self.assertEqual(after["locations"]["broceliande_village"]["availableQuests"], ["__phase7_quest"])
+
+        invalid_link = clone(after["dialogues"])
+        invalid_link["reeve_after_intro"]["start"] = "missing_node"
+        validation = validate_catalog({"dialogues": invalid_link}, after["known"], after["references"])
+        self.assertTrue(any("start node 'missing_node' does not exist" in issue["message"].lower() for issue in validation["errors"]))
+
+    def test_phase7_dialogue_npc_destination_location_deletion_is_reference_safe(self) -> None:
+        temp, project = self.temporary_grail()
+        self.addCleanup(temp.cleanup)
+        before = load_catalog(project)
+
+        deleting_dialogue = {"dialogues": clone(before["dialogues"])}
+        del deleting_dialogue["dialogues"]["reeve_after_intro"]
+        validation = validate_catalog(deleting_dialogue, before["known"], before["references"])
+        self.assertTrue(any("Deleted dialogue" in issue["message"] or "Unknown dialogue ID 'reeve_after_intro'" in issue["message"] for issue in validation["errors"]))
+
+        encounter_reference = clone(before["encounters"])
+        encounter_reference["fallen_tree"]["stages"]["start"]["choices"][0].setdefault("outcomes", []).append({"type": "startDialogue", "dialogueId": "reeve_after_intro"})
+        validation = validate_catalog({"dialogues": deleting_dialogue["dialogues"], "encounters": encounter_reference}, before["known"], before["references"])
+        self.assertTrue(any("Unknown dialogue ID 'reeve_after_intro'" in issue["message"] for issue in validation["errors"]))
+
+        deleting_npc = {"npcs": clone(before["npcs"])}
+        del deleting_npc["npcs"]["village_reeve"]
+        validation = validate_catalog(deleting_npc, before["known"], before["references"])
+        self.assertTrue(any("Deleted NPC" in issue["message"] or "Unknown NPC ID 'village_reeve'" in issue["message"] for issue in validation["errors"]))
+
+        deleting_destination = {"destinations": clone(before["destinations"])}
+        del deleting_destination["destinations"]["hall"]
+        validation = validate_catalog(deleting_destination, before["known"], before["references"])
+        self.assertTrue(any("Deleted destination" in issue["message"] or "Unknown destination ID 'hall'" in issue["message"] for issue in validation["errors"]))
+
 
 if __name__ == "__main__":
     unittest.main()

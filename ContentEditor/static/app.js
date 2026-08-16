@@ -3,25 +3,30 @@
 const COMMON_REQUIREMENT_TYPES = [
   "ownsItem", "notOwnsItem", "carriedItem", "equippedItem", "availableExpeditionItem",
   "knowledge", "companion", "unlockedCompanion", "notUnlockedCompanion", "runFlag", "notRunFlag",
-  "campaignFlag", "currentPath", "minimumResource", "minimumHealth", "maximumHealth", "minimumDistance",
+  "campaignFlag", "currentPath", "minimumResource", "minimumHealth", "maximumHealth", "minimumDistance", "notKnowledge",
 ];
 const COMMON_EFFECT_TYPES = [
   "modifyResource", "consumeExpeditionItem", "gainUnsecuredItem", "gainUniqueUnsecuredItem",
   "gainRandomUnsecuredItem", "gainWeightedRandomUnsecuredItem", "rollLootTable", "startCombat",
   "setRunFlag", "setCampaignFlag", "changePath", "unlockCompanion", "applyInjury", "conditional",
   "randomChance", "randomOne", "learnRecipe", "markEncounterSeen",
+  "startDialogue",
 ];
 
 const CONTENT_CATEGORIES = [
   ["encounters", "Encounters"],
   ["injuries", "Injuries"],
   ["campEvents", "Camp Events"],
+  ["dialogues", "Dialogue"],
   ["paths", "Paths"],
   ["expeditions", "Expeditions"],
   ["recipes", "Recipes"],
   ["materials", "Materials"],
   ["craftingProviders", "Crafting"],
   ["shops", "Shops"],
+  ["npcs", "NPCs"],
+  ["destinations", "Destinations"],
+  ["locations", "Locations"],
   ["items", "Items"],
   ["combats", "Combat"],
   ["enemyDefinitions", "Enemies"],
@@ -31,7 +36,7 @@ const CONTENT_CATEGORIES = [
 ];
 
 const EDITABLE_REFERENCE_SOURCES = new Set([
-  "encounters", "injuries", "campEvents", "expeditions", "recipes", "materials", "craftingProviders", "shops", "items", "combats", "abilities", "enemyDefinitions", "enemyActions", "lootTables",
+  "encounters", "injuries", "campEvents", "dialogues", "expeditions", "recipes", "materials", "craftingProviders", "shops", "npcs", "destinations", "locations", "items", "combats", "abilities", "enemyDefinitions", "enemyActions", "lootTables",
 ]);
 
 const state = {
@@ -167,6 +172,26 @@ function campEventLabel(eventId) {
   const event = state.catalog?.campEvents?.[eventId];
   const label = event?.title || state.catalog?.campEventLabels?.[eventId];
   return label ? `${label} (${eventId})` : eventId;
+}
+
+function dialogueLabel(dialogueId) {
+  const dialogue = state.catalog?.dialogues?.[dialogueId];
+  return dialogue?.title || dialogue?.name || state.catalog?.dialogueLabels?.[dialogueId] || dialogueId;
+}
+
+function npcLabel(npcId) {
+  const npc = state.catalog?.npcs?.[npcId];
+  return npc?.name || state.catalog?.npcLabels?.[npcId] || npcId;
+}
+
+function destinationLabel(destinationId) {
+  const destination = state.catalog?.destinations?.[destinationId];
+  return destination?.name || state.catalog?.destinationLabels?.[destinationId] || destinationId;
+}
+
+function locationLabel(locationId) {
+  const location = state.catalog?.locations?.[locationId];
+  return location?.name || state.catalog?.locationLabels?.[locationId] || locationId;
 }
 
 const ITEM_FILTER_FLAGS = ["carriable", "consumable", "questItem", "campaignItem", "unique", "sellable", "protected"];
@@ -345,11 +370,12 @@ function referenceInput(field, value, rootField = false) {
       : "";
     return `<span class="reference-inline"><input list="loot-table-options" ${fieldAttribute} value="${escapeHtml(value || "")}" placeholder="loot table ID">${openButton}</span>`;
   }
-  const map = { combatId: "combats", enemyId: "enemyDefinitions", enemyActionId: "enemyActions", abilityId: "abilities", injuryId: "injuries", treatmentItemId: "items", tableId: "lootTables", pathId: "paths", expeditionId: "expeditions", recipeId: "recipes", materialId: "materials", craftingProvider: "craftingProviders", craftingProviderId: "craftingProviders", regionId: "regions", eventId: "campEvents", campEventId: "campEvents", knowledgeId: "knowledge", companionId: "companions" };
+  const map = { combatId: "combats", enemyId: "enemyDefinitions", enemyActionId: "enemyActions", abilityId: "abilities", injuryId: "injuries", treatmentItemId: "items", tableId: "lootTables", pathId: "paths", expeditionId: "expeditions", recipeId: "recipes", materialId: "materials", craftingProvider: "craftingProviders", craftingProviderId: "craftingProviders", shopId: "shops", regionId: "regions", eventId: "campEvents", campEventId: "campEvents", knowledgeId: "knowledge", companionId: "companions", dialogueId: "dialogues", dialogueSequenceId: "dialogues", introDialogueSequenceId: "dialogues", speakerId: "npcs", npcId: "npcs", destinationId: "destinations", locationId: "locations" };
   if (!map[field]) return `<input ${fieldAttribute} value="${escapeHtml(value || "")}">`;
-  const values = ["items", "combats", "enemyDefinitions", "enemyActions", "abilities", "injuries", "campEvents", "lootTables", "paths", "expeditions", "recipes", "materials", "craftingProviders"].includes(map[field])
+  let values = ["items", "combats", "enemyDefinitions", "enemyActions", "abilities", "injuries", "campEvents", "lootTables", "paths", "expeditions", "recipes", "materials", "craftingProviders", "dialogues", "npcs", "destinations", "locations", "shops"].includes(map[field])
     ? Object.keys(state.catalog?.[map[field]] || {}).sort()
     : known[map[field]] || [];
+  if (field === "speakerId" && value === "arthur" && !values.includes("arthur")) values = ["arthur", ...values];
   const labels = map[field] === "items"
     ? Object.fromEntries(values.map((id) => [id, itemLabel(id)]))
     : map[field] === "enemyDefinitions"
@@ -370,10 +396,18 @@ function referenceInput(field, value, rootField = false) {
           ? Object.fromEntries(values.map((id) => [id, recipeLabel(id)]))
           : map[field] === "materials"
             ? Object.fromEntries(values.map((id) => [id, materialLabel(id)]))
-          : map[field] === "craftingProviders"
+      : map[field] === "craftingProviders"
             ? Object.fromEntries(values.map((id) => [id, providerLabel(id)]))
+            : map[field] === "dialogues"
+              ? Object.fromEntries(values.map((id) => [id, dialogueLabel(id)]))
+              : map[field] === "npcs"
+                ? Object.fromEntries(values.map((id) => [id, npcLabel(id)]))
+                : map[field] === "destinations"
+                  ? Object.fromEntries(values.map((id) => [id, destinationLabel(id)]))
+                  : map[field] === "locations"
+                    ? Object.fromEntries(values.map((id) => [id, locationLabel(id)]))
     : {};
-  const openCategory = map[field] === "items" ? "items" : map[field] === "combats" ? "combats" : map[field] === "enemyDefinitions" ? "enemyDefinitions" : map[field] === "enemyActions" ? "enemyActions" : map[field] === "abilities" ? "abilities" : map[field] === "injuries" ? "injuries" : map[field] === "campEvents" ? "campEvents" : map[field] === "lootTables" ? "lootTables" : map[field] === "paths" ? "paths" : map[field] === "expeditions" ? "expeditions" : map[field] === "recipes" ? "recipes" : map[field] === "materials" ? "materials" : map[field] === "craftingProviders" ? "craftingProviders" : null;
+  const openCategory = map[field] === "items" ? "items" : map[field] === "combats" ? "combats" : map[field] === "enemyDefinitions" ? "enemyDefinitions" : map[field] === "enemyActions" ? "enemyActions" : map[field] === "abilities" ? "abilities" : map[field] === "injuries" ? "injuries" : map[field] === "campEvents" ? "campEvents" : map[field] === "lootTables" ? "lootTables" : map[field] === "paths" ? "paths" : map[field] === "expeditions" ? "expeditions" : map[field] === "recipes" ? "recipes" : map[field] === "materials" ? "materials" : map[field] === "craftingProviders" ? "craftingProviders" : map[field] === "dialogues" ? "dialogues" : map[field] === "npcs" ? "npcs" : map[field] === "destinations" ? "destinations" : map[field] === "locations" ? "locations" : null;
   const openButton = openCategory && value
     ? ` <button type="button" class="small-button inline-open" data-action="open-reference" data-reference-category="${openCategory}" data-reference-id="${escapeHtml(value)}">Open</button>`
     : "";
@@ -392,6 +426,7 @@ function quickObjectFields(object) {
   if ("combatId" in object || type === "startCombat") add("combatId", "Combat reference", "reference");
   if ("injuryId" in object || type === "applyInjury") add("injuryId", "Injury reference", "reference");
   if ("recipeId" in object || type === "learnRecipe") add("recipeId", "Recipe reference", "reference");
+  if ("dialogueId" in object || type === "startDialogue") add("dialogueId", "Dialogue reference", "reference");
   if ("tableId" in object || type === "rollLootTable") add("tableId", "Loot table", "reference");
   if ("pathId" in object || ["changePath", "currentPath"].includes(type)) add("pathId", "Path", "reference");
   if ("chance" in object || type === "randomChance") add("chance", "Chance", "number");
@@ -426,6 +461,7 @@ function pathValue(root, path) {
 function collectionNameForOwner(owner) {
   if (owner === "stage-outcomes") return "outcomes";
   if (owner.endsWith("-requirements")) return "requirements";
+  if (owner.endsWith("-effects")) return "effects";
   if (owner.startsWith("resolution-")) return owner.slice("resolution-".length);
   if (owner.startsWith("nested-")) return owner.slice("nested-".length);
   return owner;
@@ -721,12 +757,12 @@ function collectClientReferences(value, source, references) {
     itemId: "items", treatmentItemId: "items", combatId: "combats", abilityId: "abilities", injuryId: "injuries",
     tableId: "lootTables", lootTableId: "lootTables", pathId: "paths", expeditionId: "expeditions",
     nextExpeditionId: "expeditions", materialId: "materials", recipeId: "recipes",
-    craftingProvider: "craftingProviders", craftingProviderId: "craftingProviders", eventId: "campEvents", campEventId: "campEvents", knowledgeId: "knowledge", companionId: "companions",
+    craftingProvider: "craftingProviders", craftingProviderId: "craftingProviders", eventId: "campEvents", campEventId: "campEvents", knowledgeId: "knowledge", companionId: "companions", dialogueId: "dialogues", dialogueSequenceId: "dialogues", introDialogueSequenceId: "dialogues", speakerId: "npcs", npcId: "npcs", destinationId: "destinations", locationId: "locations",
   };
   const listTypes = {
     itemIds: "items", injuryIds: "injuries", prerequisites: "items", enemyIds: "enemies", abilityIds: "abilities",
     grantedAbilityIds: "abilities", combatAbilities: "abilities", actionPattern: "enemyActions",
-    pathIds: "paths", expeditionIds: "expeditions", availableExpeditions: "expeditions", campEventTableIds: "campEventTables", recipeIds: "recipes",
+    pathIds: "paths", expeditionIds: "expeditions", availableExpeditions: "expeditions", campEventTableIds: "campEventTables", recipeIds: "recipes", npcIds: "npcs", locationIds: "locations", destinationIds: "destinations", destinations: "destinations", npcs: "npcs", locations: "locations",
   };
   function visit(node, path = "") {
     if (Array.isArray(node)) {
@@ -737,7 +773,7 @@ function collectClientReferences(value, source, references) {
     Object.entries(node).forEach(([key, child]) => {
       const childPath = path ? `${path}.${key}` : key;
       const scalarType = scalarTypes[key];
-      if (scalarType && typeof child === "string") {
+      if (scalarType && typeof child === "string" && !(key === "speakerId" && child === "arthur")) {
         (references[scalarType] ||= []).push({ source, path: childPath, id: child });
       }
       const listType = listTypes[key];
@@ -763,7 +799,7 @@ function liveReferences() {
   if (!state.catalog) return {};
   const references = {};
   const snapshot = draftSnapshot();
-  ["encounters", "injuries", "campEvents", "expeditions", "recipes", "materials", "craftingProviders", "shops", "items", "combats", "abilities", "enemyDefinitions", "enemyActions", "lootTables"].forEach((source) => {
+  ["encounters", "injuries", "campEvents", "dialogues", "expeditions", "recipes", "materials", "craftingProviders", "shops", "npcs", "destinations", "locations", "items", "combats", "abilities", "enemyDefinitions", "enemyActions", "lootTables"].forEach((source) => {
     collectClientReferences(snapshot[source], source, references);
   });
   Object.entries(state.catalog.references || {}).forEach(([type, entries]) => {
@@ -775,7 +811,7 @@ function liveReferences() {
 }
 
 function referenceCategory(source) {
-  return { encounters: "encounters", injuries: "injuries", campEvents: "campEvents", campEventTables: "campEvents", expeditions: "expeditions", recipes: "recipes", materials: "materials", craftingProviders: "craftingProviders", shops: "shops", items: "items", combats: "combats", enemyDefinitions: "enemyDefinitions", enemyActions: "enemyActions", abilities: "abilities", lootTables: "lootTables" }[source] || null;
+  return { encounters: "encounters", injuries: "injuries", campEvents: "campEvents", dialogues: "dialogues", campEventTables: "campEvents", expeditions: "expeditions", recipes: "recipes", materials: "materials", craftingProviders: "craftingProviders", shops: "shops", npcs: "npcs", destinations: "destinations", locations: "locations", items: "items", combats: "combats", enemyDefinitions: "enemyDefinitions", enemyActions: "enemyActions", abilities: "abilities", lootTables: "lootTables" }[source] || null;
 }
 
 function referenceTitle(source, id) {
@@ -790,6 +826,10 @@ function referenceTitle(source, id) {
   if (source === "injuries") return injuryLabel(id);
   if (source === "campEvents") return campEventLabel(id);
   if (source === "campEventTables") return campEventLabel(id);
+  if (source === "dialogues") return dialogueLabel(id);
+  if (source === "npcs") return npcLabel(id);
+  if (source === "destinations") return destinationLabel(id);
+  if (source === "locations") return locationLabel(id);
   if (source === "enemyDefinitions") return enemyLabel(id);
   if (source === "enemyActions") return enemyActionLabel(id);
   return id;
@@ -1133,6 +1173,79 @@ function renderLootTable() {
     <section class="section"><details><summary>Raw loot table JSON (advanced)</summary><p class="hint">Use raw JSON for uncommon entry shapes while keeping validation enabled.</p><textarea id="raw-json" class="raw-editor">${jsonText(table)}</textarea><div class="button-row"><button type="button" class="small-button" data-action="apply-raw">Apply raw JSON</button></div></details></section>`;
 }
 
+function referenceArrayOptions(category, current) {
+  const values = Object.keys(state.catalog?.[category] || {}).sort();
+  const labels = category === "items" ? Object.fromEntries(values.map((id) => [id, itemLabel(id)]))
+    : category === "recipes" ? Object.fromEntries(values.map((id) => [id, recipeLabel(id)]))
+      : category === "npcs" ? Object.fromEntries(values.map((id) => [id, npcLabel(id)]))
+        : category === "destinations" ? Object.fromEntries(values.map((id) => [id, destinationLabel(id)]))
+          : category === "locations" ? Object.fromEntries(values.map((id) => [id, locationLabel(id)]))
+            : {};
+  return `<option value="">Select reference...</option>${selectOptions(values, current, labels)}`;
+}
+
+function renderReferenceArray(label, field, values, category) {
+  const entries = Array.isArray(values) ? values : [];
+  return `<section class="reference-array"><div class="nested-heading"><span>${escapeHtml(label)} <span class="panel-count">${entries.length}</span></span><button type="button" class="small-button" data-action="add-reference-array" data-reference-array-field="${field}" data-reference-array-category="${category}">Add</button></div>${entries.map((value, index) => `<div class="reference-array-row"><select data-reference-array-field="${field}" data-reference-array-category="${category}" data-reference-array-index="${index}">${referenceArrayOptions(category, value)}</select><button type="button" class="small-button inline-open" data-action="open-reference" data-reference-category="${category}" data-reference-id="${escapeHtml(value)}">Open</button><button type="button" class="small-button danger-outline" data-action="remove-reference-array" data-reference-array-field="${field}" data-reference-array-index="${index}">Remove</button></div>`).join("") || `<p class="hint">None.</p>`}</section>`;
+}
+
+function renderStringArray(label, field, values) {
+  const entries = Array.isArray(values) ? values : [];
+  return `<section class="reference-array"><div class="nested-heading"><span>${escapeHtml(label)} <span class="panel-count">${entries.length}</span></span><button type="button" class="small-button" data-action="add-string-array" data-string-array-field="${field}">Add</button></div>${entries.map((value, index) => `<div class="reference-array-row"><input data-string-array-field="${field}" data-string-array-index="${index}" value="${escapeHtml(value)}"><button type="button" class="small-button danger-outline" data-action="remove-string-array" data-string-array-field="${field}" data-string-array-index="${index}">Remove</button></div>`).join("") || `<p class="hint">None.</p>`}</section>`;
+}
+
+function dialogueNodeOptions(nodes, current) {
+  return `<option value="">No next node</option>${selectOptions(Object.keys(nodes || {}), current)}`;
+}
+
+function dialogueSpeakerOptions(current) {
+  const ids = ["arthur", ...Object.keys(state.catalog?.npcs || {}).sort()];
+  const labels = { arthur: "Arthur (arthur)", ...Object.fromEntries(ids.slice(1).map((id) => [id, npcLabel(id)])) };
+  return `<option value="">Select speaker...</option>${selectOptions(ids, current, labels)}`;
+}
+
+function renderDialogueChoice(nodeId, choice, index, nodes) {
+  const choicePath = `nodes.${nodeId}.choices[${index}]`;
+  return `<div class="choice-card dialogue-choice-card"><div class="object-top"><strong>Choice ${index + 1}</strong><div class="button-row"><button type="button" class="small-button" data-action="move-dialogue-choice" data-dialogue-node-id="${escapeHtml(nodeId)}" data-dialogue-choice-index="${index}" data-direction="up">Up</button><button type="button" class="small-button" data-action="move-dialogue-choice" data-dialogue-node-id="${escapeHtml(nodeId)}" data-dialogue-choice-index="${index}" data-direction="down">Down</button><button type="button" class="small-button danger-outline" data-action="remove-dialogue-choice" data-dialogue-node-id="${escapeHtml(nodeId)}" data-dialogue-choice-index="${index}">Remove</button></div></div><div class="form-grid"><label>ID<input data-dialogue-choice-field="id" data-dialogue-node-id="${escapeHtml(nodeId)}" data-dialogue-choice-index="${index}" value="${escapeHtml(choice.id || "")}"></label><label>Label<input data-dialogue-choice-field="label" data-dialogue-node-id="${escapeHtml(nodeId)}" data-dialogue-choice-index="${index}" value="${escapeHtml(choice.label || "")}"></label><label>Next node<select data-dialogue-choice-field="next" data-dialogue-node-id="${escapeHtml(nodeId)}" data-dialogue-choice-index="${index}">${dialogueNodeOptions(nodes, choice.next)}</select></label><label class="check-chip"><input type="checkbox" data-dialogue-choice-field="end" data-dialogue-node-id="${escapeHtml(nodeId)}" data-dialogue-choice-index="${index}"${checked(choice.end)}> End dialogue</label></div>${renderObjectCollection("Choice requirements", choice.requirements || choice.conditions, "dialogue-requirements", "", -1, choicePath, true)}${renderObjectCollection("Choice effects", choice.effects, "dialogue-effects", "", -1, choicePath, true)}<details><summary>Advanced choice JSON</summary><textarea class="object-json" data-dialogue-choice-json data-dialogue-node-id="${escapeHtml(nodeId)}" data-dialogue-choice-index="${index}">${jsonText(choice)}</textarea></details></div>`;
+}
+
+function renderDialogueNode(nodeId, node, nodes) {
+  const nodePath = `nodes.${nodeId}`;
+  const choices = Array.isArray(node.choices) ? node.choices : [];
+  return `<details class="stage-card dialogue-node-card" open><summary>${escapeHtml(nodeId)}</summary><div class="form-grid"><label>Node ID<input data-dialogue-node-id-field="id" data-dialogue-node-id="${escapeHtml(nodeId)}" value="${escapeHtml(nodeId)}"></label><label>Speaker<select data-dialogue-node-field="speakerId" data-dialogue-node-id="${escapeHtml(nodeId)}">${dialogueSpeakerOptions(node.speakerId)}</select></label><label>Portrait key<input data-dialogue-node-field="portraitKey" data-dialogue-node-id="${escapeHtml(nodeId)}" value="${escapeHtml(node.portraitKey || "")}"></label><label class="wide">Text<textarea data-dialogue-node-field="text" data-dialogue-node-id="${escapeHtml(nodeId)}">${escapeHtml(node.text || "")}</textarea></label><label>Next node<select data-dialogue-node-field="next" data-dialogue-node-id="${escapeHtml(nodeId)}">${dialogueNodeOptions(nodes, node.next)}</select></label><label class="check-chip"><input type="checkbox" data-dialogue-node-field="end" data-dialogue-node-id="${escapeHtml(nodeId)}"${checked(node.end)}> End dialogue</label></div>${renderObjectCollection("Node requirements", node.requirements, "dialogue-requirements", "", -1, nodePath, true)}${renderObjectCollection("Node effects", node.effects, "dialogue-effects", "", -1, nodePath, true)}<div class="nested-heading"><span>Choices <span class="panel-count">${choices.length}</span></span><button type="button" class="small-button" data-action="add-dialogue-choice" data-dialogue-node-id="${escapeHtml(nodeId)}">Add choice</button></div>${choices.map((choice, index) => renderDialogueChoice(nodeId, choice, index, nodes)).join("") || `<p class="hint">No choices. The node advances through its Next node field.</p>`}<div class="button-row"><button type="button" class="small-button danger-outline" data-action="remove-dialogue-node" data-dialogue-node-id="${escapeHtml(nodeId)}">Remove node</button></div></details>`;
+}
+
+function renderDialogue() {
+  const dialogue = state.draft;
+  if (!dialogue) return `<div class="empty-state">Choose a dialogue sequence to edit.</div>`;
+  const nodes = dialogue.nodes || {};
+  const references = (liveReferences().dialogues || []).filter((reference) => reference.id === dialogue.id);
+  return `<div class="editor-title"><div><h2>${escapeHtml(dialogue.title || dialogue.name || dialogue.id || "New dialogue")}</h2><p>${escapeHtml(dialogue.id || "Unsaved ID")}</p></div><span class="schema-badge">Dialogue schema</span></div><section class="section"><div class="section-heading"><div><h3>Dialogue identity</h3><p>Reusable sequences are authored in <code>js/dialogue-data.js</code>. Nodes and choices use shared requirement/effect semantics.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(dialogue.id || "")}"></label><label>Title<input data-field="title" value="${escapeHtml(dialogue.title || "")}"></label><label class="wide">Description<textarea data-field="description">${escapeHtml(dialogue.description || "")}</textarea></label><label>Start node<select data-field="start">${dialogueNodeOptions(nodes, dialogue.start)}</select></label></div></section><section class="section"><div class="section-heading"><div><h3>Nodes and branches</h3><p>Use selectors for speaker and node links; uncommon fields remain in Advanced JSON.</p></div><button type="button" class="small-button" data-action="add-dialogue-node">Add node</button></div>${Object.entries(nodes).map(([nodeId, node]) => renderDialogueNode(nodeId, node, nodes)).join("") || `<p class="empty-state">Add a node to begin authoring this sequence.</p>`}</section><section class="section"><div class="section-heading"><div><h3>Used by</h3><p>NPCs, destinations, encounters, camp events, and other content that invoke this sequence.</p></div></div><div class="reference-list">${renderReferenceRows(references, "No current references.")}</div></section><section class="section"><details><summary>Raw dialogue JSON (advanced)</summary><textarea id="raw-json" class="raw-editor">${jsonText(dialogue)}</textarea><div class="button-row"><button type="button" class="small-button" data-action="apply-raw">Apply raw JSON</button></div></details></section>`;
+}
+
+function renderNpc() {
+  const npc = state.draft;
+  if (!npc) return `<div class="empty-state">Choose an NPC to edit.</div>`;
+  const references = (liveReferences().npcs || []).filter((reference) => reference.id === npc.id);
+  const locations = Object.keys(state.catalog.locations || {}).sort();
+  return `<div class="editor-title"><div><h2>${escapeHtml(npc.name || npc.id || "New NPC")}</h2><p>${escapeHtml(npc.id || "Unsaved ID")}</p></div><span class="schema-badge">NPC schema</span></div><section class="section"><div class="section-heading"><div><h3>NPC identity</h3><p>NPCs are authored in <code>js/location-data.js</code> and referenced by stable ID.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(npc.id || "")}"></label><label>Name<input data-field="name" value="${escapeHtml(npc.name || "")}"></label><label>Role<input data-field="role" value="${escapeHtml(npc.role || "")}"></label><label class="wide">Description<textarea data-field="description">${escapeHtml(npc.description || "")}</textarea></label><label>Dialogue sequence${referenceInput("dialogueSequenceId", npc.dialogueSequenceId, true)}</label><label>Intro sequence${referenceInput("introDialogueSequenceId", npc.introDialogueSequenceId, true)}</label></div></section><section class="section"><div class="form-grid"><label class="wide">Simple dialogue lines<textarea data-lines-field="dialogue" placeholder="One line per entry">${escapeHtml((npc.dialogue || []).join("\n"))}</textarea></label><label class="wide">Rumor lines<textarea data-lines-field="rumors" placeholder="One line per entry">${escapeHtml((npc.rumors || []).join("\n"))}</textarea></label></div><div class="nested-heading"><span>Locations</span></div><div class="check-grid">${locations.map((id) => `<div class="reference-array-row"><label class="check-chip"><input type="checkbox" data-reference-toggle-field="locationIds" data-reference-toggle-value="${escapeHtml(id)}"${checked((npc.locationIds || []).includes(id))}>${escapeHtml(locationLabel(id))}</label><button type="button" class="small-button inline-open" data-action="open-reference" data-reference-category="locations" data-reference-id="${escapeHtml(id)}">Open Location</button></div>`).join("")}</div></section><section class="section"><div class="section-heading"><div><h3>Used by</h3><p>Destinations, locations, and dialogue references.</p></div></div><div class="reference-list">${renderReferenceRows(references, "No current references.")}</div></section><section class="section"><details><summary>Raw NPC JSON (advanced)</summary><textarea id="raw-json" class="raw-editor">${jsonText(npc)}</textarea><div class="button-row"><button type="button" class="small-button" data-action="apply-raw">Apply raw JSON</button></div></details></section>`;
+}
+
+function renderDestination() {
+  const destination = state.draft;
+  if (!destination) return `<div class="empty-state">Choose a destination to edit.</div>`;
+  const npcIds = Array.isArray(destination.npcIds) ? destination.npcIds : [];
+  const actions = Array.isArray(destination.actions) ? destination.actions : [];
+  return `<div class="editor-title"><div><h2>${escapeHtml(destination.name || destination.id || "New destination")}</h2><p>${escapeHtml(destination.id || "Unsaved ID")}</p></div><span class="schema-badge">Destination schema</span></div><section class="section"><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(destination.id || "")}"></label><label>Name<input data-field="name" value="${escapeHtml(destination.name || "")}"></label><label>Type<input data-field="type" value="${escapeHtml(destination.type || "")}"></label><label>Visual key<input data-field="visualKey" value="${escapeHtml(destination.visualKey || "")}"></label><label>Scene position<input data-field="scenePosition" value="${escapeHtml(destination.scenePosition || "")}"></label><label>Shop${referenceInput("shopId", destination.shopId, true)}</label><label>Crafting provider${referenceInput("craftingProviderId", destination.craftingProviderId, true)}</label><label class="wide">Description<textarea data-field="description">${escapeHtml(destination.description || "")}</textarea></label><label class="check-chip"><input type="checkbox" data-field="requiresIntro"${checked(destination.requiresIntro)}> Requires intro</label></div></section><section class="section"><div class="nested-heading"><span>NPCs <span class="panel-count">${npcIds.length}</span></span><button type="button" class="small-button" data-action="add-destination-npc">Add NPC</button></div>${npcIds.map((id, index) => `<div class="reference-array-row"><select data-destination-npc-index="${index}">${referenceArrayOptions("npcs", id)}</select><button type="button" class="small-button inline-open" data-action="open-reference" data-reference-category="npcs" data-reference-id="${escapeHtml(id)}">Open NPC</button><button type="button" class="small-button danger-outline" data-action="remove-destination-npc" data-destination-npc-index="${index}">Remove</button></div>`).join("") || `<p class="hint">No NPC assigned.</p>`}</section><section class="section"><div class="nested-heading"><span>Actions <span class="panel-count">${actions.length}</span></span><button type="button" class="small-button" data-action="add-destination-action">Add action</button></div>${actions.map((action, index) => `<div class="reference-array-row"><input data-destination-action-index="${index}" value="${escapeHtml(action)}"><button type="button" class="small-button danger-outline" data-action="remove-destination-action" data-destination-action-index="${index}">Remove</button></div>`).join("") || `<p class="hint">No actions assigned.</p>`}</section><section class="section"><details><summary>Raw destination JSON (advanced)</summary><textarea id="raw-json" class="raw-editor">${jsonText(destination)}</textarea><div class="button-row"><button type="button" class="small-button" data-action="apply-raw">Apply raw JSON</button></div></details></section>`;
+}
+
+function renderLocation() {
+  const location = state.draft;
+  if (!location) return `<div class="empty-state">Choose a location to edit.</div>`;
+  const references = (liveReferences().locations || []).filter((reference) => reference.id === location.id);
+  return `<div class="editor-title"><div><h2>${escapeHtml(location.name || location.id || "New location")}</h2><p>${escapeHtml(location.id || "Unsaved ID")}</p></div><span class="schema-badge">Location schema</span></div><section class="section"><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(location.id || "")}"></label><label>Name<input data-field="name" value="${escapeHtml(location.name || "")}"></label><label>Type<input data-field="type" value="${escapeHtml(location.type || "")}"></label><label>Chapter ID<input data-field="chapterId" value="${escapeHtml(location.chapterId || "")}"></label><label>Region${referenceInput("regionId", location.regionId, true)}</label><label>Visual key<input data-field="visualKey" value="${escapeHtml(location.visualKey || "")}"></label><label class="wide">Description<textarea data-field="description">${escapeHtml(location.description || "")}</textarea></label></div></section><section class="section">${renderReferenceArray("Destinations", "destinations", location.destinations, "destinations")}${renderReferenceArray("NPCs", "npcs", location.npcs, "npcs")}${renderReferenceArray("Shops", "shops", location.shops, "shops")}${renderReferenceArray("Expeditions", "availableExpeditions", location.availableExpeditions, "expeditions")}${renderStringArray("Quests", "availableQuests", location.availableQuests)}${renderObjectCollection("Location requirements", location.requirements, "location-requirements", "", -1, "", true)}</section><section class="section"><div class="section-heading"><div><h3>Used by</h3><p>Known references to this location.</p></div></div><div class="reference-list">${renderReferenceRows(references, "No current references.")}</div></section><section class="section"><details><summary>Raw location JSON (advanced)</summary><textarea id="raw-json" class="raw-editor">${jsonText(location)}</textarea><div class="button-row"><button type="button" class="small-button" data-action="apply-raw">Apply raw JSON</button></div></details></section>`;
+}
+
 function currentEntries() {
   if (!state.catalog) return {};
   const entries = { ...state.catalog[state.category] };
@@ -1245,9 +1358,11 @@ function render() {
   $("#editor-root").innerHTML = state.category === "encounters"
     ? renderEncounter()
     : state.category === "injuries"
-      ? renderInjury()
-      : state.category === "campEvents"
+    ? renderInjury()
+    : state.category === "campEvents"
         ? renderCampEvent()
+    : state.category === "dialogues"
+      ? renderDialogue()
     : state.category === "paths"
       ? renderPath()
       : state.category === "expeditions"
@@ -1260,6 +1375,12 @@ function render() {
           ? renderCraftingProvider()
         : state.category === "shops"
       ? renderShop()
+        : state.category === "npcs"
+          ? renderNpc()
+        : state.category === "destinations"
+          ? renderDestination()
+        : state.category === "locations"
+          ? renderLocation()
         : state.category === "items"
           ? renderItem()
         : state.category === "combats"
@@ -1323,11 +1444,15 @@ function draftSnapshot() {
     encounters: clone(state.catalog.encounters),
     injuries: clone(state.catalog.injuries),
     campEvents: clone(state.catalog.campEvents),
+    dialogues: clone(state.catalog.dialogues),
     expeditions: clone(state.catalog.expeditions),
     recipes: clone(state.catalog.recipes),
     materials: clone(state.catalog.materials),
     craftingProviders: clone(state.catalog.craftingProviders),
     shops: clone(state.catalog.shops),
+    npcs: clone(state.catalog.npcs),
+    destinations: clone(state.catalog.destinations),
+    locations: clone(state.catalog.locations),
     items: clone(state.catalog.items),
     combats: clone(state.catalog.combats),
     abilities: clone(state.catalog.abilities),
@@ -1421,6 +1546,13 @@ function defaultEntry(category) {
     requirements: [],
     stages: { start: { text: "", choices: [] } },
   };
+  if (category === "dialogues") return {
+    id: "new_dialogue",
+    title: "New Dialogue",
+    description: "",
+    start: "start",
+    nodes: { start: { speakerId: "arthur", text: "", end: true, choices: [] } },
+  };
   if (category === "shops") return { id: "new_shop", displayName: "New Shop", itemsForSale: {}, acceptedCategories: [], acceptedTags: [], sellValues: {} };
   if (category === "items") return {
     id: "new_weapon",
@@ -1458,6 +1590,9 @@ function defaultEntry(category) {
     prerequisites: [],
   };
   if (category === "craftingProviders") return { id: "new_provider", name: "New Crafting Provider" };
+  if (category === "npcs") return { id: "new_npc", name: "New NPC", role: "", description: "", dialogue: [], rumors: [], locationIds: [] };
+  if (category === "destinations") return { id: "new_destination", name: "New Destination", type: "story", description: "", npcIds: [], actions: [] };
+  if (category === "locations") return { id: "new_location", name: "New Location", type: "village", description: "", destinations: [], npcs: [], shops: [], availableExpeditions: [], requirements: [] };
   if (category === "enemyDefinitions") return {
     id: "new_enemy",
     name: "New Enemy",
@@ -1525,13 +1660,13 @@ function duplicateEntry() {
   const map = state.catalog[state.category];
   const entry = clone(state.draft);
   entry.id = uniqueId(`${entry.id || "entry"}_copy`, map);
-  if (["encounters", "campEvents"].includes(state.category)) entry.title = `${entry.title || "Event"} Copy`;
+  if (["encounters", "campEvents", "dialogues"].includes(state.category)) entry.title = `${entry.title || "Event"} Copy`;
   else if (state.category === "injuries") entry.name = `${entry.name || "Injury"} Copy`;
   else if (state.category === "enemyDefinitions") entry.name = `${entry.name || "Enemy"} Copy`;
   else if (state.category === "enemyActions") entry.name = `${entry.name || "Enemy Action"} Copy`;
   else if (state.category === "shops") entry.displayName = `${entry.displayName || "Shop"} Copy`;
   else if (["items", "abilities"].includes(state.category)) entry.name = `${entry.name || "Entry"} Copy`;
-  else if (["expeditions", "recipes", "materials", "craftingProviders"].includes(state.category)) entry.name = `${entry.name || "Entry"} Copy`;
+  else if (["expeditions", "recipes", "materials", "craftingProviders", "npcs", "destinations", "locations"].includes(state.category)) entry.name = `${entry.name || "Entry"} Copy`;
   map[entry.id] = entry;
   state.selectedId = entry.id;
   state.originalSelectedId = entry.id;
@@ -1543,7 +1678,7 @@ function duplicateEntry() {
 function deleteEntry() {
   if (!state.draft || !state.catalog || state.category === "paths") return;
   const id = state.draft.id || state.originalSelectedId;
-  const refType = state.category === "shops" ? "shops" : state.category === "items" ? "items" : state.category === "combats" ? "combats" : state.category === "enemyDefinitions" ? "enemies" : state.category === "enemyActions" ? "enemyActions" : state.category === "abilities" ? "abilities" : state.category === "injuries" ? "injuries" : state.category === "campEvents" ? "campEvents" : state.category === "lootTables" ? "lootTables" : state.category === "expeditions" ? "expeditions" : state.category === "recipes" ? "recipes" : state.category === "materials" ? "materials" : state.category === "craftingProviders" ? "craftingProviders" : "encounters";
+  const refType = state.category === "shops" ? "shops" : state.category === "items" ? "items" : state.category === "combats" ? "combats" : state.category === "enemyDefinitions" ? "enemies" : state.category === "enemyActions" ? "enemyActions" : state.category === "abilities" ? "abilities" : state.category === "injuries" ? "injuries" : state.category === "campEvents" ? "campEvents" : state.category === "dialogues" ? "dialogues" : state.category === "npcs" ? "npcs" : state.category === "destinations" ? "destinations" : state.category === "locations" ? "locations" : state.category === "lootTables" ? "lootTables" : state.category === "expeditions" ? "expeditions" : state.category === "recipes" ? "recipes" : state.category === "materials" ? "materials" : state.category === "craftingProviders" ? "craftingProviders" : "encounters";
   const refs = (liveReferences()[refType] || []).filter((reference) => reference.id === id);
   const warning = refs.length ? `\n\nReferences found:\n${refs.map((reference) => `- ${reference.source} (${reference.path})`).join("\n")}\n\nSaving this deletion will be blocked until those references are resolved.` : "";
   if (!window.confirm(`Delete ${id}? This is an in-memory deletion until you explicitly save.${warning}`)) return;
@@ -1631,6 +1766,87 @@ function handleInput(input) {
     return;
   }
   if (!state.draft) return;
+  if (input.dataset.linesField) {
+    state.draft[input.dataset.linesField] = input.value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    markDirty();
+    return;
+  }
+  if (input.dataset.referenceToggleField) {
+    state.draft[input.dataset.referenceToggleField] = toggleArray(
+      state.draft[input.dataset.referenceToggleField],
+      input.dataset.referenceToggleValue,
+      input.checked,
+    );
+    markDirty();
+    return;
+  }
+  if (input.dataset.referenceArrayField) {
+    state.draft[input.dataset.referenceArrayField] ||= [];
+    state.draft[input.dataset.referenceArrayField][Number(input.dataset.referenceArrayIndex)] = input.value;
+    markDirty();
+    render();
+    return;
+  }
+  if (input.dataset.stringArrayField) {
+    state.draft[input.dataset.stringArrayField] ||= [];
+    state.draft[input.dataset.stringArrayField][Number(input.dataset.stringArrayIndex)] = input.value;
+    markDirty();
+    return;
+  }
+  if (input.dataset.destinationNpcIndex !== undefined) {
+    state.draft.npcIds ||= [];
+    state.draft.npcIds[Number(input.dataset.destinationNpcIndex)] = input.value;
+    markDirty();
+    render();
+    return;
+  }
+  if (input.dataset.destinationActionIndex !== undefined) {
+    state.draft.actions ||= [];
+    state.draft.actions[Number(input.dataset.destinationActionIndex)] = input.value;
+    markDirty();
+    return;
+  }
+  if (input.dataset.dialogueNodeIdField === "id") {
+    const oldId = input.dataset.dialogueNodeId;
+    const newId = input.value.trim();
+    const nodes = state.draft.nodes || {};
+    if (!newId || newId === oldId || Object.prototype.hasOwnProperty.call(nodes, newId)) {
+      if (newId !== oldId) render();
+      return;
+    }
+    const nextNodes = {};
+    Object.entries(nodes).forEach(([id, node]) => { nextNodes[id === oldId ? newId : id] = node; });
+    Object.values(nextNodes).forEach((node) => {
+      if (node.next === oldId) node.next = newId;
+      (node.choices || []).forEach((choice) => { if (choice.next === oldId) choice.next = newId; });
+    });
+    if (state.draft.start === oldId) state.draft.start = newId;
+    state.draft.nodes = nextNodes;
+    markDirty();
+    render();
+    return;
+  }
+  if (input.dataset.dialogueNodeField) {
+    const node = state.draft.nodes?.[input.dataset.dialogueNodeId];
+    if (!node) return;
+    const value = parseInputValue(input, input.dataset.dialogueNodeField);
+    if (value === undefined || value === "") delete node[input.dataset.dialogueNodeField];
+    else node[input.dataset.dialogueNodeField] = value;
+    markDirty();
+    if (input.dataset.dialogueNodeField === "speakerId" || input.dataset.dialogueNodeField === "next") render();
+    return;
+  }
+  if (input.dataset.dialogueChoiceField) {
+    const node = state.draft.nodes?.[input.dataset.dialogueNodeId];
+    const choice = node?.choices?.[Number(input.dataset.dialogueChoiceIndex)];
+    if (!choice) return;
+    const value = parseInputValue(input, input.dataset.dialogueChoiceField);
+    if (value === undefined || value === "") delete choice[input.dataset.dialogueChoiceField];
+    else choice[input.dataset.dialogueChoiceField] = value;
+    markDirty();
+    if (input.dataset.dialogueChoiceField === "next") render();
+    return;
+  }
   if (input.dataset.resolutionField) {
     const target = pathValue(state.draft, input.dataset.resolutionPath);
     if (!target) return;
@@ -1915,7 +2131,88 @@ function switchCategory(category, id = null) {
 
 function handleAction(button) {
   const action = button.dataset.action;
-  if (action === "toggle-filters") {
+  if (action === "add-dialogue-node") {
+    state.draft.nodes ||= {};
+    const id = uniqueId("new_node", state.draft.nodes);
+    state.draft.nodes[id] = { speakerId: "arthur", text: "", end: true, choices: [] };
+    if (!state.draft.start) state.draft.start = id;
+    markDirty();
+    render();
+  } else if (action === "remove-dialogue-node") {
+    const nodeId = button.dataset.dialogueNodeId;
+    if (Object.keys(state.draft.nodes || {}).length <= 1) return window.alert("A dialogue needs at least one node.");
+    delete state.draft.nodes[nodeId];
+    Object.values(state.draft.nodes).forEach((node) => {
+      if (node.next === nodeId) delete node.next;
+      (node.choices || []).forEach((choice) => { if (choice.next === nodeId) delete choice.next; });
+    });
+    if (state.draft.start === nodeId) state.draft.start = Object.keys(state.draft.nodes)[0];
+    markDirty();
+    render();
+  } else if (action === "add-dialogue-choice") {
+    const node = state.draft.nodes?.[button.dataset.dialogueNodeId];
+    if (!node) return;
+    node.choices ||= [];
+    node.choices.push({ id: uniqueId("new_choice", Object.fromEntries(node.choices.map((choice) => [choice.id, true]))), label: "New choice", end: true, requirements: [], effects: [] });
+    markDirty();
+    render();
+  } else if (action === "remove-dialogue-choice") {
+    const node = state.draft.nodes?.[button.dataset.dialogueNodeId];
+    if (!node?.choices) return;
+    node.choices.splice(Number(button.dataset.dialogueChoiceIndex), 1);
+    markDirty();
+    render();
+  } else if (action === "move-dialogue-choice") {
+    const node = state.draft.nodes?.[button.dataset.dialogueNodeId];
+    const index = Number(button.dataset.dialogueChoiceIndex);
+    const nextIndex = button.dataset.direction === "up" ? index - 1 : index + 1;
+    if (!node?.choices || nextIndex < 0 || nextIndex >= node.choices.length) return;
+    [node.choices[index], node.choices[nextIndex]] = [node.choices[nextIndex], node.choices[index]];
+    markDirty();
+    render();
+  } else if (action === "add-reference-array") {
+    const field = button.dataset.referenceArrayField;
+    const category = button.dataset.referenceArrayCategory;
+    const first = Object.keys(state.catalog?.[category] || {}).sort()[0];
+    if (!first) return window.alert(`No ${category} definitions are available.`);
+    state.draft[field] ||= [];
+    state.draft[field].push(first);
+    markDirty();
+    render();
+  } else if (action === "remove-reference-array") {
+    state.draft[button.dataset.referenceArrayField]?.splice(Number(button.dataset.referenceArrayIndex), 1);
+    markDirty();
+    render();
+  } else if (action === "add-string-array") {
+    state.draft[button.dataset.stringArrayField] ||= [];
+    state.draft[button.dataset.stringArrayField].push("");
+    markDirty();
+    render();
+  } else if (action === "remove-string-array") {
+    state.draft[button.dataset.stringArrayField]?.splice(Number(button.dataset.stringArrayIndex), 1);
+    markDirty();
+    render();
+  } else if (action === "add-destination-npc") {
+    const first = Object.keys(state.catalog.npcs || {}).sort()[0];
+    if (!first) return window.alert("No NPC definitions are available.");
+    state.draft.npcIds ||= [];
+    state.draft.npcIds.push(first);
+    markDirty();
+    render();
+  } else if (action === "remove-destination-npc") {
+    state.draft.npcIds?.splice(Number(button.dataset.destinationNpcIndex), 1);
+    markDirty();
+    render();
+  } else if (action === "add-destination-action") {
+    state.draft.actions ||= [];
+    state.draft.actions.push("talk");
+    markDirty();
+    render();
+  } else if (action === "remove-destination-action") {
+    state.draft.actions?.splice(Number(button.dataset.destinationActionIndex), 1);
+    markDirty();
+    render();
+  } else if (action === "toggle-filters") {
     state.filterOpen = !state.filterOpen;
     renderEntryPaneOnly();
   } else if (action === "clear-filters") {
@@ -2229,6 +2526,17 @@ document.addEventListener("click", (event) => {
 document.addEventListener("input", (event) => handleInput(event.target));
 document.addEventListener("change", (event) => {
   if (event.target.matches("textarea[data-object-json]")) handleObjectJson(event.target);
+  else if (event.target.matches("textarea[data-dialogue-choice-json]")) {
+    try {
+      const node = state.draft.nodes?.[event.target.dataset.dialogueNodeId];
+      const choice = node?.choices?.[Number(event.target.dataset.dialogueChoiceIndex)];
+      const parsed = JSON.parse(event.target.value);
+      if (!choice || !parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Choice JSON must be an object");
+      node.choices[Number(event.target.dataset.dialogueChoiceIndex)] = parsed;
+      markDirty();
+      render();
+    } catch (error) { window.alert(`Could not apply choice JSON: ${error.message}`); }
+  }
   else handleInput(event.target);
 });
 $("#entry-search").addEventListener("input", (event) => { setCurrentSearch(event.target.value); renderEntryPaneOnly(); });

@@ -528,6 +528,52 @@ class Phase6FilterBrowserTests(unittest.TestCase):
         self.assertEqual(self.browser.evaluate("document.querySelector('#entry-heading').textContent"), "Enemies")
         self.assertEqual(self.browser.evaluate("document.querySelector('#editor-root [data-field=id]').value"), "wolf")
 
+    def test_phase7_dialogue_npc_destination_location_categories_are_first_class(self) -> None:
+        self.click_category("dialogues")
+        self.browser.evaluate("document.querySelector('[data-action=select][data-id=reeve_after_intro]').click()")
+        self.assertTrue(self.browser.evaluate("""
+            Boolean(document.querySelector('#editor-root [data-field=start]'))
+            && Boolean(document.querySelector('#editor-root [data-dialogue-node-field=portraitKey]'))
+            && Boolean(document.querySelector('#editor-root [data-dialogue-choice-field=next]'))
+        """))
+        self.browser.evaluate("document.querySelector('#editor-root [data-action=add-object][data-owner=dialogue-effects]').click()")
+        self.browser.evaluate("""
+            (() => {
+              const type = Array.from(document.querySelectorAll('#editor-root [data-object-field="type"]'))
+                .find((select) => select.value === 'modifyResource');
+              if (!type) throw new Error('No dialogue effect type found');
+              type.value = 'startDialogue';
+              type.dispatchEvent(new Event('change', {bubbles: true}));
+            })()
+        """)
+        self.assertTrue(self.browser.evaluate("Boolean(document.querySelector('#editor-root [data-object-field=dialogueId]'))"))
+
+        self.click_category("npcs")
+        self.browser.evaluate("document.querySelector('[data-action=select][data-id=village_reeve]').click()")
+        self.assertTrue(self.browser.evaluate("""
+            Boolean(document.querySelector('#editor-root [data-field=dialogueSequenceId]'))
+            && Boolean(document.querySelector('#editor-root [data-field=introDialogueSequenceId]'))
+            && Boolean(document.querySelector('#editor-root [data-lines-field=dialogue]'))
+            && Boolean(document.querySelector('#editor-root [data-reference-category=locations]'))
+        """))
+
+        self.click_category("destinations")
+        self.browser.evaluate("document.querySelector('[data-action=select][data-id=inn]').click()")
+        self.assertTrue(self.browser.evaluate("""
+            Boolean(document.querySelector('#editor-root [data-field=scenePosition]'))
+            && Boolean(document.querySelector('#editor-root [data-destination-npc-index]'))
+            && Boolean(document.querySelector('#editor-root [data-field=shopId]'))
+        """))
+
+        self.click_category("locations")
+        self.browser.evaluate("document.querySelector('[data-action=select][data-id=broceliande_village]').click()")
+        self.assertTrue(self.browser.evaluate("""
+            Boolean(document.querySelector('#editor-root [data-field=visualKey]'))
+            && Boolean(document.querySelector('#editor-root [data-reference-array-field=destinations]'))
+            && Boolean(document.querySelector('#editor-root [data-action=add-string-array][data-string-array-field=availableQuests]'))
+            && Boolean(document.querySelector('#editor-root [data-action=add-object][data-owner=location-requirements]'))
+        """))
+
 
 if __name__ == "__main__":
     unittest.main()
