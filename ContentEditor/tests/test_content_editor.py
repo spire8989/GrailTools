@@ -34,6 +34,8 @@ class ContentEditorTests(unittest.TestCase):
         self.assertGreaterEqual(len(catalog["encounters"]), 50)
         self.assertEqual(len(catalog["shops"]), 3)
         self.assertGreaterEqual(len(catalog["known"]["items"]), 40)
+        self.assertEqual(len(catalog["injuries"]), 6)
+        self.assertEqual(len(catalog["campEvents"]), 6)
         self.assertEqual(catalog["validation"]["errors"], [])
 
     def test_unchanged_values_round_trip_semantically(self) -> None:
@@ -1027,6 +1029,55 @@ class ContentEditorTests(unittest.TestCase):
         for key, block in blocks.items():
             if key != "common_materials":
                 self.assertEqual(after_blocks[key], block, key)
+
+    def test_phase7_injury_edit_and_reference_aware_delete(self) -> None:
+        temp, project = self.temporary_grail()
+        self.addCleanup(temp.cleanup)
+        before = load_catalog(project)
+        self.assertTrue(any(reference["id"] == "poisoned" for reference in before["references"].get("injuries", [])))
+        incoming = {"injuries": clone(before["injuries"])}
+        incoming["injuries"]["poisoned"]["travelDamageAmount"] = 2
+        incoming["injuries"]["poisoned"]["travelDamageInterval"] = 7
+        save_catalog(project, incoming, before["sourceHashes"], Path(temp.name) / "backups")
+        after = load_catalog(project)
+        self.assertEqual(after["injuries"]["poisoned"]["travelDamageAmount"], 2)
+        self.assertEqual(after["injuries"]["poisoned"]["travelDamageInterval"], 7)
+        deleting = {"injuries": clone(after["injuries"])}
+        del deleting["injuries"]["poisoned"]
+        with self.assertRaises(ValueError):
+            save_catalog(project, deleting, after["sourceHashes"], Path(temp.name) / "backups")
+        self.assertIn("poisoned", load_catalog(project)["injuries"])
+
+    def test_phase7_recursive_camp_event_edit_add_save_reload_and_validation(self) -> None:
+        temp, project = self.temporary_grail()
+        self.addCleanup(temp.cleanup)
+        before = load_catalog(project)
+        camp_events = clone(before["campEvents"])
+        friendly = camp_events["friendly_animal"]
+        outcome = friendly["stages"]["start"]["choices"][0]["outcomes"][0]
+        outcome["chance"] = 0.65
+        outcome["effects"].append({
+            "type": "conditional",
+            "requirements": [{"type": "ownsItem", "itemId": "wild_berries"}],
+            "effects": [{"type": "learnRecipe", "recipeId": sorted(before["recipes"])[0]}],
+            "elseEffects": [{"type": "setRunFlag", "flag": "camp_event_tested"}],
+        })
+        added = clone(friendly)
+        added["id"] = "__phase7_camp_event"
+        added["title"] = "Phase 7 Camp Event"
+        camp_events[added["id"]] = added
+        save_catalog(project, {"campEvents": camp_events}, before["sourceHashes"], Path(temp.name) / "backups")
+        after = load_catalog(project)
+        saved_outcome = after["campEvents"]["friendly_animal"]["stages"]["start"]["choices"][0]["outcomes"][0]
+        self.assertEqual(saved_outcome["chance"], 0.65)
+        self.assertEqual(saved_outcome["effects"][-1]["requirements"][0]["itemId"], "wild_berries")
+        self.assertEqual(saved_outcome["effects"][-1]["effects"][0]["type"], "learnRecipe")
+        self.assertIn("__phase7_camp_event", after["campEvents"])
+
+        invalid = clone(after["campEvents"])
+        invalid["friendly_animal"]["stages"]["start"]["choices"][0]["outcomes"][0]["effects"][-1]["requirements"][0]["itemId"] = "missing_nested_item"
+        validation = validate_catalog({"campEvents": invalid}, after["known"], after["references"])
+        self.assertTrue(any("Unknown item ID 'missing_nested_item'" in issue["message"] for issue in validation["errors"]))
 
 
 if __name__ == "__main__":

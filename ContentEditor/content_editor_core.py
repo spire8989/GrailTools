@@ -450,6 +450,8 @@ def serialize_js(value: Any, indent: int = 0, newline: str = "\n") -> str:
 
 CONTENT_FILES = {
     "encounters": ("js/encounter-data.js", "ENCOUNTER_DEFINITIONS"),
+    "injuries": ("js/injury-data.js", "INJURY_DEFINITIONS"),
+    "campEvents": ("js/camp-data.js", "CAMP_EVENT_DEFINITIONS"),
     "expeditions": ("js/expedition-data.js", "EXPEDITION_DEFINITIONS"),
     "recipes": ("js/crafting-data.js", "RECIPE_DEFINITIONS"),
     "materials": ("js/crafting-data.js", "MATERIAL_DEFINITIONS"),
@@ -474,6 +476,8 @@ REFERENCE_FILES = {
     "campEventTables": ("js/camp-data.js", "CAMP_EVENT_TABLE_DEFINITIONS"),
     "campEvents": ("js/camp-data.js", "CAMP_EVENT_DEFINITIONS"),
     "locations": ("js/location-data.js", "LOCATION_DEFINITIONS"),
+    "knowledge": ("js/data.js", "KNOWLEDGE_DEFINITIONS"),
+    "companions": ("js/data.js", "COMPANION_DEFINITIONS"),
 }
 
 
@@ -503,6 +507,7 @@ def _walk(value: Any, path: str = "") -> Iterable[tuple[str, Any, Any]]:
 def _ref_type_for_key(key: str) -> str | None:
     return {
         "itemId": "items",
+        "treatmentItemId": "items",
         "combatId": "combats",
         "abilityId": "abilities",
         "injuryId": "injuries",
@@ -517,6 +522,10 @@ def _ref_type_for_key(key: str) -> str | None:
         "recipeId": "recipes",
         "craftingProvider": "craftingProviders",
         "craftingProviderId": "craftingProviders",
+        "eventId": "campEvents",
+        "campEventId": "campEvents",
+        "knowledgeId": "knowledge",
+        "companionId": "companions",
     }.get(key)
 
 
@@ -535,9 +544,10 @@ def collect_references(value: Any, source: str, references: dict[str, list[dict[
                     for index, item in enumerate(child):
                         if isinstance(item, str):
                             references.setdefault(ref_type, []).append({"source": source, "path": f"{child_path}[{index}]", "id": item})
-                elif key in {"itemIds", "prerequisites", "enemyIds", "abilityIds", "grantedAbilityIds", "combatAbilities", "actionPattern", "campEventTableIds"} and isinstance(child, list):
+                elif key in {"itemIds", "injuryIds", "prerequisites", "enemyIds", "abilityIds", "grantedAbilityIds", "combatAbilities", "actionPattern", "campEventTableIds"} and isinstance(child, list):
                     ref_type = {
                         "itemIds": "items",
+                        "injuryIds": "injuries",
                         "prerequisites": "items",
                         "enemyIds": "enemies",
                         "abilityIds": "abilities",
@@ -640,6 +650,7 @@ def load_catalog(project_root: Path) -> dict[str, Any]:
             parse_duplicates.append({"source": relative, "id": duplicate})
 
     refs: dict[str, list[dict[str, str]]] = {}
+    reference_values: dict[str, Any] = {}
     for category, value in values.items():
         collect_references(value, category, refs)
 
@@ -647,6 +658,7 @@ def load_catalog(project_root: Path) -> dict[str, Any]:
     for category, (relative, name) in REFERENCE_FILES.items():
         try:
             value, _source, raw, parsed = _read_constant(project_root, relative, name)
+            reference_values[category] = value
             source_hashes.setdefault(relative, _source_hash(raw))
             known[category] = sorted(_id_map(value))
             if category not in CONTENT_FILES:
@@ -673,6 +685,8 @@ def load_catalog(project_root: Path) -> dict[str, Any]:
     item_map = _id_map(values.get("items"))
     known["combats"] = sorted(_id_map(values.get("combats")))
     known["abilities"] = sorted(_id_map(values.get("abilities")))
+    known["injuries"] = sorted(_id_map(values.get("injuries")))
+    known["campEvents"] = sorted(_id_map(values.get("campEvents")))
     known["enemies"] = sorted(_id_map(values.get("enemyDefinitions")))
     known["enemyActions"] = sorted(_id_map(values.get("enemyActions")))
     known["lootTables"] = sorted(_id_map(values.get("lootTables")))
@@ -709,12 +723,18 @@ def load_catalog(project_root: Path) -> dict[str, Any]:
     except (FileNotFoundError, JsParseError):
         pass
     ability_labels = {key: value.get("name", key) for key, value in _id_map(ability_map).items() if isinstance(value, dict)}
+    injury_map = _id_map(values.get("injuries"))
+    injury_labels = {key: value.get("name", key) for key, value in injury_map.items() if isinstance(value, dict)}
+    camp_event_map = _id_map(values.get("campEvents"))
+    camp_event_labels = {key: value.get("title", key) for key, value in camp_event_map.items() if isinstance(value, dict)}
 
     return {
         "projectRoot": str(project_root),
         "files": source_paths,
         "sourceHashes": source_hashes,
         "encounters": values["encounters"],
+        "injuries": values["injuries"],
+        "campEvents": values["campEvents"],
         "expeditions": values["expeditions"],
         "recipes": values["recipes"],
         "materials": values["materials"],
@@ -727,10 +747,13 @@ def load_catalog(project_root: Path) -> dict[str, Any]:
         "enemyActions": values["enemyActions"],
         "lootTables": values["lootTables"],
         "known": {key: sorted(set(items)) for key, items in known.items()},
+        "campEventTables": reference_values.get("campEventTables", {}),
         "paths": build_path_index(values["encounters"], values["expeditions"]),
         "itemLabels": item_labels,
         "materialLabels": material_labels,
         "abilityLabels": ability_labels,
+        "injuryLabels": injury_labels,
+        "campEventLabels": camp_event_labels,
         "references": refs,
         "validation": validation,
     }
@@ -775,6 +798,11 @@ def _validate_requirements(requirements: Any, source: str, path: str, errors: li
     for index, requirement in enumerate(requirements):
         if not isinstance(requirement, dict) or not isinstance(requirement.get("type"), str):
             errors.append(_issue("error", "Each requirement must be an object with a type.", source, f"{path}[{index}]"))
+            continue
+        requirement_path = f"{path}[{index}]"
+        nested = requirement.get("requirements")
+        if nested is not None:
+            _validate_requirements(nested, source, f"{requirement_path}.requirements", errors)
 
 
 def _validate_positive_integer(value: Any, label: str, source: str, path: str, errors: list[dict[str, str]]) -> None:
@@ -795,6 +823,9 @@ def _validate_resolution_outcome(outcome: Any, known: dict[str, list[str]], sour
         errors.append(_issue("error", "Each outcome must be an object with a type.", source, path))
         return
     outcome_type = outcome["type"]
+
+    if "requirements" in outcome:
+        _validate_requirements(outcome.get("requirements"), source, f"{path}.requirements", errors)
 
     if outcome_type == "startCombat":
         combat_id = outcome.get("combatId")
@@ -859,6 +890,10 @@ def _validate_resolution_outcome(outcome: Any, known: dict[str, list[str]], sour
                     errors.append(_issue("error", "randomOne option resultText must be a string.", source, f"{option_path}.resultText"))
                 if "effects" in option:
                     _validate_resolution_outcomes(option.get("effects"), known, source, f"{option_path}.effects", errors)
+                if "elseEffects" in option:
+                    _validate_resolution_outcomes(option.get("elseEffects"), known, source, f"{option_path}.elseEffects", errors)
+                if "requirements" in option:
+                    _validate_requirements(option.get("requirements"), source, f"{option_path}.requirements", errors)
 
     for collection_name in ("effects", "elseEffects"):
         if collection_name in outcome:
@@ -949,6 +984,117 @@ def _validate_encounters(encounters: Any, known: dict[str, list[str]], errors: l
                         _validate_chance(choice, source, choice_path, errors)
                 if "outcomes" in stage:
                     _validate_resolution_outcomes(stage.get("outcomes"), known, source, f"{stage_path}.outcomes", errors)
+
+
+def _validate_injuries(injuries: Any, known: dict[str, list[str]], errors: list[dict[str, str]]) -> None:
+    if not isinstance(injuries, dict):
+        errors.append(_issue("error", "Injury definitions must be an object.", "injuries"))
+        return
+    seen_ids: set[str] = set()
+    for entry_id, injury in injuries.items():
+        source = f"injury:{entry_id}"
+        if not isinstance(injury, dict):
+            errors.append(_issue("error", "Injury must be an object.", source))
+            continue
+        injury_id = injury.get("id")
+        if not isinstance(injury_id, str) or not injury_id:
+            errors.append(_issue("error", "Injury id is required.", source, "id"))
+        elif injury_id != entry_id:
+            errors.append(_issue("error", f"Definition key {entry_id!r} does not match its id field.", source, "id"))
+        elif injury_id in seen_ids:
+            errors.append(_issue("error", f"Duplicate injury ID {injury_id!r}.", source, "id"))
+        else:
+            seen_ids.add(injury_id)
+        for field_name in ("name", "shortName", "description"):
+            if not isinstance(injury.get(field_name), str) or not injury.get(field_name):
+                errors.append(_issue("error", f"Injury {field_name} is required.", source, field_name))
+        if "effects" in injury and not isinstance(injury.get("effects"), dict):
+            errors.append(_issue("error", "Injury effects must be an object.", source, "effects"))
+        recovery = injury.get("recoveryDistanceRange")
+        if recovery is not None:
+            if not isinstance(recovery, dict):
+                errors.append(_issue("error", "recoveryDistanceRange must be an object.", source, "recoveryDistanceRange"))
+            else:
+                minimum = recovery.get("minimum")
+                maximum = recovery.get("maximum")
+                if minimum is not None and (not _is_number(minimum) or minimum < 0):
+                    errors.append(_issue("error", "Recovery minimum must be a non-negative number.", source, "recoveryDistanceRange.minimum"))
+                if maximum is not None and (not _is_number(maximum) or maximum < 0):
+                    errors.append(_issue("error", "Recovery maximum must be a non-negative number.", source, "recoveryDistanceRange.maximum"))
+                if _is_number(minimum) and _is_number(maximum) and minimum > maximum:
+                    errors.append(_issue("error", "Recovery minimum cannot exceed maximum.", source, "recoveryDistanceRange.maximum"))
+        for field_name in ("infectionCheckDistance", "travelDamageAmount", "travelDamageInterval"):
+            if field_name in injury and (not _is_number(injury.get(field_name)) or injury[field_name] < 0):
+                errors.append(_issue("error", f"{field_name} must be a non-negative number.", source, field_name))
+        if "infectionChance" in injury and (not _is_number(injury.get("infectionChance")) or not 0 <= injury["infectionChance"] <= 1):
+            errors.append(_issue("error", "infectionChance must be between 0 and 1.", source, "infectionChance"))
+        if "treatmentItemId" in injury and injury.get("treatmentItemId") is not None and injury.get("treatmentItemId") not in set(known.get("items", [])):
+            errors.append(_issue("error", f"Unknown treatment item ID {injury.get('treatmentItemId')!r}.", source, "treatmentItemId"))
+
+
+def _validate_staged_events(events: Any, known: dict[str, list[str]], errors: list[dict[str, str]], source_prefix: str, label: str) -> None:
+    if not isinstance(events, dict):
+        errors.append(_issue("error", f"{label} definitions must be an object.", label))
+        return
+    seen_ids: set[str] = set()
+    for entry_id, event in events.items():
+        source = f"{label[:-1] if label.endswith('s') else label}:{entry_id}"
+        if not isinstance(event, dict):
+            errors.append(_issue("error", f"{label[:-1].capitalize()} must be an object.", source))
+            continue
+        if event.get("id") != entry_id:
+            errors.append(_issue("error", f"Definition key {entry_id!r} does not match its id field.", source, "id"))
+        elif entry_id in seen_ids:
+            errors.append(_issue("error", f"Duplicate {label[:-1]} ID {entry_id!r}.", source, "id"))
+        else:
+            seen_ids.add(entry_id)
+        for field_name in ("title", "description", "regionId", "requirements", "stages"):
+            if field_name not in event:
+                errors.append(_issue("error", f"Missing required {label[:-1]} field {field_name!r}.", source, field_name))
+        if "pathIds" in event and (not isinstance(event.get("pathIds"), list) or not all(isinstance(item, str) for item in event.get("pathIds", []))):
+            errors.append(_issue("error", "pathIds must be an array of path IDs.", source, "pathIds"))
+        for field_name in ("weight", "minimumDistance", "maximumDistance"):
+            if field_name in event and event.get(field_name) is not None and not _is_number(event.get(field_name)):
+                errors.append(_issue("error", f"{field_name} must be numeric.", source, field_name))
+        minimum = event.get("minimumDistance")
+        maximum = event.get("maximumDistance")
+        if _is_number(minimum) and _is_number(maximum) and minimum > maximum:
+            errors.append(_issue("error", "minimumDistance cannot be greater than maximumDistance.", source, "maximumDistance"))
+        _validate_requirements(event.get("requirements"), source, "requirements", errors)
+        stages = event.get("stages")
+        if not isinstance(stages, dict) or not stages:
+            errors.append(_issue("error", f"A {label[:-1]} must have at least one stage.", source, "stages"))
+            continue
+        for stage_id, stage in stages.items():
+            stage_path = f"stages.{stage_id}"
+            if not isinstance(stage, dict):
+                errors.append(_issue("error", "Stage must be an object.", source, stage_path))
+                continue
+            if not isinstance(stage.get("text"), str):
+                errors.append(_issue("error", "Stage text is required.", source, f"{stage_path}.text"))
+            choices = stage.get("choices", [] if stage.get("resultStage") is True else None)
+            if not isinstance(choices, list):
+                errors.append(_issue("error", "Stage choices must be an array unless this is a resultStage.", source, f"{stage_path}.choices"))
+                choices = []
+            for index, choice in enumerate(choices):
+                choice_path = f"{stage_path}.choices[{index}]"
+                if not isinstance(choice, dict):
+                    errors.append(_issue("error", "Choice must be an object.", source, choice_path))
+                    continue
+                if not isinstance(choice.get("id"), str) or not choice.get("id"):
+                    errors.append(_issue("error", "Choice ID is required.", source, f"{choice_path}.id"))
+                _validate_requirements(choice.get("requirements"), source, f"{choice_path}.requirements", errors)
+                if "outcomes" in choice:
+                    _validate_resolution_outcomes(choice.get("outcomes"), known, source, f"{choice_path}.outcomes", errors)
+                if "costs" in choice and not isinstance(choice.get("costs"), list):
+                    errors.append(_issue("error", "costs must be an array.", source, f"{choice_path}.costs"))
+                _validate_chance(choice, source, choice_path, errors)
+            if "outcomes" in stage:
+                _validate_resolution_outcomes(stage.get("outcomes"), known, source, f"{stage_path}.outcomes", errors)
+
+
+def _validate_camp_events(events: Any, known: dict[str, list[str]], errors: list[dict[str, str]]) -> None:
+    _validate_staged_events(events, known, errors, "campEvents", "campEvents")
 
 
 def _validate_shops(shops: Any, known: dict[str, list[str]], errors: list[dict[str, str]]) -> None:
@@ -1470,7 +1616,7 @@ def validate_catalog(values: dict[str, Any], known: dict[str, list[str]], refere
     effective_known = {key: list(value) for key, value in known.items()}
     item_ids = sorted(_id_map(values.get("items"))) if "items" in values else list(known.get("items", []))
     effective_known["items"] = item_ids
-    for value_key, known_key in (("combats", "combats"), ("abilities", "abilities"), ("enemyDefinitions", "enemies"), ("enemyActions", "enemyActions"), ("lootTables", "lootTables")):
+    for value_key, known_key in (("combats", "combats"), ("abilities", "abilities"), ("injuries", "injuries"), ("campEvents", "campEvents"), ("enemyDefinitions", "enemies"), ("enemyActions", "enemyActions"), ("lootTables", "lootTables")):
         if value_key in values:
             effective_known[known_key] = sorted(_id_map(values.get(value_key)))
     if "expeditions" in values:
@@ -1485,6 +1631,10 @@ def validate_catalog(values: dict[str, Any], known: dict[str, list[str]], refere
         errors.append(_issue("error", f"Duplicate object key {duplicate['id']!r}.", duplicate["source"]))
     if "encounters" in values:
         _validate_encounters(values.get("encounters"), effective_known, errors)
+    if "injuries" in values:
+        _validate_injuries(values.get("injuries"), effective_known, errors)
+    if "campEvents" in values:
+        _validate_camp_events(values.get("campEvents"), effective_known, errors)
     if "expeditions" in values:
         _validate_expeditions(values.get("expeditions"), effective_known, errors)
     if "recipes" in values:
@@ -1526,7 +1676,7 @@ def validate_catalog(values: dict[str, Any], known: dict[str, list[str]], refere
                     "abilities": "ability", "lootTables": "loot table", "enemyActions": "enemy action",
                     "combats": "combat", "items": "item", "shops": "shop", "materials": "material",
                     "recipes": "recipe", "enemies": "enemy", "injuries": "injury", "expeditions": "expedition",
-                    "craftingProviders": "crafting provider",
+                    "craftingProviders": "crafting provider", "campEvents": "camp event",
                 }.get(ref_type, ref_type[:-1] if ref_type.endswith("s") else ref_type)
                 errors.append(_issue("error", f"Unknown {label} ID {entry['id']!r}.", entry["source"], entry["path"]))
 

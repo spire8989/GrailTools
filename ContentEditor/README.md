@@ -37,7 +37,7 @@ python server.py --project "E:\path\to\Grail"
 The default project is discovered as the sibling `../../Grail` relative to
 `ContentEditor/server.py`.
 
-## Supported Phase 6 content
+## Supported Phase 7 content
 
 - Encounters: metadata, path and direction filters, requirements, stages,
   choices, costs, outcomes/effects, pending actions, and advanced raw JSON.
@@ -79,6 +79,22 @@ The default project is discovered as the sibling `../../Grail` relative to
   editor. Providers currently author only ID and name; recipe assignment is
   authored by each recipe's `craftingProvider` field and grouped here for
   browsing.
+- Injuries: the canonical `INJURY_DEFINITIONS` editor, including identity,
+  treatment item, recovery range, infection/travel-damage fields, known
+  generic effect multipliers, and an advanced JSON escape hatch for future
+  effect shapes. References are checked before deletion.
+- Camp Events: the canonical `CAMP_EVENT_DEFINITIONS` editor, including
+  identity, region/path applicability, optional occurrence and distance
+  limits, staged choices, requirements, costs, and recursively editable
+  outcomes. Camp-event table references remain linked to the editable event
+  entries.
+
+Encounter and camp-event effects/requirements use the same recursive,
+schema-aware editor at supported nesting depths. This includes conditional
+requirements and effects, random chance branches, random-one options, and
+combat Victory/Fled outcomes. Add/remove controls are available for nested
+collections and random options; Advanced JSON remains available for uncommon
+future shapes.
 
 Selectors are populated from the current game definitions in `data.js`,
 `combat-data.js`, `injury-data.js`, `loot-data.js`, and `expedition-data.js`.
@@ -103,6 +119,8 @@ The server reads the current JavaScript constants directly from:
 - `Grail/js/loot-data.js`
 - `Grail/js/expedition-data.js`
 - `Grail/js/crafting-data.js`
+- `Grail/js/injury-data.js`
+- `Grail/js/camp-data.js`
 
 The editor starts with an in-memory copy and shows an unsaved indicator. Save
 is explicit. Before writing, it validates references and structure, checks the
@@ -134,18 +152,18 @@ The editor never silently repairs authored content.
 - The parser intentionally supports the data-only object-literal subset used
   by the current authored constants; it does not execute arbitrary JavaScript
   or promise a general JavaScript round-trip formatter.
-- The editor writes encounters and shops in their existing files, items in
+- The editor writes encounters, injuries, and camp events in their existing
+  files, items in
   `Grail/js/data.js`, combat/ability/loot definitions in their existing
   source files, and Expeditions in `Grail/js/expedition-data.js`. Paths do not
   have a standalone authored constant in the current game, so their metadata
   remains derived and only encounter membership is editable from the Path
-  view. Locations, recipes, camp events, and injuries remain read-only
-  reference sources.
+  view. Locations remain read-only reference sources.
 - Enemy definitions and enemy actions are edited through their owning Combat
   roster/action-pattern controls; they are not separate navigation categories.
-- The editor does not yet provide NPC, dialogue, location, camp-event, or
-  injury editors. It does not invent standalone Path definitions for the
-  current distributed path-ID architecture.
+- The editor does not yet provide NPC, dialogue, location, or standalone Path
+  editors. It does not invent standalone Path definitions for the current
+  distributed path-ID architecture.
 - Crafting providers currently have only the authored ID/name fields. Recipe
   unlocks are direct loot-table `recipe` entries; no recipe item or separate
   unlock database exists in the current game.

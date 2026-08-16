@@ -437,6 +437,57 @@ class Phase6FilterBrowserTests(unittest.TestCase):
         self.assertEqual(self.count(), (item_total, item_total))
         self.assertTrue(self.browser.evaluate("document.querySelector('[data-category=craftingProviders]').textContent.trim()").startswith("Crafting"))
 
+    def test_phase7_recursive_requirements_effects_and_combat_branches_are_visible(self) -> None:
+        self.click_category("encounters")
+        self.browser.evaluate("document.querySelector('[data-action=select][data-id=road_behind_you]').click()")
+        self.assertTrue(self.browser.evaluate("""
+            (() => {
+              const nested = Array.from(document.querySelectorAll('[data-object-row]'));
+              return nested.some(row => row.querySelector('select[data-object-field="type"]')?.value === 'conditional'
+                && nested.some(child => child.dataset.collectionName === 'requirements' && child.dataset.parentPath?.includes('outcomes[0]'))
+                && nested.some(child => child.dataset.collectionName === 'effects' && child.dataset.parentPath?.includes('outcomes[0]'))
+                && nested.some(child => child.dataset.collectionName === 'elseEffects' && child.dataset.parentPath?.includes('outcomes[0]')));
+            })()
+        """))
+
+        self.browser.evaluate("document.querySelector('[data-action=select][data-id=barenton_fountain_ritual]').click()")
+        self.assertTrue(self.browser.evaluate("""
+            Array.from(document.querySelectorAll('[data-object-row]')).some(row =>
+              row.querySelector('select[data-object-field="type"]')?.value === 'conditional'
+              && row.dataset.parentPath?.includes('.victory'))
+            && Array.from(document.querySelectorAll('[data-object-row]')).some(row =>
+              row.dataset.collectionName === 'requirements' && row.dataset.parentPath?.includes('victory.outcomes'))
+        """))
+
+    def test_phase7_injury_and_camp_event_editors_expose_live_nested_data(self) -> None:
+        self.click_category("injuries")
+        self.browser.evaluate("document.querySelector('[data-action=select][data-id=poisoned]').click()")
+        self.assertTrue(self.browser.evaluate("""
+            Boolean(document.querySelector('#editor-root [data-field=travelDamageAmount]'))
+            && Boolean(document.querySelector('#editor-root [data-field=travelDamageInterval]'))
+            && Boolean(document.querySelector('#editor-root [data-injury-effect-field=incomingDamageMultiplier]'))
+        """))
+        self.browser.evaluate("""
+            (() => {
+              const input = document.querySelector('#editor-root [data-field=travelDamageInterval]');
+              input.value = '6';
+              input.dispatchEvent(new Event('change', {bubbles: true}));
+            })()
+        """)
+        self.assertIn("Unsaved changes", self.browser.evaluate("document.querySelector('#dirty-indicator').textContent"))
+
+        self.click_category("campEvents")
+        self.browser.evaluate("document.querySelector('[data-action=select][data-id=stranger_approaches]').click()")
+        self.assertTrue(self.browser.evaluate("""
+            Boolean(document.querySelector('#editor-root [data-field=title]'))
+            && Array.from(document.querySelectorAll('#editor-root select[data-object-field="type"]')).some(select => select.value === 'randomOne')
+            && document.querySelectorAll('.resolution-option').length === 3
+            && Array.from(document.querySelectorAll('[data-object-row]')).some(row =>
+              row.dataset.collectionName === 'effects' && row.dataset.parentPath?.includes('options[0]'))
+        """))
+        self.browser.evaluate("document.querySelector('[data-action=add-resolution-option]').click()")
+        self.assertEqual(self.browser.evaluate("document.querySelectorAll('.resolution-option').length"), 4)
+
 
 if __name__ == "__main__":
     unittest.main()

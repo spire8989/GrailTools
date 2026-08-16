@@ -2,7 +2,8 @@
 
 const COMMON_REQUIREMENT_TYPES = [
   "ownsItem", "notOwnsItem", "carriedItem", "equippedItem", "availableExpeditionItem",
-  "knowledge", "runFlag", "notRunFlag", "currentPath", "minimumResource", "notUnlockedCompanion",
+  "knowledge", "companion", "unlockedCompanion", "notUnlockedCompanion", "runFlag", "notRunFlag",
+  "campaignFlag", "currentPath", "minimumResource", "minimumHealth", "maximumHealth", "minimumDistance",
 ];
 const COMMON_EFFECT_TYPES = [
   "modifyResource", "consumeExpeditionItem", "gainUnsecuredItem", "gainUniqueUnsecuredItem",
@@ -13,6 +14,8 @@ const COMMON_EFFECT_TYPES = [
 
 const CONTENT_CATEGORIES = [
   ["encounters", "Encounters"],
+  ["injuries", "Injuries"],
+  ["campEvents", "Camp Events"],
   ["paths", "Paths"],
   ["expeditions", "Expeditions"],
   ["recipes", "Recipes"],
@@ -26,7 +29,7 @@ const CONTENT_CATEGORIES = [
 ];
 
 const EDITABLE_REFERENCE_SOURCES = new Set([
-  "encounters", "expeditions", "recipes", "materials", "craftingProviders", "shops", "items", "combats", "abilities", "enemyDefinitions", "enemyActions", "lootTables",
+  "encounters", "injuries", "campEvents", "expeditions", "recipes", "materials", "craftingProviders", "shops", "items", "combats", "abilities", "enemyDefinitions", "enemyActions", "lootTables",
 ]);
 
 const state = {
@@ -145,6 +148,18 @@ function materialLabel(materialId) {
   return name
     ? `${name} (${materialId})`
     : materialId;
+}
+
+function injuryLabel(injuryId) {
+  const injury = state.catalog?.injuries?.[injuryId];
+  const label = injury?.name || state.catalog?.injuryLabels?.[injuryId];
+  return label ? `${label} (${injuryId})` : injuryId;
+}
+
+function campEventLabel(eventId) {
+  const event = state.catalog?.campEvents?.[eventId];
+  const label = event?.title || state.catalog?.campEventLabels?.[eventId];
+  return label ? `${label} (${eventId})` : eventId;
 }
 
 const ITEM_FILTER_FLAGS = ["carriable", "consumable", "questItem", "campaignItem", "unique", "sellable", "protected"];
@@ -323,12 +338,18 @@ function referenceInput(field, value, rootField = false) {
       : "";
     return `<span class="reference-inline"><input list="loot-table-options" ${fieldAttribute} value="${escapeHtml(value || "")}" placeholder="loot table ID">${openButton}</span>`;
   }
-  const map = { combatId: "combats", abilityId: "abilities", injuryId: "injuries", tableId: "lootTables", pathId: "paths", expeditionId: "expeditions", recipeId: "recipes", materialId: "materials", craftingProvider: "craftingProviders", craftingProviderId: "craftingProviders", regionId: "regions" };
+  const map = { combatId: "combats", abilityId: "abilities", injuryId: "injuries", treatmentItemId: "items", tableId: "lootTables", pathId: "paths", expeditionId: "expeditions", recipeId: "recipes", materialId: "materials", craftingProvider: "craftingProviders", craftingProviderId: "craftingProviders", regionId: "regions", eventId: "campEvents", campEventId: "campEvents", knowledgeId: "knowledge", companionId: "companions" };
   if (!map[field]) return `<input ${fieldAttribute} value="${escapeHtml(value || "")}">`;
-  const values = ["combats", "abilities", "lootTables", "paths", "expeditions", "recipes", "materials", "craftingProviders"].includes(map[field])
+  const values = ["items", "combats", "abilities", "injuries", "campEvents", "lootTables", "paths", "expeditions", "recipes", "materials", "craftingProviders"].includes(map[field])
     ? Object.keys(state.catalog?.[map[field]] || {}).sort()
     : known[map[field]] || [];
-  const labels = map[field] === "abilities"
+  const labels = map[field] === "items"
+    ? Object.fromEntries(values.map((id) => [id, itemLabel(id)]))
+    : map[field] === "injuries"
+    ? Object.fromEntries(values.map((id) => [id, injuryLabel(id)]))
+    : map[field] === "campEvents"
+      ? Object.fromEntries(values.map((id) => [id, campEventLabel(id)]))
+      : map[field] === "abilities"
     ? Object.fromEntries(values.map((id) => [id, abilityLabel(id)]))
     : map[field] === "paths"
       ? Object.fromEntries(values.map((id) => [id, pathLabel(id)]))
@@ -341,7 +362,7 @@ function referenceInput(field, value, rootField = false) {
           : map[field] === "craftingProviders"
             ? Object.fromEntries(values.map((id) => [id, providerLabel(id)]))
     : {};
-  const openCategory = map[field] === "combats" ? "combats" : map[field] === "abilities" ? "abilities" : map[field] === "lootTables" ? "lootTables" : map[field] === "paths" ? "paths" : map[field] === "expeditions" ? "expeditions" : map[field] === "recipes" ? "recipes" : map[field] === "materials" ? "materials" : map[field] === "craftingProviders" ? "craftingProviders" : null;
+  const openCategory = map[field] === "items" ? "items" : map[field] === "combats" ? "combats" : map[field] === "abilities" ? "abilities" : map[field] === "injuries" ? "injuries" : map[field] === "campEvents" ? "campEvents" : map[field] === "lootTables" ? "lootTables" : map[field] === "paths" ? "paths" : map[field] === "expeditions" ? "expeditions" : map[field] === "recipes" ? "recipes" : map[field] === "materials" ? "materials" : map[field] === "craftingProviders" ? "craftingProviders" : null;
   const openButton = openCategory && value
     ? ` <button type="button" class="small-button inline-open" data-action="open-reference" data-reference-category="${openCategory}" data-reference-id="${escapeHtml(value)}">Open</button>`
     : "";
@@ -363,7 +384,7 @@ function quickObjectFields(object) {
   if ("tableId" in object || type === "rollLootTable") add("tableId", "Loot table", "reference");
   if ("pathId" in object || ["changePath", "currentPath"].includes(type)) add("pathId", "Path", "reference");
   if ("chance" in object || type === "randomChance") add("chance", "Chance", "number");
-  if ("amount" in object || ["modifyResource", "minimumResource"].includes(type)) add("amount", "Amount", "number");
+  if ("amount" in object || ["modifyResource", "minimumResource", "minimumHealth", "maximumHealth", "minimumDistance"].includes(type)) add("amount", "Amount", "number");
   if ("quantity" in object || /Item/.test(type)) add("quantity", "Quantity", "number");
   if ("rolls" in object || type === "rollLootTable") add("rolls", "Rolls", "number");
   if ("weight" in object || type === "gainWeightedRandomUnsecuredItem") add("weight", "Weight", "number");
@@ -371,8 +392,11 @@ function quickObjectFields(object) {
   if ("target" in object || type === "applyInjury") add("target", "Target");
   if ("injuryChance" in object) add("injuryChance", "Injury chance", "number");
   if ("flag" in object || /Flag$/.test(type)) add("flag", "Flag");
-  if ("knowledgeId" in object || type === "knowledge") add("knowledgeId", "Knowledge");
-  if ("companionId" in object || type === "notUnlockedCompanion") add("companionId", "Companion");
+  if ("knowledgeId" in object || type === "knowledge") add("knowledgeId", "Knowledge", "reference");
+  if ("companionId" in object || ["companion", "unlockedCompanion", "notUnlockedCompanion", "unlockCompanion"].includes(type)) add("companionId", "Companion", "reference");
+  if ("value" in object || ["runFlag", "notRunFlag", "setRunFlag", "setCampaignFlag", "campaignFlag"].includes(type)) add("value", "Value");
+  if ("resultText" in object || ["randomChance", "conditional"].includes(type)) add("resultText", "Result text");
+  if ("elseResultText" in object || type === "randomChance") add("elseResultText", "Else result text");
   if ("lockedLabel" in object) add("lockedLabel", "Locked label");
   if ("source" in object) add("source", "Source");
   return fields;
@@ -390,9 +414,16 @@ function pathValue(root, path) {
 
 function collectionNameForOwner(owner) {
   if (owner === "stage-outcomes") return "outcomes";
-  if (owner === "encounter-requirements") return "requirements";
+  if (owner.endsWith("-requirements")) return "requirements";
   if (owner.startsWith("resolution-")) return owner.slice("resolution-".length);
+  if (owner.startsWith("nested-")) return owner.slice("nested-".length);
   return owner;
+}
+
+function isRequirementCollectionOwner(owner) {
+  return owner === "requirements"
+    || owner === "encounter-requirements"
+    || owner.endsWith("-requirements");
 }
 
 function collectionPath(parentPath, collectionName) {
@@ -419,17 +450,23 @@ function renderResolutionItemList(object, objectPath) {
 
 function renderResolutionOptions(object, objectPath) {
   if (!Array.isArray(object.options)) return "";
-  return `<div class="resolution-options"><div class="nested-heading"><span>Random options <span class="panel-count">${object.options.length}</span></span></div>${object.options.map((option, index) => {
+  return `<div class="resolution-options"><div class="nested-heading"><span>Random options <span class="panel-count">${object.options.length}</span></span><button type="button" class="small-button" data-action="add-resolution-option" data-resolution-path="${escapeHtml(objectPath)}">Add option</button></div>${object.options.map((option, index) => {
     const optionPath = `${objectPath}.options[${index}]`;
-    return `<div class="resolution-option"><strong>Option ${index + 1}</strong><label class="wide">Result text<textarea data-resolution-field="resultText" data-resolution-path="${escapeHtml(optionPath)}">${escapeHtml(option?.resultText || "")}</textarea></label>${renderObjectCollection("Option effects", option?.effects, "resolution-effects", "", -1, optionPath, true)}</div>`;
-  }).join("")}</div>`;
+    return `<div class="resolution-option"><div class="object-top"><strong>Option ${index + 1}</strong><button type="button" class="small-button danger-outline" data-action="remove-resolution-option" data-resolution-path="${escapeHtml(objectPath)}" data-resolution-option-index="${index}">Remove</button></div><div class="form-grid"><label>Weight<input type="number" step="any" data-resolution-field="weight" data-resolution-path="${escapeHtml(optionPath)}" value="${escapeHtml(option?.weight ?? "")}"></label><label class="wide">Result text<textarea data-resolution-field="resultText" data-resolution-path="${escapeHtml(optionPath)}">${escapeHtml(option?.resultText || "")}</textarea></label><label class="wide">Else result text<textarea data-resolution-field="elseResultText" data-resolution-path="${escapeHtml(optionPath)}">${escapeHtml(option?.elseResultText || "")}</textarea></label></div>${renderObjectCollection("Option requirements", option?.requirements, "resolution-requirements", "", -1, optionPath, true)}${renderObjectCollection("Option effects", option?.effects, "resolution-effects", "", -1, optionPath, true)}${renderObjectCollection("Option else effects", option?.elseEffects, "resolution-elseEffects", "", -1, optionPath, true)}</div>`;
+  }).join("") || `<p class="hint">No options. Add an option to author the random branch.</p>`}</div>`;
 }
 
 function renderResolutionNestedCollections(object, objectPath) {
   if (!objectPath) return "";
   const nested = [];
+  if (Array.isArray(object.requirements)) nested.push(renderObjectCollection("Nested requirements", object.requirements, "resolution-requirements", "", -1, objectPath, true));
   if (Array.isArray(object.effects)) nested.push(renderObjectCollection("Nested effects", object.effects, "resolution-effects", "", -1, objectPath, true));
   if (Array.isArray(object.elseEffects)) nested.push(renderObjectCollection("Else effects", object.elseEffects, "resolution-elseEffects", "", -1, objectPath, true));
+  if (object.secondaryOutcome && typeof object.secondaryOutcome === "object") {
+    const secondaryPath = `${objectPath}.secondaryOutcome`;
+    if (Array.isArray(object.secondaryOutcome.effects)) nested.push(renderObjectCollection("Secondary outcome effects", object.secondaryOutcome.effects, "resolution-effects", "", -1, secondaryPath, true));
+    if (Array.isArray(object.secondaryOutcome.elseEffects)) nested.push(renderObjectCollection("Secondary outcome else effects", object.secondaryOutcome.elseEffects, "resolution-elseEffects", "", -1, secondaryPath, true));
+  }
   nested.push(renderResolutionOptions(object, objectPath));
   return nested.filter(Boolean).join("");
 }
@@ -445,12 +482,13 @@ function renderStartCombatResolution(object, objectPath) {
     renderCombatResolutionBranch("Victory", "victory", object.victory, objectPath),
     renderCombatResolutionBranch("Fled", "fled", object.fled, objectPath),
   ].filter(Boolean).join("");
-  return `<div class="combat-resolution"><div class="section-heading"><div><h4>Combat</h4><p>Combat resolution stays authored on this encounter outcome. Loot tables remain separate content.</p></div></div><div class="form-grid"><label class="wide">Combat reference${referenceInput("combatId", object.combatId)}</label></div>${branches || `<p class="hint">No victory or fled branch is authored for this startCombat outcome.</p>`}</div>`;
+  return `<div class="combat-resolution"><div class="section-heading"><div><h4>Combat</h4><p>Combat resolution stays authored on this encounter outcome. Loot tables remain separate content.</p></div></div><div class="form-grid"><label class="wide">Combat reference${referenceInput("combatId", object.combatId)}</label></div>${branches || `<p class="hint">No victory or fled branch is authored for this startCombat outcome.</p>`}${renderResolutionNestedCollections(object, objectPath)}</div>`;
 }
 
 function renderObjectCollection(label, collection, owner, stageId, choiceIndex, parentPath = null, resolutionContext = false) {
   const values = Array.isArray(collection) ? collection : [];
-  const types = [...new Set([...((owner === "requirements" || owner === "encounter-requirements") ? COMMON_REQUIREMENT_TYPES : COMMON_EFFECT_TYPES), ...values.map((value) => value?.type).filter(Boolean)])];
+  const requirements = isRequirementCollectionOwner(owner);
+  const types = [...new Set([...(requirements ? COMMON_REQUIREMENT_TYPES : COMMON_EFFECT_TYPES), ...values.map((value) => value?.type).filter(Boolean)])];
   const collectionName = collectionNameForOwner(owner);
   const nestedPath = parentPath === null ? null : collectionPath(parentPath, collectionName);
   const contextAttributes = parentPath === null ? "" : ` data-parent-path="${escapeHtml(parentPath)}" data-collection-name="${escapeHtml(collectionName)}"`;
@@ -467,7 +505,7 @@ function renderObjectCollection(label, collection, owner, stageId, choiceIndex, 
     const objectPath = nestedPath === null ? "" : `${nestedPath}[${index}]`;
     const special = object?.type === "startCombat"
       ? renderStartCombatResolution(object, objectPath)
-      : `${resolutionContext ? renderResolutionItemList(object || {}, objectPath) : ""}${resolutionContext ? renderResolutionNestedCollections(object || {}, objectPath) : ""}`;
+      : `${renderResolutionItemList(object || {}, objectPath)}${renderResolutionNestedCollections(object || {}, objectPath)}`;
     return `<div class="object-row" data-object-row data-owner="${owner}" data-stage="${escapeHtml(stageId)}" data-choice-index="${choiceIndex}" data-object-index="${index}"${contextAttributes}>
       <div class="object-top">
         <select data-object-field="type">${selectOptions(types, object?.type)} </select>
@@ -480,7 +518,7 @@ function renderObjectCollection(label, collection, owner, stageId, choiceIndex, 
   }).join("");
   const addPath = parentPath === null ? "" : ` data-parent-path="${escapeHtml(parentPath)}" data-collection-name="${escapeHtml(collectionName)}"`;
   return `<div class="nested-heading"><span>${escapeHtml(label)} <span class="panel-count">${values.length}</span></span><button type="button" class="small-button" data-action="add-object" data-owner="${owner}" data-stage="${escapeHtml(stageId)}" data-choice-index="${choiceIndex}"${addPath}>Add</button></div>
-    ${rows || `<p class="hint">None. Add a ${owner === "requirements" ? "requirement" : "cost or outcome"} when this choice needs one.</p>`}`;
+    ${rows || `<p class="hint">None. Add a ${requirements ? "requirement" : "cost or outcome"} when this collection needs one.</p>`}`;
 }
 
 function renderChoice(stageId, choice, index) {
@@ -542,6 +580,38 @@ function renderEncounter() {
       ${stageMarkup || `<div class="empty-state">Add a stage to begin authoring this encounter.</div>`}
     </section>
     <section class="section"><details><summary>Raw encounter JSON (advanced)</summary><p class="hint">Use this escape hatch for fields not exposed in the details editor. Apply JSON to update the in-memory draft; it is still validated before save.</p><textarea id="raw-json" class="raw-editor">${jsonText(encounter)}</textarea><div class="button-row"><button type="button" class="small-button" data-action="apply-raw">Apply raw JSON</button></div></details></section>`;
+}
+
+function renderInjury() {
+  const injury = state.draft;
+  if (!injury) return `<div class="empty-state">Choose an injury to edit.</div>`;
+  const known = state.catalog.known || {};
+  const effects = injury.effects || {};
+  const references = (liveReferences().injuries || []).filter((reference) => reference.id === injury.id);
+  const effectFields = [...new Set(["travelSpeedMultiplier", "hardPushRiskMultiplier", "maxHealthMultiplier", "defenseMultiplier", "combatGaugeRateMultiplier", "incomingDamageMultiplier", ...Object.keys(effects)])];
+  return `<div class="editor-title"><div><h2>${escapeHtml(injury.name || injury.id || "New injury")}</h2><p>${escapeHtml(injury.id || "Unsaved ID")}</p></div><span class="schema-badge">Injury schema</span></div>
+    <section class="section"><div class="section-heading"><div><h3>Injury identity</h3><p>Injuries are authored in <code>js/injury-data.js</code>; treatment and travel behavior remain data-driven.</p></div></div>
+      <div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(injury.id || "")}"></label><label>Name<input data-field="name" value="${escapeHtml(injury.name || "")}"></label><label>Short name<input data-field="shortName" value="${escapeHtml(injury.shortName || "")}"></label><label class="wide">Description<textarea data-field="description">${escapeHtml(injury.description || "")}</textarea></label><label>Treatment item${referenceInput("treatmentItemId", injury.treatmentItemId, true)}</label></div>
+    </section>
+    <section class="section"><div class="section-heading"><div><h3>Recovery and travel damage</h3><p>Optional fields remain absent when left blank, preserving legacy definitions.</p></div></div><div class="form-grid"><label>Recovery minimum<input type="number" min="0" step="any" data-injury-field="recoveryDistanceRange.minimum" value="${escapeHtml(injury.recoveryDistanceRange?.minimum ?? "")}"></label><label>Recovery maximum<input type="number" min="0" step="any" data-injury-field="recoveryDistanceRange.maximum" value="${escapeHtml(injury.recoveryDistanceRange?.maximum ?? "")}"></label><label>Infection check distance<input type="number" min="0" step="any" data-field="infectionCheckDistance" value="${escapeHtml(injury.infectionCheckDistance ?? "")}"></label><label>Infection chance<input type="number" min="0" max="1" step="any" data-field="infectionChance" value="${escapeHtml(injury.infectionChance ?? "")}"></label><label>Travel damage amount<input type="number" min="0" step="any" data-field="travelDamageAmount" value="${escapeHtml(injury.travelDamageAmount ?? "")}"></label><label>Travel damage interval<input type="number" min="0" step="any" data-field="travelDamageInterval" value="${escapeHtml(injury.travelDamageInterval ?? "")}"></label></div></section>
+    <section class="section"><div class="section-heading"><div><h3>Generic effects</h3><p>Known effect fields are quick-editable and additional authored keys remain available.</p></div></div><div class="form-grid">${effectFields.map((field) => `<label>${escapeHtml(field)}<input type="number" step="any" data-injury-effect-field="${escapeHtml(field)}" value="${escapeHtml(effects[field] ?? "")}"></label>`).join("")}</div></section>
+    <section class="section"><div class="section-heading"><div><h3>Used by</h3><p>Known encounter, item, and combat references are shown before deletion.</p></div></div><div class="reference-list">${renderReferenceRows(references, "No known current references to this injury.")}</div></section>
+    <section class="section"><details><summary>Raw injury JSON (advanced)</summary><p class="hint">Use this escape hatch for future injury shapes that are not yet represented by a dedicated control.</p><textarea id="raw-json" class="raw-editor">${jsonText(injury)}</textarea><div class="button-row"><button type="button" class="small-button" data-action="apply-raw">Apply raw JSON</button></div></details></section>`;
+}
+
+function renderCampEvent() {
+  const event = state.draft;
+  if (!event) return `<div class="empty-state">Choose a camp event to edit.</div>`;
+  const known = state.catalog.known || {};
+  const references = (liveReferences().campEvents || []).filter((reference) => reference.id === event.id);
+  const stageMarkup = Object.entries(event.stages || {}).map(([stageId, stage]) => {
+    const choices = Array.isArray(stage.choices) ? stage.choices : [];
+    return `<details class="stage-card" open><summary>${escapeHtml(stageId)}${stage.resultStage ? " · result stage" : ""}</summary><label>Stage text<textarea data-stage-field="text" data-stage="${escapeHtml(stageId)}">${escapeHtml(stage.text || "")}</textarea></label>${renderObjectCollection("Stage outcomes / effects", stage.outcomes, "stage-outcomes", stageId, -1, `stages.${stageId}`)}<div class="nested-heading"><span>Choices <span class="panel-count">${choices.length}</span></span><button type="button" class="small-button" data-action="add-choice" data-stage="${escapeHtml(stageId)}">Add choice</button></div>${choices.map((choice, index) => renderChoice(stageId, choice, index)).join("") || `<p class="hint">This result stage resolves automatically and has no choices.</p>`}<div class="button-row"><button type="button" class="small-button danger-outline" data-action="remove-stage" data-stage="${escapeHtml(stageId)}">Remove stage</button></div></details>`;
+  }).join("");
+  return `<div class="editor-title"><div><h2>${escapeHtml(event.title || event.id || "New camp event")}</h2><p>${escapeHtml(event.id || "Unsaved ID")}</p></div><span class="schema-badge">Camp event schema</span></div>
+    <section class="section"><div class="section-heading"><div><h3>Camp event identity</h3><p>Camp events are authored in <code>js/camp-data.js</code> and selected through expedition camp-event tables.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(event.id || "")}"></label><label>Title<input data-field="title" value="${escapeHtml(event.title || "")}"></label><label class="wide">Description<textarea data-field="description">${escapeHtml(event.description || "")}</textarea></label><label>Region<select data-field="regionId"><option value="">Select region...</option>${selectOptions(known.regions || [], event.regionId)}</select></label><label>Weight<input type="number" step="any" data-field="weight" value="${escapeHtml(event.weight ?? "")}" placeholder="optional"></label><label>Minimum distance<input type="number" step="any" data-field="minimumDistance" value="${escapeHtml(event.minimumDistance ?? "")}" placeholder="optional"></label><label>Maximum distance<input type="number" step="any" data-field="maximumDistance" value="${escapeHtml(event.maximumDistance ?? "")}" placeholder="optional"></label><label>Max occurrences per run<input type="number" step="1" data-field="maxOccurrencesPerRun" value="${escapeHtml(event.maxOccurrencesPerRun ?? "")}" placeholder="optional"></label><label class="wide">Tags<input data-array-field="tags" value="${escapeHtml((event.tags || []).join(", "))}" placeholder="camp, discovery"></label></div><div class="section-heading" style="margin-top:14px"><div><h3>Paths</h3><p>Optional path applicability is stored as authored path IDs.</p></div></div>${renderReferenceChecks("pathIds", event.pathIds || [], known.paths || [], Object.fromEntries((known.paths || []).map((id) => [id, pathLabel(id)])))}${Object.prototype.hasOwnProperty.call(event, "expeditionIds") ? `<div class="section-heading" style="margin-top:14px"><div><h3>Expeditions</h3></div></div>${renderReferenceChecks("expeditionIds", event.expeditionIds || [], Object.keys(state.catalog.expeditions || {}).sort(), Object.fromEntries(Object.keys(state.catalog.expeditions || {}).map((id) => [id, expeditionLabel(id)])))}` : ""}${renderObjectCollection("Camp event requirements", event.requirements, "camp-event-requirements", "", -1, "")}</section>
+    <section class="section"><div class="section-heading"><div><h3>Stages and choices</h3><p>Camp events reuse the encounter stage, requirement, cost, and recursive outcome editor.</p></div><button type="button" class="small-button" data-action="add-stage">Add stage</button></div>${stageMarkup || `<div class="empty-state">Add a stage to begin authoring this camp event.</div>`}</section>
+    <section class="section"><div class="section-heading"><div><h3>Used by</h3><p>Camp-event tables and other known definitions are shown before deletion.</p></div></div><div class="reference-list">${renderReferenceRows(references, "No known current references to this camp event.")}</div></section><section class="section"><details><summary>Raw camp event JSON (advanced)</summary><p class="hint">Use this escape hatch for future camp-event fields while the visible editor covers common authored structures.</p><textarea id="raw-json" class="raw-editor">${jsonText(event)}</textarea><div class="button-row"><button type="button" class="small-button" data-action="apply-raw">Apply raw JSON</button></div></details></section>`;
 }
 
 function refreshDerivedPaths() {
@@ -626,9 +696,10 @@ function renderExpedition() {
   const known = state.catalog.known || {};
   const kinds = [...new Set([...(Object.values(state.catalog.expeditions || {}).map((value) => value.kind).filter(Boolean)), expedition.kind].filter(Boolean))].sort();
   const references = (liveReferences().expeditions || []).filter((reference) => reference.id === expedition.id);
+  const campEventLinks = [...new Set((expedition.campEventTableIds || []).flatMap((tableId) => (state.catalog.campEventTables?.[tableId]?.entries || []).map((entry) => entry.eventId)).filter((eventId) => state.catalog.campEvents?.[eventId]))].map((eventId) => `<button type="button" class="small-button inline-open" data-action="open-reference" data-reference-category="campEvents" data-reference-id="${escapeHtml(eventId)}">Open ${escapeHtml(campEventLabel(eventId))}</button>`).join(" ");
   return `<div class="editor-title"><div><h2>${escapeHtml(expedition.name || expedition.id || "New expedition")}</h2><p>${escapeHtml(expedition.id || "Unsaved ID")}</p></div><span class="schema-badge">Expedition schema</span></div>
     <section class="section"><div class="section-heading"><div><h3>Expedition metadata</h3><p>These fields are authored in <code>js/expedition-data.js</code> and remain the canonical expedition definition.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(expedition.id || "")}"></label><label>Name<input data-field="name" value="${escapeHtml(expedition.name || "")}"></label><label class="wide">Description<textarea data-field="description">${escapeHtml(expedition.description || "")}</textarea></label><label>Danger<input type="number" min="0" step="any" data-field="danger" value="${escapeHtml(expedition.danger ?? "")}"></label><label>Region<select data-field="regionId"><option value="">Select region...</option>${selectOptions(known.regions || [], expedition.regionId)}</select></label><label>Kind<select data-field="kind"><option value="">Select kind...</option>${selectOptions(kinds, expedition.kind)}</select></label><label class="wide">Path${referenceInput("pathId", expedition.pathId, true)}</label></div></section>
-    <section class="section"><div class="section-heading"><div><h3>Camp event tables</h3><p>Choose reusable table IDs from <code>CAMP_EVENT_TABLE_DEFINITIONS</code>.</p></div></div>${renderReferenceChecks("campEventTableIds", expedition.campEventTableIds || [], known.campEventTables || [])}</section>
+    <section class="section"><div class="section-heading"><div><h3>Camp event tables</h3><p>Choose reusable table IDs from <code>CAMP_EVENT_TABLE_DEFINITIONS</code>.</p></div></div>${renderReferenceChecks("campEventTableIds", expedition.campEventTableIds || [], known.campEventTables || [])}<div class="button-row">${campEventLinks || `<span class="hint">Selected tables have no editable camp-event entries.</span>`}</div></section>
     <section class="section"><div class="section-heading"><div><h3>Prerequisites</h3><p>These are item IDs required by the existing expedition runtime.</p></div></div>${renderReferenceChecks("prerequisites", expedition.prerequisites || [], known.items || [], Object.fromEntries((known.items || []).map((id) => [id, itemLabel(id)])))}</section>
     <section class="section"><div class="section-heading"><div><h3>Used by</h3><p>Known encounter and location references are shown before an expedition is deleted.</p></div></div><div class="reference-list">${renderReferenceRows(references, "No known current references to this expedition.")}</div></section>
     <section class="section"><details><summary>Raw expedition JSON (advanced)</summary><p class="hint">Use raw JSON for future schema fields while preserving validation and surgical source updates.</p><textarea id="raw-json" class="raw-editor">${jsonText(expedition)}</textarea><div class="button-row"><button type="button" class="small-button" data-action="apply-raw">Apply raw JSON</button></div></details></section>`;
@@ -636,13 +707,13 @@ function renderExpedition() {
 
 function collectClientReferences(value, source, references) {
   const scalarTypes = {
-    itemId: "items", combatId: "combats", abilityId: "abilities", injuryId: "injuries",
+    itemId: "items", treatmentItemId: "items", combatId: "combats", abilityId: "abilities", injuryId: "injuries",
     tableId: "lootTables", lootTableId: "lootTables", pathId: "paths", expeditionId: "expeditions",
     nextExpeditionId: "expeditions", materialId: "materials", recipeId: "recipes",
-    craftingProvider: "craftingProviders", craftingProviderId: "craftingProviders",
+    craftingProvider: "craftingProviders", craftingProviderId: "craftingProviders", eventId: "campEvents", campEventId: "campEvents", knowledgeId: "knowledge", companionId: "companions",
   };
   const listTypes = {
-    itemIds: "items", prerequisites: "items", enemyIds: "enemies", abilityIds: "abilities",
+    itemIds: "items", injuryIds: "injuries", prerequisites: "items", enemyIds: "enemies", abilityIds: "abilities",
     grantedAbilityIds: "abilities", combatAbilities: "abilities", actionPattern: "enemyActions",
     pathIds: "paths", expeditionIds: "expeditions", availableExpeditions: "expeditions", campEventTableIds: "campEventTables", recipeIds: "recipes",
   };
@@ -681,7 +752,7 @@ function liveReferences() {
   if (!state.catalog) return {};
   const references = {};
   const snapshot = draftSnapshot();
-  ["encounters", "expeditions", "recipes", "materials", "craftingProviders", "shops", "items", "combats", "abilities", "enemyDefinitions", "enemyActions", "lootTables"].forEach((source) => {
+  ["encounters", "injuries", "campEvents", "expeditions", "recipes", "materials", "craftingProviders", "shops", "items", "combats", "abilities", "enemyDefinitions", "enemyActions", "lootTables"].forEach((source) => {
     collectClientReferences(snapshot[source], source, references);
   });
   Object.entries(state.catalog.references || {}).forEach(([type, entries]) => {
@@ -693,7 +764,7 @@ function liveReferences() {
 }
 
 function referenceCategory(source) {
-  return { encounters: "encounters", expeditions: "expeditions", recipes: "recipes", materials: "materials", craftingProviders: "craftingProviders", shops: "shops", items: "items", combats: "combats", abilities: "abilities", lootTables: "lootTables" }[source] || null;
+  return { encounters: "encounters", injuries: "injuries", campEvents: "campEvents", campEventTables: "campEvents", expeditions: "expeditions", recipes: "recipes", materials: "materials", craftingProviders: "craftingProviders", shops: "shops", items: "items", combats: "combats", abilities: "abilities", lootTables: "lootTables" }[source] || null;
 }
 
 function referenceTitle(source, id) {
@@ -705,10 +776,14 @@ function referenceTitle(source, id) {
   if (source === "recipes") return recipeLabel(id);
   if (source === "materials") return materialLabel(id);
   if (source === "craftingProviders") return providerLabel(id);
+  if (source === "injuries") return injuryLabel(id);
+  if (source === "campEvents") return campEventLabel(id);
+  if (source === "campEventTables") return campEventLabel(id);
   return id;
 }
 
 function referenceSourceId(reference) {
+  if (reference.source === "campEventTables") return reference.id;
   return String(reference.path || "").split(/[.\[]/, 1)[0] || reference.id;
 }
 
@@ -1150,6 +1225,10 @@ function render() {
   $("[data-action='delete']").disabled = readonlyPaths;
   $("#editor-root").innerHTML = state.category === "encounters"
     ? renderEncounter()
+    : state.category === "injuries"
+      ? renderInjury()
+      : state.category === "campEvents"
+        ? renderCampEvent()
     : state.category === "paths"
       ? renderPath()
       : state.category === "expeditions"
@@ -1219,6 +1298,8 @@ function renderValidation() {
 function draftSnapshot() {
   const snapshot = {
     encounters: clone(state.catalog.encounters),
+    injuries: clone(state.catalog.injuries),
+    campEvents: clone(state.catalog.campEvents),
     expeditions: clone(state.catalog.expeditions),
     recipes: clone(state.catalog.recipes),
     materials: clone(state.catalog.materials),
@@ -1298,6 +1379,25 @@ function selectEntry(id, discard = false) {
 }
 
 function defaultEntry(category) {
+  if (category === "injuries") return {
+    id: "new_injury",
+    name: "New Injury",
+    shortName: "New Injury",
+    description: "",
+    effects: {},
+    recoveryDistanceRange: { minimum: 0, maximum: 0 },
+    treatmentItemId: null,
+  };
+  if (category === "campEvents") return {
+    id: "new_camp_event",
+    title: "New Camp Event",
+    description: "",
+    regionId: state.catalog.known.regions?.[0] || "",
+    pathIds: [],
+    tags: [],
+    requirements: [],
+    stages: { start: { text: "", choices: [] } },
+  };
   if (category === "shops") return { id: "new_shop", displayName: "New Shop", itemsForSale: {}, acceptedCategories: [], acceptedTags: [], sellValues: {} };
   if (category === "items") return {
     id: "new_weapon",
@@ -1388,7 +1488,8 @@ function duplicateEntry() {
   const map = state.catalog[state.category];
   const entry = clone(state.draft);
   entry.id = uniqueId(`${entry.id || "entry"}_copy`, map);
-  if (state.category === "encounters") entry.title = `${entry.title || "Encounter"} Copy`;
+  if (["encounters", "campEvents"].includes(state.category)) entry.title = `${entry.title || "Event"} Copy`;
+  else if (state.category === "injuries") entry.name = `${entry.name || "Injury"} Copy`;
   else if (state.category === "shops") entry.displayName = `${entry.displayName || "Shop"} Copy`;
   else if (["items", "abilities"].includes(state.category)) entry.name = `${entry.name || "Entry"} Copy`;
   else if (["expeditions", "recipes", "materials", "craftingProviders"].includes(state.category)) entry.name = `${entry.name || "Entry"} Copy`;
@@ -1403,7 +1504,7 @@ function duplicateEntry() {
 function deleteEntry() {
   if (!state.draft || !state.catalog || state.category === "paths") return;
   const id = state.draft.id || state.originalSelectedId;
-  const refType = state.category === "shops" ? "shops" : state.category === "items" ? "items" : state.category === "combats" ? "combats" : state.category === "abilities" ? "abilities" : state.category === "lootTables" ? "lootTables" : state.category === "expeditions" ? "expeditions" : state.category === "recipes" ? "recipes" : state.category === "materials" ? "materials" : state.category === "craftingProviders" ? "craftingProviders" : "encounters";
+  const refType = state.category === "shops" ? "shops" : state.category === "items" ? "items" : state.category === "combats" ? "combats" : state.category === "abilities" ? "abilities" : state.category === "injuries" ? "injuries" : state.category === "campEvents" ? "campEvents" : state.category === "lootTables" ? "lootTables" : state.category === "expeditions" ? "expeditions" : state.category === "recipes" ? "recipes" : state.category === "materials" ? "materials" : state.category === "craftingProviders" ? "craftingProviders" : "encounters";
   const refs = (liveReferences()[refType] || []).filter((reference) => reference.id === id);
   const warning = refs.length ? `\n\nReferences found:\n${refs.map((reference) => `- ${reference.source} (${reference.path})`).join("\n")}\n\nSaving this deletion will be blocked until those references are resolved.` : "";
   if (!window.confirm(`Delete ${id}? This is an in-memory deletion until you explicitly save.${warning}`)) return;
@@ -1643,6 +1744,17 @@ function handleInput(input) {
     state.draft.effects ||= {};
     state.draft.effects.combat ||= {};
     setNested(state.draft.effects.combat, input.dataset.itemCombatField, parseInputValue(input, input.dataset.itemCombatField));
+    markDirty();
+    return;
+  }
+  if (input.dataset.injuryEffectField) {
+    state.draft.effects ||= {};
+    setNested(state.draft.effects, input.dataset.injuryEffectField, parseInputValue(input, input.dataset.injuryEffectField));
+    markDirty();
+    return;
+  }
+  if (input.dataset.injuryField) {
+    setNested(state.draft, input.dataset.injuryField, parseInputValue(input, input.dataset.injuryField));
     markDirty();
     return;
   }
@@ -1912,7 +2024,7 @@ function handleAction(button) {
       : owner === "encounter-requirements" ? state.draft : getChoice(button.dataset.stage, button.dataset.choiceIndex);
     const collectionName = button.dataset.collectionName || (owner === "stage-outcomes" ? "outcomes" : owner === "encounter-requirements" ? "requirements" : owner);
     parent[collectionName] ||= [];
-    parent[collectionName].push({ type: owner === "requirements" || owner === "encounter-requirements" ? "ownsItem" : "modifyResource" });
+    parent[collectionName].push({ type: isRequirementCollectionOwner(owner) ? "ownsItem" : "modifyResource" });
     markDirty();
     render();
   } else if (action === "remove-object") {
@@ -1944,6 +2056,19 @@ function handleAction(button) {
     const target = pathValue(state.draft, button.dataset.resolutionPath);
     if (!target?.items) return;
     target.items.splice(Number(button.dataset.resolutionItemIndex), 1);
+    markDirty();
+    render();
+  } else if (action === "add-resolution-option") {
+    const target = pathValue(state.draft, button.dataset.resolutionPath);
+    if (!target) return;
+    target.options ||= [];
+    target.options.push({ weight: 1, resultText: "", effects: [] });
+    markDirty();
+    render();
+  } else if (action === "remove-resolution-option") {
+    const target = pathValue(state.draft, button.dataset.resolutionPath);
+    if (!target?.options) return;
+    target.options.splice(Number(button.dataset.resolutionOptionIndex), 1);
     markDirty();
     render();
   } else if (action === "apply-effects") {
