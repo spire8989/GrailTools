@@ -566,7 +566,7 @@ def collect_references(value: Any, source: str, references: dict[str, list[dict[
                     for index, item in enumerate(child):
                         if isinstance(item, str):
                             references.setdefault(ref_type, []).append({"source": source, "path": f"{child_path}[{index}]", "id": item})
-                elif key in {"itemIds", "injuryIds", "prerequisites", "enemyIds", "abilityIds", "grantedAbilityIds", "combatAbilities", "actionPattern", "campEventTableIds"} and isinstance(child, list):
+                elif key in {"itemIds", "injuryIds", "prerequisites", "enemyIds", "abilityIds", "grantedAbilityIds", "combatAbilities", "actionPattern", "campEventTableIds", "suppressedByStatuses"} and isinstance(child, list):
                     ref_type = {
                         "itemIds": "items",
                         "injuryIds": "injuries",
@@ -577,6 +577,7 @@ def collect_references(value: Any, source: str, references: dict[str, list[dict[
                         "combatAbilities": "abilities",
                         "actionPattern": "enemyActions",
                         "campEventTableIds": "campEventTables",
+                        "suppressedByStatuses": "combatStatuses",
                     }[key]
                     for index, item in enumerate(child):
                         if isinstance(item, str):
@@ -646,7 +647,7 @@ def build_path_index(encounters: Any, expeditions: Any) -> dict[str, dict[str, A
         # source for a path, when one exists.
         if isinstance(expedition.get("name"), str) and expedition["name"]:
             path["name"] = expedition["name"]
-        for field_name in ("description", "regionId", "kind", "danger"):
+        for field_name in ("description", "regionId", "kind", "danger", "minimumObjectiveDistance"):
             if field_name in expedition:
                 path[field_name] = expedition[field_name]
     for path in index.values():
@@ -1422,6 +1423,29 @@ def _validate_enemy_definitions(enemies: Any, known: dict[str, list[str]], error
         pattern = enemy.get("actionPattern")
         if not isinstance(pattern, list) or not pattern or not all(isinstance(action_id, str) and action_id for action_id in pattern):
             errors.append(_issue("error", "Enemy actionPattern must be a non-empty array of action IDs.", source, "actionPattern"))
+        traits = enemy.get("traits", [])
+        if not isinstance(traits, list):
+            errors.append(_issue("error", "Enemy traits must be an array.", source, "traits"))
+        else:
+            known_statuses = set(known.get("combatStatuses", []))
+            for index, trait in enumerate(traits):
+                path = f"traits[{index}]"
+                if not isinstance(trait, dict):
+                    errors.append(_issue("error", "Enemy traits must be objects.", source, path))
+                    continue
+                if trait.get("type") != "regeneration":
+                    errors.append(_issue("error", "Enemy trait type must be 'regeneration'.", source, f"{path}.type"))
+                if not _is_number(trait.get("amount")) or trait.get("amount") < 0:
+                    errors.append(_issue("error", "Regeneration amount must be a non-negative number.", source, f"{path}.amount"))
+                if trait.get("trigger") != "activation":
+                    errors.append(_issue("error", "Enemy trait trigger must be 'activation'.", source, f"{path}.trigger"))
+                suppressed = trait.get("suppressedByStatuses", [])
+                if not isinstance(suppressed, list) or not all(isinstance(status_id, str) and status_id for status_id in suppressed):
+                    errors.append(_issue("error", "suppressedByStatuses must be an array of status IDs.", source, f"{path}.suppressedByStatuses"))
+                else:
+                    for status_index, status_id in enumerate(suppressed):
+                        if status_id not in known_statuses:
+                            errors.append(_issue("error", f"Unknown combat status ID {status_id!r}.", source, f"{path}.suppressedByStatuses[{status_index}]"))
 
 
 def _validate_enemy_actions(actions: Any, known: dict[str, list[str]], errors: list[dict[str, str]]) -> None:
@@ -1459,6 +1483,8 @@ def _validate_enemy_actions(actions: Any, known: dict[str, list[str]], errors: l
             chance = action.get("injuryChance")
             if not _is_number(chance) or not 0 <= chance <= 1:
                 errors.append(_issue("error", "Enemy action injuryChance must be between 0 and 1.", source, "injuryChance"))
+        if "telegraphed" in action and not isinstance(action.get("telegraphed"), bool):
+            errors.append(_issue("error", "Enemy action telegraphed must be boolean.", source, "telegraphed"))
 
 
 def _validate_abilities(abilities: Any, known: dict[str, list[str]], errors: list[dict[str, str]]) -> None:
@@ -1587,6 +1613,10 @@ def _validate_expeditions(expeditions: Any, known: dict[str, list[str]], errors:
         danger = expedition.get("danger")
         if not _is_number(danger) or danger < 0:
             errors.append(_issue("error", "Expedition danger must be a non-negative number.", source, "danger"))
+        if "minimumObjectiveDistance" in expedition:
+            objective_distance = expedition.get("minimumObjectiveDistance")
+            if not _is_number(objective_distance) or objective_distance < 0:
+                errors.append(_issue("error", "minimumObjectiveDistance must be a non-negative number.", source, "minimumObjectiveDistance"))
         for field_name, label in (("campEventTableIds", "camp event table IDs"), ("prerequisites", "prerequisites")):
             value = expedition.get(field_name)
             if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):

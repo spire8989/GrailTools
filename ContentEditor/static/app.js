@@ -751,7 +751,7 @@ function renderExpedition() {
   const references = (liveReferences().expeditions || []).filter((reference) => reference.id === expedition.id);
   const campEventLinks = [...new Set((expedition.campEventTableIds || []).flatMap((tableId) => (state.catalog.campEventTables?.[tableId]?.entries || []).map((entry) => entry.eventId)).filter((eventId) => state.catalog.campEvents?.[eventId]))].map((eventId) => `<button type="button" class="small-button inline-open" data-action="open-reference" data-reference-category="campEvents" data-reference-id="${escapeHtml(eventId)}">Open ${escapeHtml(campEventLabel(eventId))}</button>`).join(" ");
   return `<div class="editor-title"><div><h2>${escapeHtml(expedition.name || expedition.id || "New expedition")}</h2><p>${escapeHtml(expedition.id || "Unsaved ID")}</p></div><span class="schema-badge">Expedition schema</span></div>
-    <section class="section"><div class="section-heading"><div><h3>Expedition metadata</h3><p>These fields are authored in <code>js/expedition-data.js</code> and remain the canonical expedition definition.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(expedition.id || "")}"></label><label>Name<input data-field="name" value="${escapeHtml(expedition.name || "")}"></label><label class="wide">Description<textarea data-field="description">${escapeHtml(expedition.description || "")}</textarea></label><label>Danger<input type="number" min="0" step="any" data-field="danger" value="${escapeHtml(expedition.danger ?? "")}"></label><label>Region<select data-field="regionId"><option value="">Select region...</option>${selectOptions(known.regions || [], expedition.regionId)}</select></label><label>Kind<select data-field="kind"><option value="">Select kind...</option>${selectOptions(kinds, expedition.kind)}</select></label><label class="wide">Path${referenceInput("pathId", expedition.pathId, true)}</label></div></section>
+    <section class="section"><div class="section-heading"><div><h3>Expedition metadata</h3><p>These fields are authored in <code>js/expedition-data.js</code> and remain the canonical expedition definition.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(expedition.id || "")}"></label><label>Name<input data-field="name" value="${escapeHtml(expedition.name || "")}"></label><label class="wide">Description<textarea data-field="description">${escapeHtml(expedition.description || "")}</textarea></label><label>Danger<input type="number" min="0" step="any" data-field="danger" value="${escapeHtml(expedition.danger ?? "")}"></label><label>Minimum objective distance<input type="number" min="0" step="any" data-field="minimumObjectiveDistance" value="${escapeHtml(expedition.minimumObjectiveDistance ?? "")}"></label><label>Region<select data-field="regionId"><option value="">Select region...</option>${selectOptions(known.regions || [], expedition.regionId)}</select></label><label>Kind<select data-field="kind"><option value="">Select kind...</option>${selectOptions(kinds, expedition.kind)}</select></label><label class="wide">Path${referenceInput("pathId", expedition.pathId, true)}</label></div></section>
     <section class="section"><div class="section-heading"><div><h3>Camp event tables</h3><p>Choose reusable table IDs from <code>CAMP_EVENT_TABLE_DEFINITIONS</code>.</p></div></div>${renderReferenceChecks("campEventTableIds", expedition.campEventTableIds || [], known.campEventTables || [])}<div class="button-row">${campEventLinks || `<span class="hint">Selected tables have no editable camp-event entries.</span>`}</div></section>
     <section class="section"><div class="section-heading"><div><h3>Prerequisites</h3><p>These are item IDs required by the existing expedition runtime.</p></div></div>${renderReferenceChecks("prerequisites", expedition.prerequisites || [], known.items || [], Object.fromEntries((known.items || []).map((id) => [id, itemLabel(id)])))}</section>
     <section class="section"><div class="section-heading"><div><h3>Used by</h3><p>Known encounter and location references are shown before an expedition is deleted.</p></div></div><div class="reference-list">${renderReferenceRows(references, "No known current references to this expedition.")}</div></section>
@@ -767,7 +767,7 @@ function collectClientReferences(value, source, references) {
   };
   const listTypes = {
     itemIds: "items", injuryIds: "injuries", prerequisites: "items", enemyIds: "enemies", abilityIds: "abilities",
-    grantedAbilityIds: "abilities", combatAbilities: "abilities", actionPattern: "enemyActions",
+    grantedAbilityIds: "abilities", combatAbilities: "abilities", actionPattern: "enemyActions", suppressedByStatuses: "combatStatuses",
     pathIds: "paths", expeditionIds: "expeditions", availableExpeditions: "expeditions", campEventTableIds: "campEventTables", recipeIds: "recipes", npcIds: "npcs", locationIds: "locations", destinationIds: "destinations", destinations: "destinations", npcs: "npcs", locations: "locations",
   };
   function visit(node, path = "") {
@@ -1112,6 +1112,16 @@ function renderEnemyPatternRows(enemy) {
   </div>`).join("");
 }
 
+function renderEnemyTraitRows(enemy) {
+  const traits = Array.isArray(enemy.traits) ? enemy.traits : [];
+  const statusIds = state.catalog.known?.combatStatuses || Object.keys(state.catalog.combatStatuses || {}).sort();
+  return traits.map((trait, index) => `<div class="section-card" data-enemy-trait-row>
+    <div class="form-grid"><label>Type<select data-enemy-trait-field="type" data-enemy-trait-index="${index}"><option value="regeneration"${trait.type === "regeneration" ? " selected" : ""}>Regeneration</option></select></label><label>Amount<input type="number" min="0" step="any" data-enemy-trait-field="amount" data-enemy-trait-index="${index}" value="${escapeHtml(trait.amount ?? "")}"></label><label>Trigger<select data-enemy-trait-field="trigger" data-enemy-trait-index="${index}"><option value="activation"${trait.trigger === "activation" ? " selected" : ""}>Enemy activation</option></select></label></div>
+    <div><strong>Suppressed by statuses</strong><div class="check-grid compact-check-grid">${statusIds.map((statusId) => `<label class="check-chip"><input type="checkbox" data-enemy-trait-status-toggle data-enemy-trait-index="${index}" data-status-id="${escapeHtml(statusId)}"${checked((trait.suppressedByStatuses || []).includes(statusId))}>${escapeHtml(statusId)}</label>`).join("") || `<span class="hint">No combat statuses are available.</span>`}</div></div>
+    <div class="button-row"><button type="button" class="small-button danger-outline" data-action="remove-enemy-trait" data-enemy-trait-index="${index}">Remove trait</button></div>
+  </div>`).join("");
+}
+
 function renderEnemy() {
   const enemy = state.draft;
   if (!enemy) return `<div class="empty-state">Choose an enemy to edit.</div>`;
@@ -1119,6 +1129,7 @@ function renderEnemy() {
   return `<div class="editor-title"><div><h2>${escapeHtml(enemy.name || enemy.id || "New enemy")}</h2><p>${escapeHtml(enemy.id || "Unsaved ID")}</p></div><span class="schema-badge">Enemy schema</span></div>
     <section class="section"><div class="section-heading"><div><h3>Enemy identity and combat stats</h3><p>Enemies are reusable definitions authored in <code>COMBAT_ENEMY_DEFINITIONS</code>.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(enemy.id || "")}"></label><label>Name<input data-enemy-field="name" value="${escapeHtml(enemy.name || "")}"></label><label>Maximum HP<input type="number" min="1" step="1" data-enemy-field="maxHp" value="${escapeHtml(enemy.maxHp ?? "")}"></label><label>Speed<input type="number" min="1" step="any" data-enemy-field="speed" value="${escapeHtml(enemy.speed ?? "")}"></label><label>Defense<input type="number" min="0" step="any" data-enemy-field="defense" value="${escapeHtml(enemy.defense ?? "")}"></label></div></section>
     <section class="section"><div class="section-heading"><div><h3>Action pattern</h3><p>Choose reusable Enemy Actions in their authored order. Repeated action IDs remain meaningful.</p></div><button type="button" class="small-button" data-action="add-enemy-action-pattern">Add action</button></div>${renderEnemyPatternRows(enemy) || `<p class="hint">No actions. Add an action to author this enemy's pattern.</p>`}</section>
+    <section class="section"><div class="section-heading"><div><h3>Traits</h3><p>Traits are generic runtime behaviors. Regeneration may be suppressed by authored combat statuses.</p></div><button type="button" class="small-button" data-action="add-enemy-trait">Add trait</button></div>${renderEnemyTraitRows(enemy) || `<p class="hint">No traits. Add one to author a reusable enemy behavior.</p>`}</section>
     <section class="section"><div class="section-heading"><div><h3>Used by</h3><p>Combat definitions that include this enemy.</p></div></div><div class="reference-list">${renderReferenceRows(references, "No combat currently uses this enemy.")}</div></section>
     <section class="section"><details><summary>Raw enemy JSON (advanced)</summary><p class="hint">Use this for future enemy presentation or runtime fields not yet present in the canonical definitions.</p><textarea id="raw-json" class="raw-editor">${jsonText(enemy)}</textarea><div class="button-row"><button type="button" class="small-button" data-action="apply-raw">Apply raw JSON</button></div></details></section>`;
 }
@@ -1132,7 +1143,7 @@ function renderEnemyActionDefinition() {
   const references = (liveReferences().enemyActions || []).filter((reference) => reference.id === action.id);
   return `<div class="editor-title"><div><h2>${escapeHtml(action.name || action.id || "New enemy action")}</h2><p>${escapeHtml(action.id || "Unsaved ID")}</p></div><span class="schema-badge">Enemy Action schema</span></div>
     <section class="section"><div class="section-heading"><div><h3>Action identity and damage</h3><p>Enemy Actions are reusable definitions authored in <code>COMBAT_ENEMY_ACTION_DEFINITIONS</code>.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(action.id || "")}"></label><label>Name / intent text<input data-enemy-action-field="name" value="${escapeHtml(action.name || "")}"></label><label>Damage minimum<input type="number" min="0" step="any" data-enemy-action-field="damage.minimum" value="${escapeHtml(damage.minimum ?? "")}"></label><label>Damage maximum<input type="number" min="0" step="any" data-enemy-action-field="damage.maximum" value="${escapeHtml(damage.maximum ?? "")}"></label><label>Target mode<select data-enemy-action-field="target"><option value="">Select target...</option>${selectOptions(targetModes, action.target)}</select></label></div></section>
-    <section class="section"><div class="section-heading"><div><h3>Injury effect</h3><p>Optional injury references use the live Injury catalog.</p></div></div><div class="form-grid"><label>Injury${referenceInput("injuryId", action.injuryId, true)}</label><label>Injury chance<input type="number" min="0" max="1" step="any" data-enemy-action-field="injuryChance" value="${escapeHtml(action.injuryChance ?? "")}"></label></div></section>
+    <section class="section"><div class="section-heading"><div><h3>Injury effect</h3><p>Optional injury references use the live Injury catalog.</p></div></div><div class="form-grid"><label>Injury${referenceInput("injuryId", action.injuryId, true)}</label><label>Injury chance<input type="number" min="0" max="1" step="any" data-enemy-action-field="injuryChance" value="${escapeHtml(action.injuryChance ?? "")}"></label><label class="check-chip"><input type="checkbox" data-enemy-action-field="telegraphed"${action.telegraphed ? " checked" : ""}>Telegraphed heavy attack</label></div></section>
     <section class="section"><div class="section-heading"><div><h3>Used by</h3><p>Enemy action patterns that reference this action.</p></div></div><div class="reference-list">${renderReferenceRows(references, "No enemy currently uses this action.")}</div></section>
     <section class="section"><details><summary>Raw Enemy Action JSON (advanced)</summary><p class="hint">Use this for uncommon future effect, weight, or presentation fields.</p><textarea id="raw-json" class="raw-editor">${jsonText(action)}</textarea><div class="button-row"><button type="button" class="small-button" data-action="apply-raw">Apply raw JSON</button></div></details></section>`;
 }
@@ -1668,12 +1679,14 @@ function defaultEntry(category) {
     speed: 10,
     defense: 0,
     actionPattern: [Object.keys(state.catalog.enemyActions || {}).sort()[0] || ""],
+    traits: [],
   };
   if (category === "enemyActions") return {
     id: "new_enemy_action",
     name: "New Enemy Action",
     damage: { minimum: 1, maximum: 2 },
     target: "arthur",
+    telegraphed: false,
   };
   if (category === "recipes") return {
     id: "new_recipe",
@@ -2007,6 +2020,20 @@ function handleInput(input) {
     if (input.dataset.combatEnemyField === "id" && state.draft.enemyIds) state.draft.enemyIds[index] = input.value;
     markDirty();
     render();
+    return;
+  }
+  if (input.dataset.enemyTraitStatusToggle) {
+    const trait = state.draft.traits?.[Number(input.dataset.enemyTraitIndex)];
+    if (!trait) return;
+    trait.suppressedByStatuses = toggleArray(trait.suppressedByStatuses, input.dataset.statusId, input.checked);
+    markDirty();
+    return;
+  }
+  if (input.dataset.enemyTraitField) {
+    const trait = state.draft.traits?.[Number(input.dataset.enemyTraitIndex)];
+    if (!trait) return;
+    setNested(trait, input.dataset.enemyTraitField, parseInputValue(input, input.dataset.enemyTraitField));
+    markDirty();
     return;
   }
   if (input.dataset.enemyActionField) {
@@ -2391,6 +2418,15 @@ function handleAction(button) {
     if (!actionId) return window.alert("No enemy actions are available.");
     state.draft.actionPattern ||= [];
     state.draft.actionPattern.push(actionId);
+    markDirty();
+    render();
+  } else if (action === "add-enemy-trait") {
+    state.draft.traits ||= [];
+    state.draft.traits.push({ type: "regeneration", amount: 1, trigger: "activation", suppressedByStatuses: [] });
+    markDirty();
+    render();
+  } else if (action === "remove-enemy-trait") {
+    state.draft.traits?.splice(Number(button.dataset.enemyTraitIndex), 1);
     markDirty();
     render();
   } else if (action === "move-enemy-action") {

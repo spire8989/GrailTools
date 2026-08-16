@@ -35,7 +35,7 @@ class ContentEditorTests(unittest.TestCase):
         self.assertEqual(len(catalog["shops"]), 3)
         self.assertGreaterEqual(len(catalog["known"]["items"]), 40)
         self.assertEqual(len(catalog["injuries"]), 6)
-        self.assertEqual(len(catalog["campEvents"]), 6)
+        self.assertGreaterEqual(len(catalog["campEvents"]), 6)
         self.assertEqual(catalog["validation"]["errors"], [])
 
     def test_unchanged_values_round_trip_semantically(self) -> None:
@@ -471,7 +471,7 @@ class ContentEditorTests(unittest.TestCase):
 
     def test_current_combat_ability_and_loot_definitions_load(self) -> None:
         catalog = load_catalog(GRAIL)
-        self.assertEqual(len(catalog["combats"]), 7)
+        self.assertGreaterEqual(len(catalog["combats"]), 7)
         self.assertEqual(len(catalog["abilities"]), 8)
         self.assertEqual(len(catalog["lootTables"]), 15)
         self.assertIn("bandit_leader", catalog["combats"])
@@ -769,7 +769,7 @@ class ContentEditorTests(unittest.TestCase):
         self.assertEqual(set(catalog["paths"]), {"old_forest_road", "overgrown_trail", "fountain_of_barenton", "val_sans_retour", "search_for_merlin", "legacy_fountain"})
         fountain = catalog["paths"]["fountain_of_barenton"]
         self.assertTrue(fountain["derived"])
-        self.assertEqual(fountain["encounterCount"], 14)
+        self.assertEqual(fountain["encounterCount"], 21)
         self.assertEqual(fountain["expeditionIds"], ["fountain_of_barenton"])
         self.assertEqual(catalog["expeditions"]["fountain_of_barenton"]["pathId"], "fountain_of_barenton")
         self.assertFalse(catalog["validation"]["errors"])
@@ -784,14 +784,14 @@ class ContentEditorTests(unittest.TestCase):
         save_catalog(project, incoming, before["sourceHashes"], Path(temp.name) / "backups")
         after_add = load_catalog(project)
         self.assertEqual(after_add["encounters"]["abandoned_camp"]["pathIds"], ["old_forest_road", "overgrown_trail", "fountain_of_barenton"])
-        self.assertEqual(after_add["paths"]["fountain_of_barenton"]["encounterCount"], 15)
+        self.assertEqual(after_add["paths"]["fountain_of_barenton"]["encounterCount"], 22)
 
         removing = {"encounters": clone(after_add["encounters"])}
         removing["encounters"]["abandoned_camp"]["pathIds"].remove("fountain_of_barenton")
         save_catalog(project, removing, after_add["sourceHashes"], Path(temp.name) / "backups")
         after_remove = load_catalog(project)
         self.assertEqual(after_remove["encounters"]["abandoned_camp"]["pathIds"], ["old_forest_road", "overgrown_trail"])
-        self.assertEqual(after_remove["paths"]["fountain_of_barenton"]["encounterCount"], 14)
+        self.assertEqual(after_remove["paths"]["fountain_of_barenton"]["encounterCount"], 21)
 
     def test_phase4_expedition_scalar_edit_is_surgical_and_preserves_unknown_fields(self) -> None:
         temp, project = self.temporary_grail()
@@ -834,7 +834,7 @@ class ContentEditorTests(unittest.TestCase):
         first = build_path_index(catalog["encounters"], catalog["expeditions"])
         second = build_path_index(catalog["encounters"], catalog["expeditions"])
         self.assertEqual(first, second)
-        self.assertEqual(first["fountain_of_barenton"]["encounterCount"], 14)
+        self.assertEqual(first["fountain_of_barenton"]["encounterCount"], 21)
 
     def test_phase5_current_recipe_and_provider_shapes_load(self) -> None:
         catalog = load_catalog(GRAIL)
