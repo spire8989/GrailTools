@@ -1,0 +1,168 @@
+# Grail Content Editor
+
+Standalone local development tooling for authoring the sibling `Grail` game
+project. This folder is separate from the contest submission and is not loaded
+by the game at runtime.
+
+## Prerequisites
+
+- Python 3.10 or newer
+- The expected sibling layout:
+
+  ```text
+  GrailQuest/
+    Grail/
+    Tools/
+      ContentEditor/
+  ```
+
+No npm package, cloud service, database, or third-party runtime dependency is
+required. The machine used for Phase 1 does not have Node/npm installed, so
+the editor uses a Python standard-library server and a browser UI.
+
+## Start
+
+From this directory:
+
+```powershell
+python server.py
+```
+
+Then open <http://127.0.0.1:5173/>. To select another local Grail checkout:
+
+```powershell
+python server.py --project "E:\path\to\Grail"
+```
+
+The default project is discovered as the sibling `../../Grail` relative to
+`ContentEditor/server.py`.
+
+## Supported Phase 6 content
+
+- Encounters: metadata, path and direction filters, requirements, stages,
+  choices, costs, outcomes/effects, pending actions, and advanced raw JSON.
+  The list supports combinable text search, path/region/direction/distance,
+  repeatable, tag, combat, and requirement-presence filters with in-memory
+  unsaved edits reflected immediately.
+  Common item, combat, injury, loot-table, path, and resource references have
+  schema-aware controls. `startCombat` outcomes expose combat references,
+  Victory/Fled result text, nested outcomes, loot-table rolls, direct item
+  rewards, and the current weighted/random reward shapes without requiring
+  Advanced JSON for ordinary edits.
+- Shops: display name, item stock, buy prices, finite or unlimited stock, sell
+  values, accepted categories, accepted tags, and raw JSON.
+- Items: identity, category, rarity, tags, inventory flags, equipment slots,
+  stack limits, weapon damage, armor defense, granted combat abilities,
+  current combat-use and treatment fields, used-by references, and raw effect
+  or item JSON. The list supports combinable text search, category, rarity,
+  equipment, tri-state inventory flags, and all/any tag filters. A focused
+  drop panel can add/remove this item in an existing loot table and edit its
+  weight.
+- Combat: combat roster composition plus shared enemy stats and action patterns
+  (damage, target, injury, and injury chance), with multi-enemy combats.
+- Abilities: shared combat ability identity, description, target, category,
+  selection prompt, effect type, damage multiplier, and gauge reduction.
+- Loot Tables: rolls and ordered weighted gold, item, material, recipe, and
+  nested loot-table entries, including fixed or min/max quantities.
+- Paths: a derived, read-only path index built from encounter `pathIds` and
+  expedition `pathId` relationships. It shows linked metadata, reverse
+  encounter membership, filtering/sorting, and safe add/remove membership
+  operations without creating a duplicate path database.
+- Expeditions: the canonical `EXPEDITION_DEFINITIONS` editor, including ID,
+  name, description, danger, region, path, kind, camp-event table IDs,
+  prerequisites, used-by references, and advanced raw JSON.
+- Recipes: canonical `RECIPE_DEFINITIONS` editing for the current material-map
+  and item-map ingredient shapes, item or provisions outputs, provider,
+  rarity, starter flag, gold cost, compact ingredient editing, references,
+  and raw JSON.
+- Crafting Providers: the separate current `CRAFTING_PROVIDER_DEFINITIONS`
+  editor. Providers currently author only ID and name; recipe assignment is
+  authored by each recipe's `craftingProvider` field and grouped here for
+  browsing.
+
+Selectors are populated from the current game definitions in `data.js`,
+`combat-data.js`, `injury-data.js`, `loot-data.js`, and `expedition-data.js`.
+Item references also include current recipes and camp events. Cross-content
+Open buttons connect encounter combat/loot references, item ability grants,
+combat enemy/action references, and nested loot-table references. The editor
+also connects encounters, derived Paths, canonical Expeditions, Recipes,
+Crafting Providers, Items, and Loot Tables. It keeps
+the live game definitions as the source of truth and does not change them
+until Save is explicitly clicked. Loot Tables expose the existing direct
+`type: "recipe"` unlock entries with recipe selectors and Open Recipe links;
+the editor does not invent recipe-scroll items.
+
+## Loading and saving
+
+The server reads the current JavaScript constants directly from:
+
+- `Grail/js/encounter-data.js`
+- `Grail/js/location-data.js`
+- `Grail/js/data.js`
+- `Grail/js/combat-data.js`
+- `Grail/js/loot-data.js`
+- `Grail/js/expedition-data.js`
+- `Grail/js/crafting-data.js`
+
+The editor starts with an in-memory copy and shows an unsaved indicator. Save
+is explicit. Before writing, it validates references and structure, checks the
+source hashes captured at load time to detect another process changing the
+file, and replaces only the changed top-level definition property. Existing
+definition order, comments, delimiters, and all untouched source spans remain
+in place; new definitions are appended predictably and deleted definitions are
+removed with only necessary delimiter cleanup. Writes use a temporary file
+plus `os.replace`; a timestamped recovery backup is kept in
+`Tools/ContentEditor/.backups/`. Item, combat, ability, and loot-table changes
+are written with the same surgical definition-property behavior. Combat
+definitions, enemy definitions, enemy actions, and abilities share
+`combat-data.js`; a single save groups those changes into one
+source-preserving update and performs one stale-file check. Recovery backups
+are retained for each changed source file.
+
+Validation reports duplicate keys, missing required encounter structure,
+unknown item/combat/ability/enemy-action/injury/path/region/loot references,
+unknown recipe/provider/material references, invalid recipe ingredient and
+output quantities, malformed recipe/provider definitions,
+invalid chance values, malformed combat-resolution branches, invalid loot
+rolls and direct reward quantities, invalid combat damage and stat ranges,
+invalid loot weights/quantities, invalid distance ranges, invalid shop
+prices/stock, and deletions that remain referenced by understood definitions.
+The editor never silently repairs authored content.
+
+## Known limitations
+
+- The parser intentionally supports the data-only object-literal subset used
+  by the current authored constants; it does not execute arbitrary JavaScript
+  or promise a general JavaScript round-trip formatter.
+- The editor writes encounters and shops in their existing files, items in
+  `Grail/js/data.js`, combat/ability/loot definitions in their existing
+  source files, and Expeditions in `Grail/js/expedition-data.js`. Paths do not
+  have a standalone authored constant in the current game, so their metadata
+  remains derived and only encounter membership is editable from the Path
+  view. Locations, recipes, camp events, and injuries remain read-only
+  reference sources.
+- Enemy definitions and enemy actions are edited through their owning Combat
+  roster/action-pattern controls; they are not separate navigation categories.
+- The editor does not yet provide NPC, dialogue, location, camp-event, or
+  injury editors. It does not invent standalone Path definitions for the
+  current distributed path-ID architecture.
+- Crafting providers currently have only the authored ID/name fields. Recipe
+  unlocks are direct loot-table `recipe` entries; no recipe item or separate
+  unlock database exists in the current game.
+- Uncommon fields retain an advanced per-object JSON editor. Current combat
+  resolution branch fields and common nested effects are typed, while unusual
+  authored shapes remain available through the raw encounter/object editors.
+- There is no autosave, collaboration lock, or automatic merge. A stale-file
+  save is rejected and the editor must be reloaded before trying again.
+
+## Tests
+
+From `ContentEditor`:
+
+```powershell
+python -m unittest discover -s tests -v
+```
+
+The tests load the real current definitions, round-trip parsed data, and use a
+temporary copy for all write tests. They do not modify the live Grail
+worktree.

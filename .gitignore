@@ -1,0 +1,12 @@
+# Python caches and local test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Content Editor-generated recovery backups and local state
+ContentEditor/.backups/
+
+# Local logs and editor/OS metadata
+*.log
+.DS_Store
+Thumbs.db

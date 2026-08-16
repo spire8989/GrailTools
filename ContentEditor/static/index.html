@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Grail Content Editor</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <script defer src="/static/app.js"></script>
+  </head>
+  <body>
+    <div id="app" class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">LOCAL DEVELOPMENT TOOL</p>
+          <h1>Grail Content Editor</h1>
+          <p id="project-path" class="muted">Loading the sibling Grail project…</p>
+        </div>
+        <div class="toolbar-actions">
+          <span id="dirty-indicator" class="save-state">Loading…</span>
+          <button type="button" data-action="reload">Reload</button>
+          <button type="button" class="primary" data-action="save">Save Changes</button>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <aside class="category-panel panel">
+            <div class="panel-heading"><span>Content</span><span class="panel-count">Phase 6</span></div>
+          <nav id="category-nav" class="category-nav" aria-label="Content categories"></nav>
+          <div class="source-note">
+            <strong>Source of truth</strong>
+            <p>Edits stay in memory until Save Changes. The editor writes only the targeted Grail definitions.</p>
+          </div>
+        </aside>
+
+        <section class="entry-panel panel">
+          <div class="panel-heading">
+            <span id="entry-heading">Entries</span>
+            <span id="entry-count" class="panel-count"></span>
+          </div>
+          <div class="entry-actions">
+            <input id="entry-search" type="search" placeholder="Search IDs and titles…" aria-label="Search entries">
+            <div class="button-row">
+              <button type="button" data-action="add">Add</button>
+              <button type="button" data-action="duplicate">Duplicate</button>
+              <button type="button" class="danger-outline" data-action="delete">Delete</button>
+            </div>
+            <div id="filter-controls"></div>
+          </div>
+          <div id="entry-list" class="entry-list" role="listbox" aria-label="Content entries"></div>
+        </section>
+
+        <section class="editor-panel panel">
+          <div id="editor-root" class="editor-scroll"></div>
+        </section>
+      </main>
+
+      <section id="validation-panel" class="validation-panel panel" aria-live="polite"></section>
+      <footer class="footer-note">Phase 6 adds structured Item and Encounter filters to the local content editor. See <code>ContentEditor/README.md</code> for setup and limitations.</footer>
+    </div>
+
+    <datalist id="item-options"></datalist>
+    <datalist id="loot-table-options"></datalist>
+  </body>
+</html>
