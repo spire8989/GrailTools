@@ -464,6 +464,7 @@ CONTENT_FILES = {
     "items": ("js/data.js", "ITEM_DEFINITIONS"),
     "combats": ("js/combat-data.js", "COMBAT_DEFINITIONS"),
     "abilities": ("js/combat-data.js", "COMBAT_ABILITY_DEFINITIONS"),
+    "combatStatuses": ("js/combat-data.js", "COMBAT_STATUS_DEFINITIONS"),
     "enemyDefinitions": ("js/combat-data.js", "COMBAT_ENEMY_DEFINITIONS"),
     "enemyActions": ("js/combat-data.js", "COMBAT_ENEMY_ACTION_DEFINITIONS"),
     "lootTables": ("js/loot-data.js", "LOOT_TABLE_DEFINITIONS"),
@@ -517,6 +518,7 @@ def _ref_type_for_key(key: str) -> str | None:
         "treatmentItemId": "items",
         "combatId": "combats",
         "abilityId": "abilities",
+        "statusId": "combatStatuses",
         "injuryId": "injuries",
         "tableId": "lootTables",
         "lootTableId": "lootTables",
@@ -705,6 +707,7 @@ def load_catalog(project_root: Path) -> dict[str, Any]:
     item_map = _id_map(values.get("items"))
     known["combats"] = sorted(_id_map(values.get("combats")))
     known["abilities"] = sorted(_id_map(values.get("abilities")))
+    known["combatStatuses"] = sorted(_id_map(values.get("combatStatuses")))
     known["injuries"] = sorted(_id_map(values.get("injuries")))
     known["campEvents"] = sorted(_id_map(values.get("campEvents")))
     known["dialogues"] = sorted(_id_map(values.get("dialogues")))
@@ -775,6 +778,7 @@ def load_catalog(project_root: Path) -> dict[str, Any]:
         "items": values["items"],
         "combats": values["combats"],
         "abilities": values["abilities"],
+        "combatStatuses": values["combatStatuses"],
         "enemyDefinitions": values["enemyDefinitions"],
         "enemyActions": values["enemyActions"],
         "lootTables": values["lootTables"],
@@ -1180,6 +1184,30 @@ def _is_number(value: Any) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
 
+def _validate_combat_statuses(statuses: Any, errors: list[dict[str, str]]) -> None:
+    if not isinstance(statuses, dict):
+        errors.append(_issue("error", "Combat status definitions must be an object.", "combatStatuses"))
+        return
+    for entry_id, status in statuses.items():
+        source = f"combatStatus:{entry_id}"
+        if not isinstance(status, dict):
+            errors.append(_issue("error", "Combat status must be an object.", source))
+            continue
+        if status.get("id") != entry_id:
+            errors.append(_issue("error", f"Definition key {entry_id!r} does not match its id field.", source, "id"))
+        for field_name in ("name", "description"):
+            if not isinstance(status.get(field_name), str) or not status.get(field_name):
+                errors.append(_issue("error", f"Combat status {field_name} is required.", source, field_name))
+        periodic_damage = status.get("periodicDamage")
+        if not _is_number(periodic_damage) or periodic_damage < 0:
+            errors.append(_issue("error", "periodicDamage must be a non-negative number.", source, "periodicDamage"))
+        duration = status.get("durationActivations")
+        if not isinstance(duration, int) or isinstance(duration, bool) or duration <= 0:
+            errors.append(_issue("error", "durationActivations must be a positive integer.", source, "durationActivations"))
+        if status.get("refreshBehavior") not in ("refresh",):
+            errors.append(_issue("error", "refreshBehavior must be 'refresh'.", source, "refreshBehavior"))
+
+
 def _validate_items(items: Any, known: dict[str, list[str]], errors: list[dict[str, str]]) -> None:
     if not isinstance(items, dict):
         errors.append(_issue("error", "Item definitions must be an object.", "items"))
@@ -1247,6 +1275,55 @@ def _validate_items(items: Any, known: dict[str, list[str]], errors: list[dict[s
         defense = effects.get("combatDefense")
         if defense is not None and (not _is_number(defense) or defense < 0):
             errors.append(_issue("error", "combatDefense must be a non-negative number.", source, "effects.combatDefense"))
+        speed = effects.get("combatSpeed")
+        if speed is not None and not _is_number(speed):
+            errors.append(_issue("error", "combatSpeed must be numeric.", source, "effects.combatSpeed"))
+        on_hit_effects = effects.get("onHitEffects")
+        if on_hit_effects is not None:
+            if not isinstance(on_hit_effects, list):
+                errors.append(_issue("error", "onHitEffects must be an array.", source, "effects.onHitEffects"))
+            else:
+                known_statuses = set(known.get("combatStatuses", []))
+                for index, effect in enumerate(on_hit_effects):
+                    path = f"effects.onHitEffects[{index}]"
+                    if not isinstance(effect, dict):
+                        errors.append(_issue("error", "On-hit effects must be objects.", source, path))
+                        continue
+                    if effect.get("type") != "applyStatus":
+                        errors.append(_issue("error", "On-hit effect type must be 'applyStatus'.", source, f"{path}.type"))
+                    status_id = effect.get("statusId")
+                    if not isinstance(status_id, str) or not status_id:
+                        errors.append(_issue("error", "On-hit effects need a statusId.", source, f"{path}.statusId"))
+                    elif status_id not in known_statuses:
+                        errors.append(_issue("error", f"Unknown combat status ID {status_id!r}.", source, f"{path}.statusId"))
+                    chance = effect.get("chance")
+                    if not _is_number(chance) or not 0 <= chance <= 1:
+                        errors.append(_issue("error", "On-hit chance must be a number from 0 to 1.", source, f"{path}.chance"))
+        combat_triggers = effects.get("combatTriggers")
+        if combat_triggers is not None:
+            if not isinstance(combat_triggers, list):
+                errors.append(_issue("error", "combatTriggers must be an array.", source, "effects.combatTriggers"))
+            else:
+                known_triggers = {"defendDamagePrevented", "beforeNormalAttack"}
+                known_trigger_effects = {"storeCharge", "consumeChargeForBonusDamage"}
+                for index, trigger in enumerate(combat_triggers):
+                    path = f"effects.combatTriggers[{index}]"
+                    if not isinstance(trigger, dict):
+                        errors.append(_issue("error", "Combat triggers must be objects.", source, path))
+                        continue
+                    trigger_id = trigger.get("trigger")
+                    if trigger_id not in known_triggers:
+                        errors.append(_issue("error", f"Unknown combat trigger {trigger_id!r}.", source, f"{path}.trigger"))
+                    effect_id = trigger.get("effect")
+                    if effect_id not in known_trigger_effects:
+                        errors.append(_issue("error", f"Unknown combat trigger effect {effect_id!r}.", source, f"{path}.effect"))
+                    charge_id = trigger.get("chargeId")
+                    if not isinstance(charge_id, str) or not charge_id:
+                        errors.append(_issue("error", "Combat triggers need a chargeId.", source, f"{path}.chargeId"))
+                    if effect_id == "storeCharge":
+                        cap = trigger.get("cap")
+                        if not _is_number(cap) or cap < 0:
+                            errors.append(_issue("error", "storeCharge triggers need a non-negative cap.", source, f"{path}.cap"))
         granted = effects.get("grantedAbilityIds")
         if granted is not None:
             if not isinstance(granted, list) or not all(isinstance(ability_id, str) for ability_id in granted):
@@ -1772,6 +1849,8 @@ def validate_catalog(values: dict[str, Any], known: dict[str, list[str]], refere
     for value_key, known_key in (("combats", "combats"), ("abilities", "abilities"), ("injuries", "injuries"), ("campEvents", "campEvents"), ("dialogues", "dialogues"), ("npcs", "npcs"), ("destinations", "destinations"), ("locations", "locations"), ("enemyDefinitions", "enemies"), ("enemyActions", "enemyActions"), ("lootTables", "lootTables")):
         if value_key in values:
             effective_known[known_key] = sorted(_id_map(values.get(value_key)))
+    if "combatStatuses" in values:
+        effective_known["combatStatuses"] = sorted(_id_map(values.get("combatStatuses")))
     if "expeditions" in values:
         effective_known["expeditions"] = sorted(_id_map(values.get("expeditions")))
     if "recipes" in values:
@@ -1808,6 +1887,8 @@ def validate_catalog(values: dict[str, Any], known: dict[str, list[str]], refere
         _validate_shops(values.get("shops"), effective_known, errors)
     if "items" in values:
         _validate_items(values.get("items"), effective_known, errors)
+    if "combatStatuses" in values:
+        _validate_combat_statuses(values.get("combatStatuses"), errors)
     if "combats" in values:
         _validate_combat_definitions(values.get("combats"), effective_known, errors)
     if "enemyDefinitions" in values:
@@ -1839,6 +1920,7 @@ def validate_catalog(values: dict[str, Any], known: dict[str, list[str]], refere
                     "recipes": "recipe", "enemies": "enemy", "injuries": "injury", "expeditions": "expedition",
                     "craftingProviders": "crafting provider", "campEvents": "camp event",
                     "dialogues": "dialogue", "npcs": "NPC", "destinations": "destination", "locations": "location",
+                    "combatStatuses": "combat status",
                 }.get(ref_type, ref_type[:-1] if ref_type.endswith("s") else ref_type)
                 errors.append(_issue("error", f"Unknown {label} ID {entry['id']!r}.", entry["source"], entry["path"]))
 

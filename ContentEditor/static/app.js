@@ -32,11 +32,12 @@ const CONTENT_CATEGORIES = [
   ["enemyDefinitions", "Enemies"],
   ["enemyActions", "Enemy Actions"],
   ["abilities", "Abilities"],
+  ["combatStatuses", "Combat Statuses"],
   ["lootTables", "Loot Tables"],
 ];
 
 const EDITABLE_REFERENCE_SOURCES = new Set([
-  "encounters", "injuries", "campEvents", "dialogues", "expeditions", "recipes", "materials", "craftingProviders", "shops", "npcs", "destinations", "locations", "items", "combats", "abilities", "enemyDefinitions", "enemyActions", "lootTables",
+  "encounters", "injuries", "campEvents", "dialogues", "expeditions", "recipes", "materials", "craftingProviders", "shops", "npcs", "destinations", "locations", "items", "combats", "abilities", "combatStatuses", "enemyDefinitions", "enemyActions", "lootTables",
 ]);
 
 const state = {
@@ -166,6 +167,11 @@ function injuryLabel(injuryId) {
   const injury = state.catalog?.injuries?.[injuryId];
   const label = injury?.name || state.catalog?.injuryLabels?.[injuryId];
   return label ? `${label} (${injuryId})` : injuryId;
+}
+
+function combatStatusLabel(statusId) {
+  const status = state.catalog?.combatStatuses?.[statusId];
+  return status?.name ? `${status.name} (${statusId})` : statusId;
 }
 
 function campEventLabel(eventId) {
@@ -754,7 +760,7 @@ function renderExpedition() {
 
 function collectClientReferences(value, source, references) {
   const scalarTypes = {
-    itemId: "items", treatmentItemId: "items", combatId: "combats", abilityId: "abilities", injuryId: "injuries",
+    itemId: "items", treatmentItemId: "items", combatId: "combats", abilityId: "abilities", statusId: "combatStatuses", injuryId: "injuries",
     tableId: "lootTables", lootTableId: "lootTables", pathId: "paths", expeditionId: "expeditions",
     nextExpeditionId: "expeditions", materialId: "materials", recipeId: "recipes",
     craftingProvider: "craftingProviders", craftingProviderId: "craftingProviders", eventId: "campEvents", campEventId: "campEvents", knowledgeId: "knowledge", companionId: "companions", dialogueId: "dialogues", dialogueSequenceId: "dialogues", introDialogueSequenceId: "dialogues", speakerId: "npcs", npcId: "npcs", destinationId: "destinations", locationId: "locations",
@@ -1003,6 +1009,35 @@ function renderShop() {
     <section class="section"><details><summary>Raw shop JSON (advanced)</summary><p class="hint">Apply raw JSON to update the in-memory draft. Validation still blocks unsafe writes.</p><textarea id="raw-json" class="raw-editor">${jsonText(shop)}</textarea><div class="button-row"><button type="button" class="small-button" data-action="apply-raw">Apply raw JSON</button></div></details></section>`;
 }
 
+function renderItemOnHitEffects(effects) {
+  const entries = Array.isArray(effects.onHitEffects) ? effects.onHitEffects : [];
+  const statusIds = state.catalog.known?.combatStatuses || Object.keys(state.catalog.combatStatuses || {}).sort();
+  const statusLabels = Object.fromEntries(statusIds.map((id) => [id, combatStatusLabel(id)]));
+  const rows = entries.map((effect, index) => `<div class="reference-row" data-item-on-hit-row>
+    <span class="panel-count">${index + 1}</span>
+    <select data-item-on-hit-field="type" data-item-on-hit-index="${index}">${selectOptions(["applyStatus"], effect.type)}</select>
+    <select data-item-on-hit-field="statusId" data-item-on-hit-index="${index}"><option value="">Select status...</option>${selectOptions(statusIds, effect.statusId, statusLabels)}</select>
+    <label>Chance<input type="number" min="0" max="1" step="any" data-item-on-hit-field="chance" data-item-on-hit-index="${index}" value="${escapeHtml(effect.chance ?? "")}"></label>
+    <button type="button" class="small-button danger-outline" data-action="remove-item-on-hit" data-item-on-hit-index="${index}">Remove</button>
+  </div>`).join("");
+  return `<section class="section"><div class="section-heading"><div><h3>On-hit effects</h3><p>Successful normal Arthur attacks can apply referenced combat statuses.</p></div><button type="button" class="small-button" data-action="add-item-on-hit">Add effect</button></div>${rows || `<p class="hint">No on-hit effects.</p>`}</section>`;
+}
+
+function renderItemCombatTriggers(effects) {
+  const entries = Array.isArray(effects.combatTriggers) ? effects.combatTriggers : [];
+  const triggerIds = ["defendDamagePrevented", "beforeNormalAttack"];
+  const effectIds = ["storeCharge", "consumeChargeForBonusDamage"];
+  const rows = entries.map((trigger, index) => `<div class="reference-row" data-item-trigger-row>
+    <span class="panel-count">${index + 1}</span>
+    <select data-item-trigger-field="trigger" data-item-trigger-index="${index}">${selectOptions(triggerIds, trigger.trigger)}</select>
+    <select data-item-trigger-field="effect" data-item-trigger-index="${index}">${selectOptions(effectIds, trigger.effect)}</select>
+    <label>Charge ID<input data-item-trigger-field="chargeId" data-item-trigger-index="${index}" value="${escapeHtml(trigger.chargeId || "")}"></label>
+    <label>Cap<input type="number" min="0" step="1" data-item-trigger-field="cap" data-item-trigger-index="${index}" value="${escapeHtml(trigger.cap ?? "")}" placeholder="optional"></label>
+    <button type="button" class="small-button danger-outline" data-action="remove-item-trigger" data-item-trigger-index="${index}">Remove</button>
+  </div>`).join("");
+  return `<section class="section"><div class="section-heading"><div><h3>Combat triggers</h3><p>Author event-driven passive effects such as charge storage and spending.</p></div><button type="button" class="small-button" data-action="add-item-trigger">Add trigger</button></div>${rows || `<p class="hint">No combat triggers.</p>`}</section>`;
+}
+
 function renderItem() {
   const item = state.draft;
   if (!item) return `<div class="empty-state">Choose an item to edit.</div>`;
@@ -1016,6 +1051,9 @@ function renderItem() {
     : `<p class="hint">No weapon damage effect is present. Choose category Weapon or use the advanced effects editor.</p>`;
   const defenseMarkup = item.category === "armor" || Object.prototype.hasOwnProperty.call(effects, "combatDefense")
     ? `<div class="form-grid" style="margin-top:11px"><label>Combat defense<input type="number" min="0" step="any" data-item-effect-field="combatDefense" value="${escapeHtml(effects.combatDefense ?? "")}"></label></div>`
+    : "";
+  const speedMarkup = Object.prototype.hasOwnProperty.call(effects, "combatSpeed") || item.equippable
+    ? `<div class="form-grid" style="margin-top:11px"><label>Combat speed modifier<input type="number" step="any" data-item-effect-field="combatSpeed" value="${escapeHtml(effects.combatSpeed ?? "")}" placeholder="optional"></label></div>`
     : "";
   const abilityMarkup = (known.abilities || []).map((abilityId) => `<label class="check-chip"><input type="checkbox" data-item-ability-toggle="${escapeHtml(abilityId)}"${checked((effects.grantedAbilityIds || []).includes(abilityId))}>${escapeHtml(state.catalog.abilityLabels?.[abilityId] || abilityId)}</label>`).join("");
   const treatmentMarkup = Object.prototype.hasOwnProperty.call(effects, "treatment") ? `<section class="section"><div class="section-heading"><div><h3>Treatment effect</h3><p>Select injuries this item can treat.</p></div></div><div class="check-grid">${(known.injuries || []).map((injuryId) => `<label class="check-chip"><input type="checkbox" data-item-treatment-toggle="${escapeHtml(injuryId)}"${checked((treatment.injuryIds || []).includes(injuryId))}>${escapeHtml(injuryId)}</label>`).join("")}</div></section>` : "";
@@ -1051,7 +1089,9 @@ function renderItem() {
       <label class="check-chip"><input type="checkbox" data-field="questItem"${checked(item.questItem)}> Quest item</label><label class="check-chip"><input type="checkbox" data-field="campaignItem"${checked(item.campaignItem)}> Campaign item</label>
       <label class="check-chip"><input type="checkbox" data-field="unique"${checked(item.unique)}> Unique</label><label class="check-chip"><input type="checkbox" data-field="sellable"${checked(item.sellable)}> Sellable</label><label class="check-chip"><input type="checkbox" data-field="protected"${checked(item.protected)}> Protected</label>
     </div></section>
-    <section class="section"><div class="section-heading"><div><h3>Combat effects</h3><p>Weapon damage, armor defense, and granted abilities are typed fields.</p></div></div>${damageMarkup}${defenseMarkup}<div class="section-heading" style="margin-top:14px"><div><h4>Granted abilities</h4><p>Validated against COMBAT_ABILITY_DEFINITIONS.</p></div></div><div class="check-grid ability-grid">${abilityMarkup || `<span class="hint">No combat abilities are available.</span>`}</div></section>
+    <section class="section"><div class="section-heading"><div><h3>Combat effects</h3><p>Weapon damage, armor defense, speed, and granted abilities are typed fields.</p></div></div>${damageMarkup}${defenseMarkup}${speedMarkup}<div class="section-heading" style="margin-top:14px"><div><h4>Granted abilities</h4><p>Validated against COMBAT_ABILITY_DEFINITIONS.</p></div></div><div class="check-grid ability-grid">${abilityMarkup || `<span class="hint">No combat abilities are available.</span>`}</div></section>
+    ${renderItemOnHitEffects(effects)}
+    ${renderItemCombatTriggers(effects)}
     ${combatMarkup}${treatmentMarkup}
     <section class="section"><div class="section-heading"><div><h3>Crafting</h3><p>Recipe relationships update from the current in-memory catalog.</p></div></div><h4>Produced By</h4><div class="reference-list">${recipeRelationshipRows(producedBy, "No recipe currently produces this item.")}</div><h4 style="margin-top:13px">Used As Ingredient In</h4><div class="reference-list">${recipeRelationshipRows(usedAsIngredient, "This item is not currently used as a recipe ingredient.")}</div></section>
     <section class="section"><div class="section-heading"><div><h3>Loot table drops</h3><p>Focused support for adding this item to an existing table, including Bandit Leader. Other loot entry types remain read-only.</p></div></div><div class="loot-list">${lootMarkup || `<p class="hint">No loot tables are available.</p>`}</div></section>
@@ -1128,6 +1168,23 @@ function renderAbility() {
     </div></section>
     <section class="section"><div class="section-heading"><div><h3>Used by</h3><p>Items and other current definitions that grant or reference this ability.</p></div></div><div class="reference-list">${renderReferenceRows(references)}</div></section>
     <section class="section"><details><summary>Raw ability JSON (advanced)</summary><p class="hint">Apply raw JSON for schema-specific fields not exposed above.</p><textarea id="raw-json" class="raw-editor">${jsonText(ability)}</textarea><div class="button-row"><button type="button" class="small-button" data-action="apply-raw">Apply raw JSON</button></div></details></section>`;
+}
+
+function renderCombatStatus() {
+  const status = state.draft;
+  if (!status) return `<div class="empty-state">Choose a combat status to edit.</div>`;
+  const references = (liveReferences().combatStatuses || []).filter((reference) => reference.id === status.id);
+  return `<div class="editor-title"><div><h2>${escapeHtml(status.name || status.id || "New combat status")}</h2><p>${escapeHtml(status.id || "Unsaved ID")}</p></div><span class="schema-badge">Combat Status schema</span></div>
+    <section class="section"><div class="section-heading"><div><h3>Status definition</h3><p>Statuses are authored in <code>COMBAT_STATUS_DEFINITIONS</code> and tick on enemy activation.</p></div></div><div class="form-grid">
+      <label>ID<input data-field="id" value="${escapeHtml(status.id || "")}"></label>
+      <label>Name<input data-field="name" value="${escapeHtml(status.name || "")}"></label>
+      <label class="wide">Description<textarea data-field="description">${escapeHtml(status.description || "")}</textarea></label>
+      <label>Periodic damage<input type="number" min="0" step="1" data-field="periodicDamage" value="${escapeHtml(status.periodicDamage ?? "")}"></label>
+      <label>Duration in activations<input type="number" min="1" step="1" data-field="durationActivations" value="${escapeHtml(status.durationActivations ?? "")}"></label>
+      <label>Refresh behavior<select data-field="refreshBehavior"><option value="refresh"${selected("refresh", status.refreshBehavior)}>Refresh duration</option></select></label>
+    </div></section>
+    <section class="section"><div class="section-heading"><div><h3>Used by</h3><p>Items and other known definitions that reference this status.</p></div></div><div class="reference-list">${renderReferenceRows(references, "No current item references.")}</div></section>
+    <section class="section"><details><summary>Raw status JSON (advanced)</summary><textarea id="raw-json" class="raw-editor">${jsonText(status)}</textarea><div class="button-row"><button type="button" class="small-button" data-action="apply-raw">Apply raw JSON</button></div></details></section>`;
 }
 
 function lootReferenceOptions(type, current) {
@@ -1391,6 +1448,8 @@ function render() {
               ? renderEnemyActionDefinition()
           : state.category === "abilities"
              ? renderAbility()
+             : state.category === "combatStatuses"
+               ? renderCombatStatus()
              : renderLootTable();
    if (state.navigationHistory.length) $("#editor-root").insertAdjacentHTML("afterbegin", renderNavigationControls());
    updateSaveState();
@@ -1456,6 +1515,7 @@ function draftSnapshot() {
     items: clone(state.catalog.items),
     combats: clone(state.catalog.combats),
     abilities: clone(state.catalog.abilities),
+    combatStatuses: clone(state.catalog.combatStatuses),
     enemyDefinitions: clone(state.catalog.enemyDefinitions),
     enemyActions: clone(state.catalog.enemyActions),
     lootTables: clone(state.catalog.lootTables),
@@ -1571,6 +1631,14 @@ function defaultEntry(category) {
   };
   if (category === "combats") return { id: "new_combat", enemyIds: [] };
   if (category === "abilities") return { id: "new_ability", name: "New Ability", description: "", target: "enemy" };
+  if (category === "combatStatuses") return {
+    id: "new_status",
+    name: "New Status",
+    description: "",
+    periodicDamage: 1,
+    durationActivations: 1,
+    refreshBehavior: "refresh",
+  };
   if (category === "lootTables") return { id: "new_loot_table", entries: [] };
   if (category === "materials") return {
     id: "new_material",
@@ -1678,7 +1746,7 @@ function duplicateEntry() {
 function deleteEntry() {
   if (!state.draft || !state.catalog || state.category === "paths") return;
   const id = state.draft.id || state.originalSelectedId;
-  const refType = state.category === "shops" ? "shops" : state.category === "items" ? "items" : state.category === "combats" ? "combats" : state.category === "enemyDefinitions" ? "enemies" : state.category === "enemyActions" ? "enemyActions" : state.category === "abilities" ? "abilities" : state.category === "injuries" ? "injuries" : state.category === "campEvents" ? "campEvents" : state.category === "dialogues" ? "dialogues" : state.category === "npcs" ? "npcs" : state.category === "destinations" ? "destinations" : state.category === "locations" ? "locations" : state.category === "lootTables" ? "lootTables" : state.category === "expeditions" ? "expeditions" : state.category === "recipes" ? "recipes" : state.category === "materials" ? "materials" : state.category === "craftingProviders" ? "craftingProviders" : "encounters";
+  const refType = state.category === "shops" ? "shops" : state.category === "items" ? "items" : state.category === "combats" ? "combats" : state.category === "enemyDefinitions" ? "enemies" : state.category === "enemyActions" ? "enemyActions" : state.category === "abilities" ? "abilities" : state.category === "combatStatuses" ? "combatStatuses" : state.category === "injuries" ? "injuries" : state.category === "campEvents" ? "campEvents" : state.category === "dialogues" ? "dialogues" : state.category === "npcs" ? "npcs" : state.category === "destinations" ? "destinations" : state.category === "locations" ? "locations" : state.category === "lootTables" ? "lootTables" : state.category === "expeditions" ? "expeditions" : state.category === "recipes" ? "recipes" : state.category === "materials" ? "materials" : state.category === "craftingProviders" ? "craftingProviders" : "encounters";
   const refs = (liveReferences()[refType] || []).filter((reference) => reference.id === id);
   const warning = refs.length ? `\n\nReferences found:\n${refs.map((reference) => `- ${reference.source} (${reference.path})`).join("\n")}\n\nSaving this deletion will be blocked until those references are resolved.` : "";
   if (!window.confirm(`Delete ${id}? This is an in-memory deletion until you explicitly save.${warning}`)) return;
@@ -1971,6 +2039,29 @@ function handleInput(input) {
     if (!entry) return;
     entry[input.dataset.lootField] = input.value === "" ? undefined : Number(input.value);
     if (entry[input.dataset.lootField] === undefined) delete entry[input.dataset.lootField];
+    markDirty();
+    return;
+  }
+  if (input.dataset.itemOnHitField) {
+    state.draft.effects ||= {};
+    state.draft.effects.onHitEffects ||= [];
+    const effect = state.draft.effects.onHitEffects[Number(input.dataset.itemOnHitIndex)];
+    if (!effect) return;
+    const value = parseInputValue(input, input.dataset.itemOnHitField);
+    if (value === undefined || value === "") delete effect[input.dataset.itemOnHitField];
+    else effect[input.dataset.itemOnHitField] = value;
+    markDirty();
+    if (input.dataset.itemOnHitField === "type" || input.dataset.itemOnHitField === "statusId") render();
+    return;
+  }
+  if (input.dataset.itemTriggerField) {
+    state.draft.effects ||= {};
+    state.draft.effects.combatTriggers ||= [];
+    const trigger = state.draft.effects.combatTriggers[Number(input.dataset.itemTriggerIndex)];
+    if (!trigger) return;
+    const value = parseInputValue(input, input.dataset.itemTriggerField);
+    if (value === undefined || value === "") delete trigger[input.dataset.itemTriggerField];
+    else trigger[input.dataset.itemTriggerField] = value;
     markDirty();
     return;
   }
@@ -2332,6 +2423,33 @@ function handleAction(button) {
     render();
   } else if (action === "remove-loot-entry") {
     state.draft.entries.splice(Number(button.dataset.entryIndex), 1);
+    markDirty();
+    render();
+  } else if (action === "add-item-on-hit") {
+    const statusId = state.catalog.known?.combatStatuses?.[0] || Object.keys(state.catalog.combatStatuses || {}).sort()[0];
+    if (!statusId) return window.alert("No combat status definitions are available.");
+    state.draft.effects ||= {};
+    state.draft.effects.onHitEffects ||= [];
+    state.draft.effects.onHitEffects.push({ type: "applyStatus", statusId, chance: 0.2 });
+    markDirty();
+    render();
+  } else if (action === "remove-item-on-hit") {
+    state.draft.effects?.onHitEffects?.splice(Number(button.dataset.itemOnHitIndex), 1);
+    markDirty();
+    render();
+  } else if (action === "add-item-trigger") {
+    state.draft.effects ||= {};
+    state.draft.effects.combatTriggers ||= [];
+    state.draft.effects.combatTriggers.push({
+      trigger: "defendDamagePrevented",
+      effect: "storeCharge",
+      chargeId: "resolve",
+      cap: 10,
+    });
+    markDirty();
+    render();
+  } else if (action === "remove-item-trigger") {
+    state.draft.effects?.combatTriggers?.splice(Number(button.dataset.itemTriggerIndex), 1);
     markDirty();
     render();
   }

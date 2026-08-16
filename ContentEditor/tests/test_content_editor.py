@@ -1214,6 +1214,29 @@ class ContentEditorTests(unittest.TestCase):
         validation = validate_catalog(deleting_destination, before["known"], before["references"])
         self.assertTrue(any("Deleted destination" in issue["message"] or "Unknown destination ID 'hall'" in issue["message"] for issue in validation["errors"]))
 
+    def test_phase8_combat_status_and_equipment_schema_validation(self) -> None:
+        catalog = load_catalog(GRAIL)
+        self.assertIn("bleeding", catalog["combatStatuses"])
+        self.assertIn("poisoned", catalog["known"]["combatStatuses"])
+
+        invalid_items = clone(catalog["items"])
+        invalid_items["thorn_of_the_dolorous_vale"]["effects"]["onHitEffects"][0]["statusId"] = "missing_status"
+        invalid_items["shard_of_the_perron"]["effects"]["combatTriggers"][0]["cap"] = -1
+        validation = validate_catalog({"items": invalid_items}, catalog["known"], catalog["references"])
+        messages = [issue["message"] for issue in validation["errors"]]
+        self.assertTrue(any("Unknown combat status ID 'missing_status'" in message for message in messages))
+        self.assertTrue(any("non-negative cap" in message for message in messages))
+
+        invalid_statuses = clone(catalog["combatStatuses"])
+        invalid_statuses["bleeding"]["durationActivations"] = 0
+        validation = validate_catalog({"combatStatuses": invalid_statuses}, catalog["known"], catalog["references"])
+        self.assertTrue(any("durationActivations must be a positive integer" in issue["message"] for issue in validation["errors"]))
+
+        deleted_statuses = clone(catalog["combatStatuses"])
+        del deleted_statuses["poisoned"]
+        validation = validate_catalog({"combatStatuses": deleted_statuses}, catalog["known"], catalog["references"])
+        self.assertTrue(any("poisoned" in issue["message"] for issue in validation["errors"]))
+
 
 if __name__ == "__main__":
     unittest.main()
