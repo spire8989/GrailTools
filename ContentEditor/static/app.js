@@ -24,6 +24,8 @@ const CONTENT_CATEGORIES = [
   ["shops", "Shops"],
   ["items", "Items"],
   ["combats", "Combat"],
+  ["enemyDefinitions", "Enemies"],
+  ["enemyActions", "Enemy Actions"],
   ["abilities", "Abilities"],
   ["lootTables", "Loot Tables"],
 ];
@@ -120,6 +122,11 @@ function abilityLabel(abilityId) {
 function enemyLabel(enemyId) {
   const enemy = state.catalog?.enemyDefinitions?.[enemyId];
   return enemy?.name ? `${enemy.name} (${enemyId})` : enemyId;
+}
+
+function enemyActionLabel(actionId) {
+  const action = state.catalog?.enemyActions?.[actionId];
+  return action?.name ? `${action.name} (${actionId})` : actionId;
 }
 
 function pathLabel(pathId) {
@@ -338,14 +345,18 @@ function referenceInput(field, value, rootField = false) {
       : "";
     return `<span class="reference-inline"><input list="loot-table-options" ${fieldAttribute} value="${escapeHtml(value || "")}" placeholder="loot table ID">${openButton}</span>`;
   }
-  const map = { combatId: "combats", abilityId: "abilities", injuryId: "injuries", treatmentItemId: "items", tableId: "lootTables", pathId: "paths", expeditionId: "expeditions", recipeId: "recipes", materialId: "materials", craftingProvider: "craftingProviders", craftingProviderId: "craftingProviders", regionId: "regions", eventId: "campEvents", campEventId: "campEvents", knowledgeId: "knowledge", companionId: "companions" };
+  const map = { combatId: "combats", enemyId: "enemyDefinitions", enemyActionId: "enemyActions", abilityId: "abilities", injuryId: "injuries", treatmentItemId: "items", tableId: "lootTables", pathId: "paths", expeditionId: "expeditions", recipeId: "recipes", materialId: "materials", craftingProvider: "craftingProviders", craftingProviderId: "craftingProviders", regionId: "regions", eventId: "campEvents", campEventId: "campEvents", knowledgeId: "knowledge", companionId: "companions" };
   if (!map[field]) return `<input ${fieldAttribute} value="${escapeHtml(value || "")}">`;
-  const values = ["items", "combats", "abilities", "injuries", "campEvents", "lootTables", "paths", "expeditions", "recipes", "materials", "craftingProviders"].includes(map[field])
+  const values = ["items", "combats", "enemyDefinitions", "enemyActions", "abilities", "injuries", "campEvents", "lootTables", "paths", "expeditions", "recipes", "materials", "craftingProviders"].includes(map[field])
     ? Object.keys(state.catalog?.[map[field]] || {}).sort()
     : known[map[field]] || [];
   const labels = map[field] === "items"
     ? Object.fromEntries(values.map((id) => [id, itemLabel(id)]))
-    : map[field] === "injuries"
+    : map[field] === "enemyDefinitions"
+      ? Object.fromEntries(values.map((id) => [id, enemyLabel(id)]))
+      : map[field] === "enemyActions"
+        ? Object.fromEntries(values.map((id) => [id, enemyActionLabel(id)]))
+      : map[field] === "injuries"
     ? Object.fromEntries(values.map((id) => [id, injuryLabel(id)]))
     : map[field] === "campEvents"
       ? Object.fromEntries(values.map((id) => [id, campEventLabel(id)]))
@@ -362,7 +373,7 @@ function referenceInput(field, value, rootField = false) {
           : map[field] === "craftingProviders"
             ? Object.fromEntries(values.map((id) => [id, providerLabel(id)]))
     : {};
-  const openCategory = map[field] === "items" ? "items" : map[field] === "combats" ? "combats" : map[field] === "abilities" ? "abilities" : map[field] === "injuries" ? "injuries" : map[field] === "campEvents" ? "campEvents" : map[field] === "lootTables" ? "lootTables" : map[field] === "paths" ? "paths" : map[field] === "expeditions" ? "expeditions" : map[field] === "recipes" ? "recipes" : map[field] === "materials" ? "materials" : map[field] === "craftingProviders" ? "craftingProviders" : null;
+  const openCategory = map[field] === "items" ? "items" : map[field] === "combats" ? "combats" : map[field] === "enemyDefinitions" ? "enemyDefinitions" : map[field] === "enemyActions" ? "enemyActions" : map[field] === "abilities" ? "abilities" : map[field] === "injuries" ? "injuries" : map[field] === "campEvents" ? "campEvents" : map[field] === "lootTables" ? "lootTables" : map[field] === "paths" ? "paths" : map[field] === "expeditions" ? "expeditions" : map[field] === "recipes" ? "recipes" : map[field] === "materials" ? "materials" : map[field] === "craftingProviders" ? "craftingProviders" : null;
   const openButton = openCategory && value
     ? ` <button type="button" class="small-button inline-open" data-action="open-reference" data-reference-category="${openCategory}" data-reference-id="${escapeHtml(value)}">Open</button>`
     : "";
@@ -764,7 +775,7 @@ function liveReferences() {
 }
 
 function referenceCategory(source) {
-  return { encounters: "encounters", injuries: "injuries", campEvents: "campEvents", campEventTables: "campEvents", expeditions: "expeditions", recipes: "recipes", materials: "materials", craftingProviders: "craftingProviders", shops: "shops", items: "items", combats: "combats", abilities: "abilities", lootTables: "lootTables" }[source] || null;
+  return { encounters: "encounters", injuries: "injuries", campEvents: "campEvents", campEventTables: "campEvents", expeditions: "expeditions", recipes: "recipes", materials: "materials", craftingProviders: "craftingProviders", shops: "shops", items: "items", combats: "combats", enemyDefinitions: "enemyDefinitions", enemyActions: "enemyActions", abilities: "abilities", lootTables: "lootTables" }[source] || null;
 }
 
 function referenceTitle(source, id) {
@@ -779,6 +790,8 @@ function referenceTitle(source, id) {
   if (source === "injuries") return injuryLabel(id);
   if (source === "campEvents") return campEventLabel(id);
   if (source === "campEventTables") return campEventLabel(id);
+  if (source === "enemyDefinitions") return enemyLabel(id);
+  if (source === "enemyActions") return enemyActionLabel(id);
   return id;
 }
 
@@ -1007,49 +1020,55 @@ function renderItem() {
     <section class="section"><details><summary>Raw item JSON (advanced)</summary><p class="hint">Apply raw JSON to update the in-memory draft. Validation still blocks unsafe writes.</p><textarea id="raw-json" class="raw-editor">${jsonText(item)}</textarea><div class="button-row"><button type="button" class="small-button" data-action="apply-raw">Apply raw JSON</button></div></details></section>`;
 }
 
-function renderEnemyAction(enemyId, actionId, actionIndex) {
-  const action = state.catalog.enemyActions?.[actionId] || {};
+function enemyActionOptions(current) {
+  const ids = Object.keys(state.catalog.enemyActions || {}).sort();
+  return `<option value="">Select an enemy action...</option>${selectOptions(ids, current, Object.fromEntries(ids.map((id) => [id, enemyActionLabel(id)])))}`;
+}
+
+function renderEnemyPatternRows(enemy) {
+  const pattern = Array.isArray(enemy.actionPattern) ? enemy.actionPattern : [];
+  return pattern.map((actionId, index) => `<div class="reference-row" data-enemy-pattern-row>
+    <span class="panel-count">${index + 1}</span><select data-enemy-pattern-field="actionId" data-enemy-pattern-index="${index}">${enemyActionOptions(actionId)}</select><button type="button" class="small-button inline-open" data-action="open-reference" data-reference-category="enemyActions" data-reference-id="${escapeHtml(actionId)}">Open Action</button><button type="button" class="small-button" data-action="move-enemy-action" data-enemy-pattern-index="${index}" data-direction="up"${index === 0 ? " disabled" : ""}>↑</button><button type="button" class="small-button" data-action="move-enemy-action" data-enemy-pattern-index="${index}" data-direction="down"${index === pattern.length - 1 ? " disabled" : ""}>↓</button><button type="button" class="small-button danger-outline" data-action="remove-enemy-action-pattern" data-enemy-pattern-index="${index}">Remove</button>
+  </div>`).join("");
+}
+
+function renderEnemy() {
+  const enemy = state.draft;
+  if (!enemy) return `<div class="empty-state">Choose an enemy to edit.</div>`;
+  const references = (liveReferences().enemies || []).filter((reference) => reference.id === enemy.id);
+  return `<div class="editor-title"><div><h2>${escapeHtml(enemy.name || enemy.id || "New enemy")}</h2><p>${escapeHtml(enemy.id || "Unsaved ID")}</p></div><span class="schema-badge">Enemy schema</span></div>
+    <section class="section"><div class="section-heading"><div><h3>Enemy identity and combat stats</h3><p>Enemies are reusable definitions authored in <code>COMBAT_ENEMY_DEFINITIONS</code>.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(enemy.id || "")}"></label><label>Name<input data-enemy-field="name" value="${escapeHtml(enemy.name || "")}"></label><label>Maximum HP<input type="number" min="1" step="1" data-enemy-field="maxHp" value="${escapeHtml(enemy.maxHp ?? "")}"></label><label>Speed<input type="number" min="1" step="any" data-enemy-field="speed" value="${escapeHtml(enemy.speed ?? "")}"></label><label>Defense<input type="number" min="0" step="any" data-enemy-field="defense" value="${escapeHtml(enemy.defense ?? "")}"></label></div></section>
+    <section class="section"><div class="section-heading"><div><h3>Action pattern</h3><p>Choose reusable Enemy Actions in their authored order. Repeated action IDs remain meaningful.</p></div><button type="button" class="small-button" data-action="add-enemy-action-pattern">Add action</button></div>${renderEnemyPatternRows(enemy) || `<p class="hint">No actions. Add an action to author this enemy's pattern.</p>`}</section>
+    <section class="section"><div class="section-heading"><div><h3>Used by</h3><p>Combat definitions that include this enemy.</p></div></div><div class="reference-list">${renderReferenceRows(references, "No combat currently uses this enemy.")}</div></section>
+    <section class="section"><details><summary>Raw enemy JSON (advanced)</summary><p class="hint">Use this for future enemy presentation or runtime fields not yet present in the canonical definitions.</p><textarea id="raw-json" class="raw-editor">${jsonText(enemy)}</textarea><div class="button-row"><button type="button" class="small-button" data-action="apply-raw">Apply raw JSON</button></div></details></section>`;
+}
+
+function renderEnemyActionDefinition() {
+  const action = state.draft;
+  if (!action) return `<div class="empty-state">Choose an enemy action to edit.</div>`;
   const damage = action.damage || {};
   const injuries = state.catalog.known?.injuries || [];
-  return `<div class="enemy-action-row">
-    <div class="enemy-action-heading"><select data-combat-action-select="${escapeHtml(enemyId)}" data-action-index="${actionIndex}">${selectOptions(state.catalog.known?.enemyActions || [], actionId, Object.fromEntries((state.catalog.known?.enemyActions || []).map((id) => [id, state.catalog.enemyActions?.[id]?.name || id])))}</select><button type="button" class="small-button danger-outline" data-action="remove-enemy-action" data-enemy-id="${escapeHtml(enemyId)}" data-action-index="${actionIndex}">Remove</button></div>
-    <div class="form-grid three">
-      <label>Name<input data-enemy-action-field="name" data-action-id="${escapeHtml(actionId)}" value="${escapeHtml(action.name || "")}"></label>
-      <label>Damage min<input type="number" min="0" step="any" data-enemy-action-field="damage.minimum" data-action-id="${escapeHtml(actionId)}" value="${escapeHtml(damage.minimum ?? "")}"></label>
-      <label>Damage max<input type="number" min="0" step="any" data-enemy-action-field="damage.maximum" data-action-id="${escapeHtml(actionId)}" value="${escapeHtml(damage.maximum ?? "")}"></label>
-      <label>Target<input data-enemy-action-field="target" data-action-id="${escapeHtml(actionId)}" value="${escapeHtml(action.target || "")}"></label>
-      <label>Injury<select data-enemy-action-field="injuryId" data-action-id="${escapeHtml(actionId)}"><option value="">No injury</option>${selectOptions(injuries, action.injuryId)}</select></label>
-      <label>Injury chance<input type="number" min="0" max="1" step="any" data-enemy-action-field="injuryChance" data-action-id="${escapeHtml(actionId)}" value="${escapeHtml(action.injuryChance ?? "")}"></label>
-    </div>
-  </div>`;
+  const targetModes = uniqueSorted(["arthur", ...Object.values(state.catalog.enemyActions || {}).map((value) => value?.target), action.target]);
+  const references = (liveReferences().enemyActions || []).filter((reference) => reference.id === action.id);
+  return `<div class="editor-title"><div><h2>${escapeHtml(action.name || action.id || "New enemy action")}</h2><p>${escapeHtml(action.id || "Unsaved ID")}</p></div><span class="schema-badge">Enemy Action schema</span></div>
+    <section class="section"><div class="section-heading"><div><h3>Action identity and damage</h3><p>Enemy Actions are reusable definitions authored in <code>COMBAT_ENEMY_ACTION_DEFINITIONS</code>.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(action.id || "")}"></label><label>Name / intent text<input data-enemy-action-field="name" value="${escapeHtml(action.name || "")}"></label><label>Damage minimum<input type="number" min="0" step="any" data-enemy-action-field="damage.minimum" value="${escapeHtml(damage.minimum ?? "")}"></label><label>Damage maximum<input type="number" min="0" step="any" data-enemy-action-field="damage.maximum" value="${escapeHtml(damage.maximum ?? "")}"></label><label>Target mode<select data-enemy-action-field="target"><option value="">Select target...</option>${selectOptions(targetModes, action.target)}</select></label></div></section>
+    <section class="section"><div class="section-heading"><div><h3>Injury effect</h3><p>Optional injury references use the live Injury catalog.</p></div></div><div class="form-grid"><label>Injury${referenceInput("injuryId", action.injuryId, true)}</label><label>Injury chance<input type="number" min="0" max="1" step="any" data-enemy-action-field="injuryChance" value="${escapeHtml(action.injuryChance ?? "")}"></label></div></section>
+    <section class="section"><div class="section-heading"><div><h3>Used by</h3><p>Enemy action patterns that reference this action.</p></div></div><div class="reference-list">${renderReferenceRows(references, "No enemy currently uses this action.")}</div></section>
+    <section class="section"><details><summary>Raw Enemy Action JSON (advanced)</summary><p class="hint">Use this for uncommon future effect, weight, or presentation fields.</p><textarea id="raw-json" class="raw-editor">${jsonText(action)}</textarea><div class="button-row"><button type="button" class="small-button" data-action="apply-raw">Apply raw JSON</button></div></details></section>`;
 }
 
 function renderCombat() {
   const combat = state.draft;
   if (!combat) return `<div class="empty-state">Choose a combat to edit.</div>`;
   const enemyIds = Array.isArray(combat.enemyIds) ? combat.enemyIds : [];
-  const enemyMarkup = enemyIds.map((enemyId, index) => {
-    const enemy = state.catalog.enemyDefinitions?.[enemyId] || {};
-    const actions = Array.isArray(enemy.actionPattern) ? enemy.actionPattern : [];
-    return `<details class="enemy-card" open><summary>${escapeHtml(enemy.name || enemyId || `Enemy ${index + 1}`)} <span class="panel-count">${escapeHtml(enemyId)}</span></summary>
-      <div class="form-grid three">
-        <label>Enemy ID<select data-combat-enemy-field="id" data-enemy-index="${index}">${selectOptions(state.catalog.known?.enemies || [], enemyId, Object.fromEntries((state.catalog.known?.enemies || []).map((id) => [id, enemyLabel(id)])))}</select></label>
-        <label>Name<input data-combat-enemy-field="name" data-enemy-id="${escapeHtml(enemyId)}" value="${escapeHtml(enemy.name || "")}"></label>
-        <label>Max HP<input type="number" min="1" step="1" data-combat-enemy-field="maxHp" data-enemy-id="${escapeHtml(enemyId)}" value="${escapeHtml(enemy.maxHp ?? "")}"></label>
-        <label>Speed<input type="number" min="1" step="any" data-combat-enemy-field="speed" data-enemy-id="${escapeHtml(enemyId)}" value="${escapeHtml(enemy.speed ?? "")}"></label>
-        <label>Defense<input type="number" min="0" step="any" data-combat-enemy-field="defense" data-enemy-id="${escapeHtml(enemyId)}" value="${escapeHtml(enemy.defense ?? "")}"></label>
-      </div>
-      <div class="nested-heading"><span>Special action pattern <span class="panel-count">${actions.length}</span></span><button type="button" class="small-button" data-action="add-enemy-action" data-enemy-id="${escapeHtml(enemyId)}">Add action</button></div>
-      ${actions.map((actionId, actionIndex) => renderEnemyAction(enemyId, actionId, actionIndex)).join("") || `<p class="hint">No enemy actions. Add one to create an action pattern.</p>`}
-      <div class="button-row"><button type="button" class="small-button" data-action="duplicate-enemy" data-enemy-index="${index}">Duplicate enemy</button><button type="button" class="small-button danger-outline" data-action="remove-enemy" data-enemy-index="${index}">Remove enemy</button></div>
-    </details>`;
-  }).join("");
+  const enemyOptions = Object.fromEntries((state.catalog.known?.enemies || []).map((id) => [id, enemyLabel(id)]));
+  const enemyMarkup = enemyIds.map((enemyId, index) => `<div class="reference-row" data-combat-enemy-row><span class="panel-count">${index + 1}</span><select data-combat-enemy-field="id" data-enemy-index="${index}">${selectOptions(state.catalog.known?.enemies || [], enemyId, enemyOptions)}</select><button type="button" class="small-button inline-open" data-action="open-reference" data-reference-category="enemyDefinitions" data-reference-id="${escapeHtml(enemyId)}">Open Enemy</button><button type="button" class="small-button" data-action="move-combat-enemy" data-enemy-index="${index}" data-direction="up"${index === 0 ? " disabled" : ""}>↑</button><button type="button" class="small-button" data-action="move-combat-enemy" data-enemy-index="${index}" data-direction="down"${index === enemyIds.length - 1 ? " disabled" : ""}>↓</button><button type="button" class="small-button danger-outline" data-action="remove-enemy" data-enemy-index="${index}">Remove</button></div>`).join("");
   const references = (liveReferences().combats || []).filter((reference) => reference.id === combat.id);
-  return `<div class="editor-title"><div><h2>${escapeHtml(combat.id || "New combat")}</h2><p>${enemyIds.length} enemy occurrence${enemyIds.length === 1 ? "" : "s"}</p></div><span class="schema-badge">Combat schema</span></div>
-    <section class="section"><div class="section-heading"><div><h3>Combat metadata</h3><p>Combat rosters reference reusable enemy definitions; repeated IDs remain independent occurrences in the lineup.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(combat.id || "")}"></label><label>Title / display name<input data-field="name" value="${escapeHtml(combat.name || combat.title || "")}" placeholder="optional authored field"></label></div></section>
-    <section class="section"><div class="section-heading"><div><h3>Enemies</h3><p>Edit HP, speed, defense, and the authored enemy action pattern. Enemy definitions are shared wherever the same enemy ID is used.</p></div><button type="button" class="small-button" data-action="add-enemy">Add enemy</button></div>${enemyMarkup || `<div class="empty-state">Add an enemy to begin authoring this combat.</div>`}</section>
-    <section class="section"><div class="section-heading"><div><h3>Used by</h3><p>Known encounter references to this combat.</p></div></div><div class="reference-list">${renderReferenceRows(references)}</div></section>
-    <section class="section"><details><summary>Raw combat JSON (advanced)</summary><p class="hint">Use raw JSON for uncommon combat-level fields. Enemy stats and action patterns are edited in the cards above.</p><textarea id="raw-json" class="raw-editor">${jsonText(combat)}</textarea><div class="button-row"><button type="button" class="small-button" data-action="apply-raw">Apply raw JSON</button></div></details></section>`;
+  return `<div class="editor-title"><div><h2>${escapeHtml(combat.name || combat.title || combat.id || "New combat")}</h2><p>${enemyIds.length} enemy occurrence${enemyIds.length === 1 ? "" : "s"}</p></div><span class="schema-badge">Combat composition schema</span></div>
+    <section class="section"><div class="section-heading"><div><h3>Combat metadata</h3><p>Combat definitions compose reusable Enemy IDs; enemy stats and action patterns are edited in their first-class categories.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(combat.id || "")}"></label><label>Title / display name<input data-field="name" value="${escapeHtml(combat.name || combat.title || "")}" placeholder="optional authored field"></label></div></section>
+    <section class="section"><div class="section-heading"><div><h3>Enemy roster</h3><p>Repeated IDs remain independent occurrences in the combat lineup.</p></div><button type="button" class="small-button" data-action="add-enemy">Add enemy</button></div>${enemyMarkup || `<div class="empty-state">Add an enemy to begin authoring this combat.</div>`}</section>
+    <section class="section"><div class="section-heading"><div><h3>Used by</h3><p>Known encounter and camp-event references to this combat.</p></div></div><div class="reference-list">${renderReferenceRows(references)}</div></section>
+    <section class="section"><details><summary>Raw combat JSON (advanced)</summary><p class="hint">Use raw JSON only for uncommon combat-level fields owned by the runtime.</p><textarea id="raw-json" class="raw-editor">${jsonText(combat)}</textarea><div class="button-row"><button type="button" class="small-button" data-action="apply-raw">Apply raw JSON</button></div></details></section>`;
 }
 
 function renderAbility() {
@@ -1241,10 +1260,14 @@ function render() {
           ? renderCraftingProvider()
         : state.category === "shops"
       ? renderShop()
-      : state.category === "items"
-        ? renderItem()
+        : state.category === "items"
+          ? renderItem()
         : state.category === "combats"
           ? renderCombat()
+          : state.category === "enemyDefinitions"
+            ? renderEnemy()
+            : state.category === "enemyActions"
+              ? renderEnemyActionDefinition()
           : state.category === "abilities"
              ? renderAbility()
              : renderLootTable();
@@ -1435,6 +1458,20 @@ function defaultEntry(category) {
     prerequisites: [],
   };
   if (category === "craftingProviders") return { id: "new_provider", name: "New Crafting Provider" };
+  if (category === "enemyDefinitions") return {
+    id: "new_enemy",
+    name: "New Enemy",
+    maxHp: 10,
+    speed: 10,
+    defense: 0,
+    actionPattern: [Object.keys(state.catalog.enemyActions || {}).sort()[0] || ""],
+  };
+  if (category === "enemyActions") return {
+    id: "new_enemy_action",
+    name: "New Enemy Action",
+    damage: { minimum: 1, maximum: 2 },
+    target: "arthur",
+  };
   if (category === "recipes") return {
     id: "new_recipe",
     name: "New Recipe",
@@ -1490,6 +1527,8 @@ function duplicateEntry() {
   entry.id = uniqueId(`${entry.id || "entry"}_copy`, map);
   if (["encounters", "campEvents"].includes(state.category)) entry.title = `${entry.title || "Event"} Copy`;
   else if (state.category === "injuries") entry.name = `${entry.name || "Injury"} Copy`;
+  else if (state.category === "enemyDefinitions") entry.name = `${entry.name || "Enemy"} Copy`;
+  else if (state.category === "enemyActions") entry.name = `${entry.name || "Enemy Action"} Copy`;
   else if (state.category === "shops") entry.displayName = `${entry.displayName || "Shop"} Copy`;
   else if (["items", "abilities"].includes(state.category)) entry.name = `${entry.name || "Entry"} Copy`;
   else if (["expeditions", "recipes", "materials", "craftingProviders"].includes(state.category)) entry.name = `${entry.name || "Entry"} Copy`;
@@ -1504,7 +1543,7 @@ function duplicateEntry() {
 function deleteEntry() {
   if (!state.draft || !state.catalog || state.category === "paths") return;
   const id = state.draft.id || state.originalSelectedId;
-  const refType = state.category === "shops" ? "shops" : state.category === "items" ? "items" : state.category === "combats" ? "combats" : state.category === "abilities" ? "abilities" : state.category === "injuries" ? "injuries" : state.category === "campEvents" ? "campEvents" : state.category === "lootTables" ? "lootTables" : state.category === "expeditions" ? "expeditions" : state.category === "recipes" ? "recipes" : state.category === "materials" ? "materials" : state.category === "craftingProviders" ? "craftingProviders" : "encounters";
+  const refType = state.category === "shops" ? "shops" : state.category === "items" ? "items" : state.category === "combats" ? "combats" : state.category === "enemyDefinitions" ? "enemies" : state.category === "enemyActions" ? "enemyActions" : state.category === "abilities" ? "abilities" : state.category === "injuries" ? "injuries" : state.category === "campEvents" ? "campEvents" : state.category === "lootTables" ? "lootTables" : state.category === "expeditions" ? "expeditions" : state.category === "recipes" ? "recipes" : state.category === "materials" ? "materials" : state.category === "craftingProviders" ? "craftingProviders" : "encounters";
   const refs = (liveReferences()[refType] || []).filter((reference) => reference.id === id);
   const warning = refs.length ? `\n\nReferences found:\n${refs.map((reference) => `- ${reference.source} (${reference.path})`).join("\n")}\n\nSaving this deletion will be blocked until those references are resolved.` : "";
   if (!window.confirm(`Delete ${id}? This is an in-memory deletion until you explicitly save.${warning}`)) return;
@@ -1681,35 +1720,33 @@ function handleInput(input) {
   }
   if (input.dataset.combatEnemyField) {
     const index = Number(input.dataset.enemyIndex);
-    if (input.dataset.combatEnemyField === "id") {
-      state.draft.enemyIds[index] = input.value;
-      markDirty();
-      render();
-      return;
-    }
-    const enemy = state.catalog.enemyDefinitions?.[input.dataset.enemyId];
-    if (!enemy) return;
-    const value = parseInputValue(input, input.dataset.combatEnemyField);
-    if (value === undefined || value === "") delete enemy[input.dataset.combatEnemyField];
-    else enemy[input.dataset.combatEnemyField] = value;
-    markDirty();
-    return;
-  }
-  if (input.dataset.combatActionSelect) {
-    const enemy = state.catalog.enemyDefinitions?.[input.dataset.combatActionSelect];
-    if (!enemy) return;
-    enemy.actionPattern ||= [];
-    enemy.actionPattern[Number(input.dataset.actionIndex)] = input.value;
+    if (input.dataset.combatEnemyField === "id" && state.draft.enemyIds) state.draft.enemyIds[index] = input.value;
     markDirty();
     render();
     return;
   }
   if (input.dataset.enemyActionField) {
-    const action = state.catalog.enemyActions?.[input.dataset.actionId];
-    if (!action) return;
     const value = parseInputValue(input, input.dataset.enemyActionField);
-    setNested(action, input.dataset.enemyActionField, value);
+    if (state.category === "enemyActions") {
+      setNested(state.draft, input.dataset.enemyActionField, value);
+    } else {
+      const action = state.catalog.enemyActions?.[input.dataset.actionId];
+      if (!action) return;
+      setNested(action, input.dataset.enemyActionField, value);
+    }
     markDirty();
+    return;
+  }
+  if (input.dataset.enemyField) {
+    setNested(state.draft, input.dataset.enemyField, parseInputValue(input, input.dataset.enemyField));
+    markDirty();
+    return;
+  }
+  if (input.dataset.enemyPatternField) {
+    state.draft.actionPattern ||= [];
+    state.draft.actionPattern[Number(input.dataset.enemyPatternIndex)] = input.value;
+    markDirty();
+    render();
     return;
   }
   if (input.dataset.lootField) {
@@ -1954,28 +1991,34 @@ function handleAction(button) {
     state.draft.enemyIds.push(enemyId);
     markDirty();
     render();
-  } else if (action === "duplicate-enemy") {
+  } else if (action === "move-combat-enemy") {
     const index = Number(button.dataset.enemyIndex);
-      if (!state.draft.enemyIds?.[index]) return;
-    state.draft.enemyIds.splice(index + 1, 0, state.draft.enemyIds[index]);
+    const nextIndex = button.dataset.direction === "up" ? index - 1 : index + 1;
+    if (!state.draft.enemyIds || nextIndex < 0 || nextIndex >= state.draft.enemyIds.length) return;
+    [state.draft.enemyIds[index], state.draft.enemyIds[nextIndex]] = [state.draft.enemyIds[nextIndex], state.draft.enemyIds[index]];
+    markDirty();
+    render();
+  } else if (action === "add-enemy-action-pattern") {
+    const actionId = Object.keys(state.catalog.enemyActions || {}).sort()[0];
+    if (!actionId) return window.alert("No enemy actions are available.");
+    state.draft.actionPattern ||= [];
+    state.draft.actionPattern.push(actionId);
+    markDirty();
+    render();
+  } else if (action === "move-enemy-action") {
+    const index = Number(button.dataset.enemyPatternIndex);
+    const nextIndex = button.dataset.direction === "up" ? index - 1 : index + 1;
+    if (!state.draft.actionPattern || nextIndex < 0 || nextIndex >= state.draft.actionPattern.length) return;
+    [state.draft.actionPattern[index], state.draft.actionPattern[nextIndex]] = [state.draft.actionPattern[nextIndex], state.draft.actionPattern[index]];
+    markDirty();
+    render();
+  } else if (action === "remove-enemy-action-pattern") {
+    if (!state.draft.actionPattern) return;
+    state.draft.actionPattern.splice(Number(button.dataset.enemyPatternIndex), 1);
     markDirty();
     render();
   } else if (action === "remove-enemy") {
     state.draft.enemyIds.splice(Number(button.dataset.enemyIndex), 1);
-    markDirty();
-    render();
-  } else if (action === "add-enemy-action") {
-    const enemy = state.catalog.enemyDefinitions?.[button.dataset.enemyId];
-    const actionId = state.catalog.known?.enemyActions?.[0];
-    if (!enemy || !actionId) return window.alert("No enemy actions are available.");
-    enemy.actionPattern ||= [];
-    enemy.actionPattern.push(actionId);
-    markDirty();
-    render();
-  } else if (action === "remove-enemy-action") {
-    const enemy = state.catalog.enemyDefinitions?.[button.dataset.enemyId];
-    if (!enemy?.actionPattern) return;
-    enemy.actionPattern.splice(Number(button.dataset.actionIndex), 1);
     markDirty();
     render();
   } else if (action === "add-loot-entry") {

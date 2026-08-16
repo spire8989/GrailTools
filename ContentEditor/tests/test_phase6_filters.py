@@ -488,6 +488,46 @@ class Phase6FilterBrowserTests(unittest.TestCase):
         self.browser.evaluate("document.querySelector('[data-action=add-resolution-option]').click()")
         self.assertEqual(self.browser.evaluate("document.querySelectorAll('.resolution-option').length"), 4)
 
+    def test_phase7_enemy_and_action_categories_are_first_class_editors(self) -> None:
+        self.click_category("enemyDefinitions")
+        self.browser.evaluate("document.querySelector('[data-action=select][data-id=wild_boar]').click()")
+        self.assertTrue(self.browser.evaluate("""
+            Boolean(document.querySelector('#editor-root [data-enemy-field=maxHp]'))
+            && Boolean(document.querySelector('#editor-root [data-enemy-pattern-field=actionId]'))
+            && Boolean(document.querySelector('#editor-root [data-reference-category=enemyActions]'))
+            && Boolean(document.querySelector('#editor-root [data-reference-category=combats]'))
+        """))
+        self.browser.evaluate("""
+            (() => {
+              const input = document.querySelector('#editor-root [data-enemy-field=maxHp]');
+              input.value = '33';
+              input.dispatchEvent(new Event('change', {bubbles: true}));
+            })()
+        """)
+        self.assertIn("Unsaved changes", self.browser.evaluate("document.querySelector('#dirty-indicator').textContent"))
+
+        self.click_category("enemyActions")
+        self.browser.evaluate("document.querySelector('[data-action=select][data-id=wolf_lunge]').click()")
+        self.assertTrue(self.browser.evaluate("""
+            Boolean(document.querySelector('#editor-root [data-enemy-action-field="damage.minimum"]'))
+            && Boolean(document.querySelector('#editor-root [data-enemy-action-field=target]'))
+            && Boolean(document.querySelector('#editor-root [data-field=injuryId]'))
+            && document.querySelector('#editor-root [data-field=injuryId]').value === 'sprained_ankle'
+        """))
+
+    def test_phase7_combat_is_roster_composition_with_open_enemy_navigation(self) -> None:
+        self.click_category("combats")
+        self.browser.evaluate("document.querySelector('[data-action=select][data-id=wolves]').click()")
+        self.assertTrue(self.browser.evaluate("""
+            document.querySelectorAll('#editor-root [data-combat-enemy-row]').length === 3
+            && document.querySelectorAll('#editor-root [data-action=open-reference][data-reference-category=enemyDefinitions]').length === 3
+            && !document.querySelector('#editor-root [data-enemy-field]')
+            && !document.querySelector('#editor-root [data-enemy-action-field]')
+        """))
+        self.browser.evaluate("document.querySelector('#editor-root [data-action=open-reference][data-reference-id=wolf]').click()")
+        self.assertEqual(self.browser.evaluate("document.querySelector('#entry-heading').textContent"), "Enemies")
+        self.assertEqual(self.browser.evaluate("document.querySelector('#editor-root [data-field=id]').value"), "wolf")
+
 
 if __name__ == "__main__":
     unittest.main()

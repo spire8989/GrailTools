@@ -58,8 +58,16 @@ The default project is discovered as the sibling `../../Grail` relative to
   equipment, tri-state inventory flags, and all/any tag filters. A focused
   drop panel can add/remove this item in an existing loot table and edit its
   weight.
-- Combat: combat roster composition plus shared enemy stats and action patterns
-  (damage, target, injury, and injury chance), with multi-enemy combats.
+- Combat: combat metadata and reusable enemy roster composition, with Open
+  Enemy navigation, repeated enemy occurrences, reordering, and multi-enemy
+  combats.
+- Enemies: the canonical COMBAT_ENEMY_DEFINITIONS editor for identity, HP,
+  speed, defense, ordered action-pattern references, used-by navigation, and
+  safe deletion.
+- Enemy Actions: the canonical COMBAT_ENEMY_ACTION_DEFINITIONS editor for
+  identity, damage range, target mode, optional injury/chance, used-by
+  navigation, and safe deletion. Uncommon future fields remain available in
+  Advanced JSON.
 - Abilities: shared combat ability identity, description, target, category,
   selection prompt, effect type, damage multiplier, and gauge reduction.
 - Loot Tables: rolls and ordered weighted gold, item, material, recipe, and
@@ -159,8 +167,8 @@ The editor never silently repairs authored content.
   have a standalone authored constant in the current game, so their metadata
   remains derived and only encounter membership is editable from the Path
   view. Locations remain read-only reference sources.
-- Enemy definitions and enemy actions are edited through their owning Combat
-  roster/action-pattern controls; they are not separate navigation categories.
+- Combat no longer owns copies of enemy stats or action definitions: those
+  shared definitions are edited in the Enemies and Enemy Actions categories.
 - The editor does not yet provide NPC, dialogue, location, or standalone Path
   editors. It does not invent standalone Path definitions for the current
   distributed path-ID architecture.

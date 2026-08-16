@@ -1079,6 +1079,73 @@ class ContentEditorTests(unittest.TestCase):
         validation = validate_catalog({"campEvents": invalid}, after["known"], after["references"])
         self.assertTrue(any("Unknown item ID 'missing_nested_item'" in issue["message"] for issue in validation["errors"]))
 
+    def test_phase7_enemy_definition_edit_add_save_reload_and_safe_delete(self) -> None:
+        temp, project = self.temporary_grail()
+        self.addCleanup(temp.cleanup)
+        before = load_catalog(project)
+        enemy_path = project / "js" / "combat-data.js"
+        parsed, source, _ = parse_file_constant(enemy_path, "COMBAT_ENEMY_DEFINITIONS")
+        blocks = constant_property_blocks(source, parsed)
+        enemies = clone(before["enemyDefinitions"])
+        enemies["bandit_leader"]["maxHp"] += 1
+        added_id = "__phase7_enemy"
+        enemies[added_id] = {
+            "id": added_id,
+            "name": "Phase 7 Enemy",
+            "maxHp": 18,
+            "speed": 9,
+            "defense": 0,
+            "actionPattern": ["wolf_bite"],
+        }
+        save_catalog(project, {"enemyDefinitions": enemies}, before["sourceHashes"], Path(temp.name) / "backups")
+        after = load_catalog(project)
+        self.assertEqual(after["enemyDefinitions"]["bandit_leader"]["maxHp"], before["enemyDefinitions"]["bandit_leader"]["maxHp"] + 1)
+        self.assertEqual(after["enemyDefinitions"][added_id]["actionPattern"], ["wolf_bite"])
+
+        after_parsed, after_source, _ = parse_file_constant(enemy_path, "COMBAT_ENEMY_DEFINITIONS")
+        after_blocks = constant_property_blocks(after_source, after_parsed)
+        for key, block in blocks.items():
+            if key != "bandit_leader":
+                self.assertEqual(after_blocks[key], block, key)
+
+        deleting = {"enemyDefinitions": clone(after["enemyDefinitions"])}
+        del deleting["enemyDefinitions"]["wolf"]
+        validation = validate_catalog(deleting, after["known"], after["references"])
+        self.assertTrue(any("Unknown enemy ID 'wolf'" in issue["message"] for issue in validation["errors"]))
+        del deleting["enemyDefinitions"][added_id]
+        validation = validate_catalog(deleting, after["known"], after["references"])
+        self.assertTrue(any("Unknown enemy ID 'wolf'" in issue["message"] for issue in validation["errors"]))
+
+    def test_phase7_enemy_action_edit_add_save_reload_and_reference_validation(self) -> None:
+        temp, project = self.temporary_grail()
+        self.addCleanup(temp.cleanup)
+        before = load_catalog(project)
+        actions = clone(before["enemyActions"])
+        actions["leader_strike"]["damage"]["maximum"] += 1
+        added_id = "__phase7_enemy_action"
+        actions[added_id] = {
+            "id": added_id,
+            "name": "Phase 7 Action",
+            "damage": {"minimum": 2, "maximum": 4},
+            "target": "arthur",
+            "injuryId": "deep_cut",
+            "injuryChance": 0.1,
+        }
+        save_catalog(project, {"enemyActions": actions}, before["sourceHashes"], Path(temp.name) / "backups")
+        after = load_catalog(project)
+        self.assertEqual(after["enemyActions"]["leader_strike"]["damage"]["maximum"], before["enemyActions"]["leader_strike"]["damage"]["maximum"] + 1)
+        self.assertEqual(after["enemyActions"][added_id]["injuryId"], "deep_cut")
+
+        deleting = {"enemyActions": clone(after["enemyActions"])}
+        del deleting["enemyActions"]["wolf_bite"]
+        validation = validate_catalog(deleting, after["known"], after["references"])
+        self.assertTrue(any("Unknown enemy action ID 'wolf_bite'" in issue["message"] for issue in validation["errors"]))
+
+        invalid = {"enemyActions": clone(after["enemyActions"])}
+        invalid["enemyActions"][added_id]["injuryId"] = "missing_injury"
+        validation = validate_catalog(invalid, after["known"], after["references"])
+        self.assertTrue(any("Unknown injury ID 'missing_injury'" in issue["message"] for issue in validation["errors"]))
+
 
 if __name__ == "__main__":
     unittest.main()
