@@ -1237,6 +1237,38 @@ class ContentEditorTests(unittest.TestCase):
         validation = validate_catalog({"combatStatuses": deleted_statuses}, catalog["known"], catalog["references"])
         self.assertTrue(any("poisoned" in issue["message"] for issue in validation["errors"]))
 
+    def test_discovery_gate_and_safe_return_effects_validate(self) -> None:
+        catalog = load_catalog(GRAIL)
+        encounter = clone(catalog["encounters"]["barenton_fountain_ritual"])
+        encounter["requirements"].append({
+            "type": "allOf",
+            "requirements": [
+                {"type": "anyOf", "requirements": [{"type": "campaignFlag", "flag": "known"}]},
+            ],
+        })
+        encounter["stages"]["start"]["choices"][0]["outcomes"].append({
+            "type": "setCampaignFlagOnSafeReturn",
+            "flag": "known",
+            "value": True,
+        })
+        validation = validate_catalog(
+            {"encounters": {"barenton_fountain_ritual": encounter}},
+            catalog["known"], catalog["references"],
+        )
+        self.assertEqual(validation["errors"], [])
+
+        invalid_group = clone(encounter)
+        invalid_group["requirements"][-1].pop("requirements")
+        invalid_effect = clone(encounter)
+        invalid_effect["stages"]["start"]["choices"][0]["outcomes"][-1].pop("flag")
+        validation = validate_catalog(
+            {"encounters": {"barenton_fountain_ritual": invalid_group, "val_morgans_offer": invalid_effect}},
+            catalog["known"], catalog["references"],
+        )
+        messages = [issue["message"] for issue in validation["errors"]]
+        self.assertTrue(any("allOf requires a nested requirements array" in message for message in messages))
+        self.assertTrue(any("setCampaignFlagOnSafeReturn requires a flag" in message for message in messages))
+
 
 if __name__ == "__main__":
     unittest.main()

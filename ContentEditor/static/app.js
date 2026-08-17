@@ -1,6 +1,7 @@
 /* global fetch */
 
 const COMMON_REQUIREMENT_TYPES = [
+  "anyOf", "allOf",
   "ownsItem", "notOwnsItem", "carriedItem", "equippedItem", "availableExpeditionItem",
   "knowledge", "companion", "unlockedCompanion", "notUnlockedCompanion", "runFlag", "notRunFlag",
   "campaignFlag", "currentPath", "minimumResource", "minimumHealth", "maximumHealth", "minimumDistance", "notKnowledge",
@@ -9,6 +10,7 @@ const COMMON_EFFECT_TYPES = [
   "modifyResource", "consumeExpeditionItem", "gainUnsecuredItem", "gainUniqueUnsecuredItem",
   "gainRandomUnsecuredItem", "gainWeightedRandomUnsecuredItem", "rollLootTable", "startCombat",
   "setRunFlag", "setCampaignFlag", "changePath", "unlockCompanion", "applyInjury", "conditional",
+  "setCampaignFlagOnSafeReturn",
   "randomChance", "randomOne", "learnRecipe", "markEncounterSeen",
   "startDialogue",
 ];
@@ -443,10 +445,10 @@ function quickObjectFields(object) {
   if ("resource" in object || ["modifyResource", "minimumResource"].includes(type)) add("resource", "Resource");
   if ("target" in object || type === "applyInjury") add("target", "Target");
   if ("injuryChance" in object) add("injuryChance", "Injury chance", "number");
-  if ("flag" in object || /Flag$/.test(type)) add("flag", "Flag");
+  if ("flag" in object || /Flag$/.test(type) || type === "setCampaignFlagOnSafeReturn") add("flag", "Flag");
   if ("knowledgeId" in object || type === "knowledge") add("knowledgeId", "Knowledge", "reference");
   if ("companionId" in object || ["companion", "unlockedCompanion", "notUnlockedCompanion", "unlockCompanion"].includes(type)) add("companionId", "Companion", "reference");
-  if ("value" in object || ["runFlag", "notRunFlag", "setRunFlag", "setCampaignFlag", "campaignFlag"].includes(type)) add("value", "Value");
+  if ("value" in object || ["runFlag", "notRunFlag", "setRunFlag", "setCampaignFlag", "setCampaignFlagOnSafeReturn", "campaignFlag"].includes(type)) add("value", "Value");
   if ("resultText" in object || ["randomChance", "conditional"].includes(type)) add("resultText", "Result text");
   if ("elseResultText" in object || type === "randomChance") add("elseResultText", "Else result text");
   if ("lockedLabel" in object) add("lockedLabel", "Locked label");
@@ -2164,6 +2166,9 @@ function handleInput(input) {
     const value = parseInputValue(input, input.dataset.objectField);
     if (value === undefined || value === "") delete collection[index][input.dataset.objectField];
     else collection[index][input.dataset.objectField] = value;
+    if (input.dataset.objectField === "type" && ["anyOf", "allOf"].includes(value)) {
+      collection[index].requirements ||= [];
+    }
     markDirty();
     if (input.dataset.objectField === "type") render();
     return;

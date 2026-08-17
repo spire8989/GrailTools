@@ -842,6 +842,8 @@ def _validate_requirements(requirements: Any, source: str, path: str, errors: li
             continue
         requirement_path = f"{path}[{index}]"
         nested = requirement.get("requirements")
+        if requirement.get("type") in {"anyOf", "allOf"} and not isinstance(nested, list):
+            errors.append(_issue("error", f"{requirement['type']} requires a nested requirements array.", source, f"{requirement_path}.requirements"))
         if nested is not None:
             _validate_requirements(nested, source, f"{requirement_path}.requirements", errors)
 
@@ -864,6 +866,10 @@ def _validate_resolution_outcome(outcome: Any, known: dict[str, list[str]], sour
         errors.append(_issue("error", "Each outcome must be an object with a type.", source, path))
         return
     outcome_type = outcome["type"]
+
+    if outcome_type == "setCampaignFlagOnSafeReturn":
+        if not isinstance(outcome.get("flag"), str) or not outcome.get("flag"):
+            errors.append(_issue("error", "setCampaignFlagOnSafeReturn requires a flag.", source, f"{path}.flag"))
 
     if "requirements" in outcome:
         _validate_requirements(outcome.get("requirements"), source, f"{path}.requirements", errors)
@@ -983,6 +989,7 @@ def _validate_encounters(encounters: Any, known: dict[str, list[str]], errors: l
             errors.append(_issue("error", "maximumDistance must be numeric.", source, "maximumDistance"))
         if isinstance(minimum, (int, float)) and isinstance(maximum, (int, float)) and minimum > maximum:
             errors.append(_issue("error", "minimumDistance cannot be greater than maximumDistance.", source, "maximumDistance"))
+        _validate_requirements(encounter.get("requirements"), source, "requirements", errors)
         stages = encounter.get("stages")
         if not isinstance(stages, dict) or not stages:
             errors.append(_issue("error", "An encounter must have at least one stage.", source, "stages"))
