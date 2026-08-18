@@ -941,6 +941,16 @@ def _validate_resolution_outcome(outcome: Any, known: dict[str, list[str]], sour
                     _validate_resolution_outcomes(option.get("elseEffects"), known, source, f"{option_path}.elseEffects", errors)
                 if "requirements" in option:
                     _validate_requirements(option.get("requirements"), source, f"{option_path}.requirements", errors)
+    elif outcome_type == "learnAbility":
+        ability_id = outcome.get("abilityId")
+        if not isinstance(ability_id, str) or ability_id not in set(known.get("abilities", [])):
+            errors.append(_issue("error", "learnAbility requires a known abilityId.", source, f"{path}.abilityId"))
+    elif outcome_type == "modifyResource":
+        if not isinstance(outcome.get("resource"), str) or not outcome.get("resource"):
+            errors.append(_issue("error", "modifyResource requires a resource.", source, f"{path}.resource"))
+        amount = outcome.get("amount")
+        if amount is None and ("randomMinimum" not in outcome or "randomMaximum" not in outcome):
+            errors.append(_issue("error", "modifyResource requires amount or a random range.", source, path))
 
     for collection_name in ("effects", "elseEffects"):
         if collection_name in outcome:
@@ -1531,6 +1541,11 @@ def _validate_abilities(abilities: Any, known: dict[str, list[str]], errors: lis
                 injury_id = effect.get("injuryId")
                 if not isinstance(injury_id, str) or injury_id not in set(known.get("injuries", [])):
                     errors.append(_issue("error", "applyInjury effects need a known injuryId.", source, f"{effect_path}.injuryId"))
+            if effect_type == "modifyResource" and not isinstance(effect.get("resource"), str):
+                errors.append(_issue("error", "modifyResource effects need a string resource.", source, f"{effect_path}.resource"))
+            for field_name in ("triggersOnHit", "onHit"):
+                if field_name in effect and not isinstance(effect.get(field_name), bool):
+                    errors.append(_issue("error", f"Combat effect {field_name} must be boolean.", source, f"{effect_path}.{field_name}"))
             chance = effect.get("chance")
             if chance is not None:
                 _validate_chance(chance, source, f"{effect_path}.chance", errors)
@@ -1569,6 +1584,12 @@ def _validate_abilities(abilities: Any, known: dict[str, list[str]], errors: lis
         for field_name in ("description", "selectionPrompt", "effectType", "category"):
             if field_name in ability and not isinstance(ability.get(field_name), str):
                 errors.append(_issue("error", f"Ability {field_name} must be a string.", source, field_name))
+        for field_name in ("cooldownActivations", "chargesPerCombat"):
+            if field_name in ability and (not isinstance(ability.get(field_name), int) or isinstance(ability.get(field_name), bool) or ability[field_name] <= 0):
+                errors.append(_issue("error", f"Ability {field_name} must be a positive integer.", source, field_name))
+        for field_name in ("triggersOnHit",):
+            if field_name in ability and not isinstance(ability.get(field_name), bool):
+                errors.append(_issue("error", f"Ability {field_name} must be boolean.", source, field_name))
         if kind == "passive":
             trigger = ability.get("trigger")
             if not isinstance(trigger, dict) or not isinstance(trigger.get("event"), str) or not trigger.get("event"):
@@ -1805,8 +1826,10 @@ def _validate_recipes(recipes: Any, known: dict[str, list[str]], errors: list[di
         else:
             has_item_output = isinstance(output.get("itemId"), str) and bool(output.get("itemId"))
             has_provision_output = _is_number(output.get("provisions")) and output.get("provisions") > 0
-            if has_item_output == has_provision_output:
-                errors.append(_issue("error", "Recipe output must define exactly one positive itemId or provisions result.", source, "output"))
+            has_resource_output = isinstance(output.get("resource"), str) and bool(output.get("resource"))
+            output_kinds = sum((has_item_output, has_provision_output, has_resource_output))
+            if output_kinds != 1:
+                errors.append(_issue("error", "Recipe output must define exactly one positive itemId, provisions, or resource result.", source, "output"))
             if has_item_output:
                 if output["itemId"] not in item_ids:
                     errors.append(_issue("error", f"Unknown item ID {output['itemId']!r}.", source, "output.itemId"))
@@ -1814,6 +1837,11 @@ def _validate_recipes(recipes: Any, known: dict[str, list[str]], errors: list[di
                     errors.append(_issue("error", "Item recipe output quantity must be positive.", source, "output.quantity"))
             if "provisions" in output and not has_provision_output:
                 errors.append(_issue("error", "Recipe provisions output must be a positive number.", source, "output.provisions"))
+            if "resource" in output:
+                if not has_resource_output:
+                    errors.append(_issue("error", "Recipe resource output must name a resource.", source, "output.resource"))
+                if not _is_number(output.get("amount")) or output.get("amount") <= 0:
+                    errors.append(_issue("error", "Recipe resource output amount must be positive.", source, "output.amount"))
         if not _is_number(recipe.get("goldCost")) or recipe.get("goldCost") < 0:
             errors.append(_issue("error", "Recipe goldCost must be a non-negative number.", source, "goldCost"))
         if "rarity" in recipe and (not isinstance(recipe.get("rarity"), str) or recipe.get("rarity") not in rarity_ids):

@@ -472,7 +472,7 @@ class ContentEditorTests(unittest.TestCase):
     def test_current_combat_ability_and_loot_definitions_load(self) -> None:
         catalog = load_catalog(GRAIL)
         self.assertGreaterEqual(len(catalog["combats"]), 7)
-        self.assertEqual(len(catalog["abilities"]), 8)
+        self.assertEqual(len(catalog["abilities"]), 10)
         self.assertEqual(len(catalog["lootTables"]), 15)
         self.assertIn("bandit_leader", catalog["combats"])
         self.assertIn("pommel_strike", catalog["abilities"])
@@ -1236,6 +1236,39 @@ class ContentEditorTests(unittest.TestCase):
         del deleted_statuses["poisoned"]
         validation = validate_catalog({"combatStatuses": deleted_statuses}, catalog["known"], catalog["references"])
         self.assertTrue(any("poisoned" in issue["message"] for issue in validation["errors"]))
+
+    def test_phase9_ability_cooldown_charge_hit_and_learning_schema_validation(self) -> None:
+        catalog = load_catalog(GRAIL)
+        invalid_abilities = clone(catalog["abilities"])
+        invalid_abilities["healing_prayer"]["cooldownActivations"] = 0
+        invalid_abilities["healing_prayer"]["chargesPerCombat"] = "two"
+        invalid_abilities["healing_prayer"]["effects"][0]["triggersOnHit"] = "yes"
+        validation = validate_catalog({"abilities": invalid_abilities}, catalog["known"], catalog["references"])
+        messages = [issue["message"] for issue in validation["errors"]]
+        self.assertTrue(any("cooldownActivations must be a positive integer" in message for message in messages))
+        self.assertTrue(any("chargesPerCombat must be a positive integer" in message for message in messages))
+        self.assertTrue(any("triggersOnHit must be boolean" in message for message in messages))
+
+        encounter = clone(catalog["encounters"]["bandit_leader"])
+        outcomes = encounter["stages"]["start"]["choices"][0]["outcomes"]
+        outcomes.append({"type": "learnAbility", "abilityId": "healing_prayer"})
+        validation = validate_catalog(
+            {"encounters": {"bandit_leader": encounter}}, catalog["known"], catalog["references"],
+        )
+        self.assertEqual(validation["errors"], [])
+        outcomes.append({"type": "learnAbility", "abilityId": "missing_ability"})
+        validation = validate_catalog(
+            {"encounters": {"bandit_leader": encounter}}, catalog["known"], catalog["references"],
+        )
+        self.assertTrue(any("learnAbility requires a known abilityId" in issue["message"] for issue in validation["errors"]))
+
+        resource_recipes = clone(catalog["recipes"])
+        resource_recipes["repair_kit"]["output"] = {"resource": "faith", "amount": 2}
+        validation = validate_catalog({"recipes": resource_recipes}, catalog["known"], catalog["references"])
+        self.assertEqual(validation["errors"], [])
+        resource_recipes["repair_kit"]["output"]["amount"] = 0
+        validation = validate_catalog({"recipes": resource_recipes}, catalog["known"], catalog["references"])
+        self.assertTrue(any("Recipe resource output amount must be positive" in issue["message"] for issue in validation["errors"]))
 
     def test_discovery_gate_and_safe_return_effects_validate(self) -> None:
         catalog = load_catalog(GRAIL)
