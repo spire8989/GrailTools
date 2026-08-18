@@ -16,6 +16,7 @@ from content_editor_core import (  # noqa: E402
     JsValueParser,
     build_path_index,
     clone,
+    collect_references,
     constant_property_blocks,
     load_catalog,
     parse_file_constant,
@@ -472,7 +473,7 @@ class ContentEditorTests(unittest.TestCase):
     def test_current_combat_ability_and_loot_definitions_load(self) -> None:
         catalog = load_catalog(GRAIL)
         self.assertGreaterEqual(len(catalog["combats"]), 7)
-        self.assertEqual(len(catalog["abilities"]), 10)
+        self.assertEqual(len(catalog["abilities"]), 18)
         self.assertEqual(len(catalog["lootTables"]), 15)
         self.assertIn("bandit_leader", catalog["combats"])
         self.assertIn("pommel_strike", catalog["abilities"])
@@ -840,10 +841,81 @@ class ContentEditorTests(unittest.TestCase):
         catalog = load_catalog(GRAIL)
         self.assertGreaterEqual(len(catalog["recipes"]), 9)
         self.assertEqual(set(catalog["craftingProviders"]), {"apothecary", "blacksmith", "campfire"})
-        self.assertEqual(catalog["recipes"]["roasted_meat"]["ingredientType"], "item")
+        self.assertEqual(catalog["recipes"]["roasted_meat"]["ingredients"], [{"type": "item", "id": "raw_meat", "quantity": 1}])
         self.assertEqual(catalog["recipes"]["roasted_meat"]["output"], {"provisions": 3})
         self.assertEqual(catalog["recipes"]["repair_kit"]["output"], {"itemId": "repair_kit", "quantity": 1})
         self.assertFalse(catalog["validation"]["errors"])
+
+    def test_phase7_mixed_recipe_and_legacy_ingredient_normalization_validate(self) -> None:
+        catalog = load_catalog(GRAIL)
+        mixed = clone(catalog["recipes"]["threefold_seal"])
+        self.assertEqual(
+            mixed["ingredients"],
+            [
+                {"type": "item", "id": "white_stag_shard", "quantity": 1},
+                {"type": "item", "id": "barenton_stone", "quantity": 1},
+                {"type": "item", "id": "black_glass_tear", "quantity": 1},
+                {"type": "material", "id": "silver", "quantity": 2},
+                {"type": "material", "id": "sacred_oil", "quantity": 1},
+            ],
+        )
+        incoming = {"recipes": clone(catalog["recipes"])}
+        incoming["recipes"]["mixed_fixture"] = {
+            "id": "mixed_fixture", "name": "Mixed Fixture", "description": "A mixed source fixture.",
+            "craftingProvider": "blacksmith", "ingredients": [
+                {"type": "item", "id": "white_stag_shard", "quantity": 1},
+                {"type": "material", "id": "silver", "quantity": 2},
+            ], "output": {"itemId": "threefold_seal", "quantity": 1}, "goldCost": 0, "rarity": "rare",
+        }
+        validation = validate_catalog(incoming, catalog["known"], catalog["references"])
+        self.assertFalse(validation["errors"])
+        references = {}
+        collect_references(incoming["recipes"], "recipes", references)
+        self.assertTrue(any(entry["id"] == "white_stag_shard" for entry in references["items"]))
+        self.assertTrue(any(entry["id"] == "silver" for entry in references["materials"]))
+        legacy = {"id": "legacy_fixture", "name": "Legacy Fixture", "description": "Compatibility.",
+                  "craftingProvider": "blacksmith", "ingredientType": "item", "ingredients": {"rusted_sword": 1},
+                  "output": {"itemId": "glimmering_sword", "quantity": 1}, "goldCost": 0, "rarity": "rare"}
+        legacy_catalog = clone(catalog["recipes"])
+        legacy_catalog["legacy_fixture"] = legacy
+        validation = validate_catalog({"recipes": legacy_catalog}, catalog["known"], catalog["references"])
+        self.assertFalse(validation["errors"])
+        malformed = clone(catalog["recipes"])
+        malformed["malformed_fixture"] = {**clone(mixed), "id": "malformed_fixture", "ingredients": [{"type": "item", "id": {"bad": True}, "quantity": 1}]}
+        validation = validate_catalog({"recipes": malformed}, catalog["known"], catalog["references"])
+        self.assertTrue(any("Recipe ingredients need an id" in issue["message"] for issue in validation["errors"]))
+
+    def test_phase7_structured_active_and_passive_ability_round_trip(self) -> None:
+        temp, project = self.temporary_grail()
+        self.addCleanup(temp.cleanup)
+        before = load_catalog(project)
+        active_id = "__content_editor_phase7_active"
+        passive_id = "__content_editor_phase7_passive"
+        incoming = {"abilities": clone(before["abilities"])}
+        incoming["abilities"][active_id] = {
+            "id": active_id, "name": "Structured Active", "description": "Multiple effects.",
+            "kind": "active", "tags": ["faith", "test"], "target": "enemy", "targetMode": "singleEnemy",
+            "cost": {"resource": "faith", "amount": 2}, "cooldownActivations": 2, "chargesPerCombat": 1,
+            "effects": [
+                {"type": "dealDamage", "amount": 4},
+                {"type": "conditional", "condition": {"targetHealthBelowPercent": 0.5}, "effects": [{"type": "applyStatus", "statusId": "bleeding", "chance": 0.5}], "elseEffects": [{"type": "modifyGauge", "target": "target", "amount": -10}]},
+            ],
+        }
+        incoming["abilities"][passive_id] = {
+            "id": passive_id, "name": "Structured Passive", "description": "Event trigger.", "kind": "passive",
+            "tags": ["faith"], "trigger": {"event": "enemyDefeated", "oncePerCombat": True,
+            "conditions": {"all": [{"sourceSide": "ally"}, {"chance": 1}]},
+            "effects": [{"type": "modifyResource", "resource": "faith", "amount": 1}]},
+        }
+        validation = validate_catalog(incoming, before["known"], before["references"])
+        self.assertFalse(validation["errors"])
+        save_catalog(project, incoming, before["sourceHashes"], Path(temp.name) / "backups")
+        after = load_catalog(project)
+        self.assertEqual(after["abilities"][active_id]["effects"][1]["elseEffects"][0]["amount"], -10)
+        self.assertEqual(after["abilities"][passive_id]["trigger"]["event"], "enemyDefeated")
+        invalid = {"abilities": clone(after["abilities"])}
+        invalid["abilities"][active_id]["effects"][1]["effects"][0]["statusId"] = "missing_status"
+        self.assertTrue(validate_catalog(invalid, after["known"], after["references"])["errors"])
 
     def test_phase5_recipe_scalar_and_unknown_field_edits_are_surgical(self) -> None:
         temp, project = self.temporary_grail()
@@ -870,13 +942,19 @@ class ContentEditorTests(unittest.TestCase):
         before = load_catalog(project)
         incoming = {"recipes": clone(before["recipes"])}
         recipe = incoming["recipes"]["repair_kit"]
-        recipe["ingredients"]["iron"] = 3
-        recipe["ingredients"]["silver"] = 1
-        del recipe["ingredients"]["wood"]
+        recipe["ingredients"] = [
+            {"type": "material", "id": "iron", "quantity": 3},
+            {"type": "material", "id": "leather", "quantity": 1},
+            {"type": "material", "id": "silver", "quantity": 1},
+        ]
         recipe["output"] = {"itemId": "reinforced_mail", "quantity": 1}
         save_catalog(project, incoming, before["sourceHashes"], Path(temp.name) / "backups")
         after = load_catalog(project)
-        self.assertEqual(after["recipes"]["repair_kit"]["ingredients"], {"iron": 3, "leather": 1, "silver": 1})
+        self.assertEqual(after["recipes"]["repair_kit"]["ingredients"], [
+            {"type": "material", "id": "iron", "quantity": 3},
+            {"type": "material", "id": "leather", "quantity": 1},
+            {"type": "material", "id": "silver", "quantity": 1},
+        ])
         self.assertEqual(after["recipes"]["repair_kit"]["output"], {"itemId": "reinforced_mail", "quantity": 1})
 
     def test_phase5_new_equipment_recipe_fixture_validates_and_round_trips(self) -> None:
@@ -894,7 +972,10 @@ class ContentEditorTests(unittest.TestCase):
         }
         incoming["recipes"][recipe_id] = {
             "id": recipe_id, "name": "Test Equipment Recipe", "description": "Temporary fixture.",
-            "craftingProvider": "blacksmith", "ingredients": {"iron": 2, "leather": 1},
+            "craftingProvider": "blacksmith", "ingredients": [
+                {"type": "material", "id": "iron", "quantity": 2},
+                {"type": "material", "id": "leather", "quantity": 1},
+            ],
             "output": {"itemId": item_id, "quantity": 1}, "goldCost": 1, "rarity": "common",
         }
         validation = validate_catalog(incoming, before["known"], before["references"])
@@ -933,8 +1014,8 @@ class ContentEditorTests(unittest.TestCase):
         invalid = {"recipes": clone(catalog["recipes"])}
         recipe = invalid["recipes"]["repair_kit"]
         recipe["craftingProvider"] = "missing_provider"
-        recipe["ingredients"]["missing_material"] = 1
-        recipe["ingredients"]["iron"] = 0
+        recipe["ingredients"].append({"type": "material", "id": "missing_material", "quantity": 1})
+        next(ingredient for ingredient in recipe["ingredients"] if ingredient["id"] == "iron")["quantity"] = 0
         recipe["output"] = {"itemId": "missing_item", "quantity": 0}
         validation = validate_catalog(invalid, catalog["known"], catalog["references"])
         messages = [issue["message"] for issue in validation["errors"]]
@@ -953,20 +1034,20 @@ class ContentEditorTests(unittest.TestCase):
             "description": "A temporary material for editor coverage.",
             "rarity": "rare",
         }
-        incoming["recipes"]["repair_kit"]["ingredients"][material_id] = 1
+        incoming["recipes"]["repair_kit"]["ingredients"].append({"type": "material", "id": material_id, "quantity": 1})
         validation = validate_catalog(incoming, before["known"], before["references"])
         self.assertFalse(validation["errors"])
         save_catalog(project, incoming, before["sourceHashes"], Path(temp.name) / "backups")
         after = load_catalog(project)
         self.assertEqual(after["materials"][material_id]["name"], "Phase 6 Material")
-        self.assertEqual(after["recipes"]["repair_kit"]["ingredients"][material_id], 1)
+        self.assertIn({"type": "material", "id": material_id, "quantity": 1}, after["recipes"]["repair_kit"]["ingredients"])
 
         deleting = {"materials": clone(after["materials"]), "recipes": clone(after["recipes"])}
         del deleting["materials"][material_id]
         validation = validate_catalog(deleting, after["known"], after["references"])
         self.assertTrue(any(material_id in issue["message"] for issue in validation["errors"]))
 
-        deleting["recipes"]["repair_kit"]["ingredients"].pop(material_id)
+        deleting["recipes"]["repair_kit"]["ingredients"] = [ingredient for ingredient in deleting["recipes"]["repair_kit"]["ingredients"] if ingredient["id"] != material_id]
         validation = validate_catalog(deleting, after["known"], after["references"])
         self.assertFalse(validation["errors"])
         save_catalog(project, deleting, after["sourceHashes"], Path(temp.name) / "backups")
@@ -998,7 +1079,7 @@ class ContentEditorTests(unittest.TestCase):
         catalog = load_catalog(GRAIL)
         recipe_item_refs = [reference for reference in catalog["references"]["items"] if reference["source"] == "recipes"]
         self.assertTrue(any(reference["id"] == "repair_kit" and ".output.itemId" in reference["path"] for reference in recipe_item_refs))
-        self.assertTrue(any(reference["id"] == "raw_meat" and ".ingredients.raw_meat" in reference["path"] for reference in recipe_item_refs))
+        self.assertTrue(any(reference["id"] == "raw_meat" and ".ingredients[0].id" in reference["path"] for reference in recipe_item_refs))
         self.assertTrue(any(reference["source"] == "lootTables" and reference["id"] == "healing_poultice" for reference in catalog["references"]["recipes"]))
 
         without_item = {"items": clone(catalog["items"])}

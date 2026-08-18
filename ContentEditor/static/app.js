@@ -81,6 +81,12 @@ const state = {
       combat: "any",
       hasRequirements: "any",
     },
+    abilities: {
+      kind: "",
+      resource: "",
+      tags: [],
+      tagMode: "all",
+    },
   },
   validation: { errors: [], warnings: [] },
   validationTimer: null,
@@ -285,7 +291,7 @@ function encounterHasCombat(encounter) {
 function searchMatches(category, id, entry, query) {
   if (!query) return true;
   const recipeSearch = category === "recipes"
-    ? ` ${(entry.ingredients ? Object.keys(entry.ingredients).map((ingredientId) => state.catalog.items?.[ingredientId] ? itemLabel(ingredientId) : materialLabel(ingredientId)).join(" ") : "")} ${entry.output?.itemId ? itemLabel(entry.output.itemId) : "provisions"}`
+    ? ` ${normalizedRecipeIngredients(entry).map((ingredient) => ingredient.type === "item" ? itemLabel(ingredient.id) : materialLabel(ingredient.id)).join(" ")} ${entry.output?.itemId ? itemLabel(entry.output.itemId) : "provisions"}`
     : "";
   const tags = Array.isArray(entry.tags) ? entry.tags.join(" ") : "";
   return `${id} ${entry.title || entry.displayName || entry.name || ""} ${entry.category || ""} ${entry.rarity || ""} ${tags}${recipeSearch}`.toLowerCase().includes(query);
@@ -321,6 +327,11 @@ function filterEntries(category, entries) {
       const hasRequirements = Array.isArray(entry.requirements) && entry.requirements.length > 0;
       if (!matchesTriState(hasRequirements, filters.hasRequirements)) return false;
     }
+    if (category === "abilities") {
+      if (filters.kind && (entry.kind || "active") !== filters.kind) return false;
+      if (filters.resource && entry.cost?.resource !== filters.resource) return false;
+      if (!tagsMatch(entry.tags, filters.tags, filters.tagMode)) return false;
+    }
     return true;
   });
 }
@@ -333,6 +344,9 @@ function activeFilterCount(category) {
   }
   if (category === "encounters") {
     return [filters.pathIds.length ? "path" : "", filters.regionIds.length ? "region" : "", filters.direction !== "all" ? filters.direction : "", filters.minDistance !== "" ? "min" : "", filters.maxDistance !== "" ? "max" : "", filters.repeatable !== "any" ? filters.repeatable : "", filters.tags.length ? "tags" : "", filters.combat !== "any" ? filters.combat : "", filters.hasRequirements !== "any" ? filters.hasRequirements : ""].filter(Boolean).length;
+  }
+  if (category === "abilities") {
+    return [filters.kind, filters.resource, filters.tags.length ? "tags" : ""].filter(Boolean).length;
   }
   return 0;
 }
@@ -873,13 +887,34 @@ function recipeIngredientOptions(recipe, currentId) {
   return `<option value="">Select ${ingredientType}...</option>${currentOption}${selectOptions(values, currentId, labels)}`;
 }
 
+function normalizedRecipeIngredients(recipe) {
+  if (Array.isArray(recipe?.ingredients)) {
+    return recipe.ingredients.map((ingredient) => ({
+      type: ingredient?.type === "item" ? "item" : "material",
+      id: ingredient?.id || "",
+      quantity: ingredient?.quantity ?? 1,
+    }));
+  }
+  const type = recipe?.ingredientType === "item" ? "item" : "material";
+  return Object.entries(recipe?.ingredients || {}).map(([id, quantity]) => ({ type, id, quantity }));
+}
+
+function typedRecipeIngredientOptions(type, currentId) {
+  const values = type === "item" ? Object.keys(state.catalog.items || {}).sort() : Object.keys(state.catalog.materials || {}).sort();
+  const labels = type === "item"
+    ? Object.fromEntries(values.map((id) => [id, itemLabel(id)]))
+    : Object.fromEntries(values.map((id) => [id, materialLabel(id)]));
+  return `<option value="">Select ${type}...</option>${selectOptions(values, currentId, labels)}`;
+}
+
 function renderRecipeIngredientRows(recipe) {
-  const ingredients = Object.entries(recipe.ingredients || {});
-  return ingredients.map(([ingredientId, quantity], index) => `<div class="recipe-ingredient-row" data-recipe-ingredient-row data-ingredient-id="${escapeHtml(ingredientId)}">
-    <select data-recipe-ingredient-field="id" data-ingredient-index="${index}">${recipeIngredientOptions(recipe, ingredientId)}</select>
+  const ingredients = normalizedRecipeIngredients(recipe);
+  return ingredients.map(({ type, id, quantity }, index) => `<div class="recipe-ingredient-row" data-recipe-ingredient-row data-ingredient-id="${escapeHtml(id)}">
+    <select data-recipe-ingredient-field="type" data-ingredient-index="${index}"><option value="item"${selected("item", type)}>Item</option><option value="material"${selected("material", type)}>Material</option></select>
+    <select data-recipe-ingredient-field="id" data-ingredient-index="${index}">${typedRecipeIngredientOptions(type, id)}</select>
     <input type="number" min="1" step="1" data-recipe-ingredient-field="quantity" data-ingredient-index="${index}" value="${escapeHtml(quantity ?? "")}" aria-label="Ingredient quantity">
-    ${recipe.ingredientType === "item" ? `<button type="button" class="small-button inline-open" data-action="open-reference" data-reference-category="items" data-reference-id="${escapeHtml(ingredientId)}">Open Item</button>` : `<span class="recipe-ref-kind">Material</span>`}
-    <button type="button" class="small-button" data-action="duplicate-recipe-ingredient" data-ingredient-index="${index}">Duplicate</button><button type="button" class="small-button danger-outline" data-action="remove-recipe-ingredient" data-ingredient-index="${index}">Remove</button>
+    ${id && type === "item" ? `<button type="button" class="small-button inline-open" data-action="open-reference" data-reference-category="items" data-reference-id="${escapeHtml(id)}">Open Item</button>` : `<span class="recipe-ref-kind">${type === "item" ? "Item" : "Material"}</span>`}
+    <button type="button" class="small-button" data-action="move-recipe-ingredient" data-ingredient-index="${index}" data-direction="up"${index === 0 ? " disabled" : ""}>↑</button><button type="button" class="small-button" data-action="move-recipe-ingredient" data-ingredient-index="${index}" data-direction="down"${index === ingredients.length - 1 ? " disabled" : ""}>↓</button><button type="button" class="small-button" data-action="duplicate-recipe-ingredient" data-ingredient-index="${index}">Duplicate</button><button type="button" class="small-button danger-outline" data-action="remove-recipe-ingredient" data-ingredient-index="${index}">Remove</button>
   </div>`).join("");
 }
 
@@ -896,10 +931,11 @@ function renderRecipe() {
   const references = (liveReferences().recipes || []).filter((reference) => reference.id === recipe.id);
   const providerIds = Object.keys(state.catalog.craftingProviders || {}).sort();
   const rarityIds = known.rarities || [];
+  const legacyIngredientType = recipe.ingredientType || (normalizedRecipeIngredients(recipe).every((ingredient) => ingredient.type === "item") ? "item" : "material");
   return `<div class="editor-title"><div><h2>${escapeHtml(recipe.name || recipe.id || "New recipe")}</h2><p>${escapeHtml(recipe.id || "Unsaved ID")} · Produces: ${escapeHtml(outputType === "item" ? itemLabel(output.itemId || "") : `${output.provisions ?? 0} provisions`)}</p></div><span class="schema-badge">Recipe schema</span></div>
     <section class="section"><div class="section-heading"><div><h3>Recipe identity</h3><p>Recipes are authored in <code>js/crafting-data.js</code>.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(recipe.id || "")}"></label><label>Name<input data-field="name" value="${escapeHtml(recipe.name || "")}"></label><label class="wide">Description<textarea data-field="description">${escapeHtml(recipe.description || "")}</textarea></label><label>Rarity<select data-field="rarity"><option value="">No rarity</option>${selectOptions(rarityIds, recipe.rarity)}</select></label><label class="check-chip"><input type="checkbox" data-field="starter"${checked(recipe.starter)}> Starter recipe</label></div></section>
     <section class="section"><div class="section-heading"><div><h3>Crafting provider</h3><p>Provider IDs are selected from the live <code>CRAFTING_PROVIDER_DEFINITIONS</code> catalog.</p></div></div><div class="form-grid"><label>Provider${referenceInput("craftingProvider", recipe.craftingProvider, true)}</label><label>Gold cost<input type="number" min="0" step="1" data-field="goldCost" value="${escapeHtml(recipe.goldCost ?? "")}"></label><label>Crafting duration (ms)<input type="number" min="1" step="1" data-field="craftingDurationMs" value="${escapeHtml(recipe.craftingDurationMs ?? "")}" placeholder="provider default"></label></div></section>
-    <section class="section"><div class="section-heading"><div><h3>Ingredients</h3><p>Current runtime supports material ingredients by default and item ingredients when <code>ingredientType</code> is <code>item</code>.</p></div><button type="button" class="small-button" data-action="add-recipe-ingredient">Add ingredient</button></div><div class="recipe-ingredient-type"><label>Ingredient type<select data-field="ingredientType"><option value="material"${selected("material", recipe.ingredientType || "material")}>Materials</option><option value="item"${selected("item", recipe.ingredientType)}>Items</option></select></label></div><div class="recipe-ingredient-list">${renderRecipeIngredientRows(recipe) || `<p class="hint">No ingredients. Add one to make this recipe craftable.</p>`}</div></section>
+    <section class="section"><div class="section-heading"><div><h3>Ingredients</h3><p>Each row names its source explicitly. Item and material rows can be mixed; older map recipes are displayed as typed rows and migrate on save.</p></div><button type="button" class="small-button" data-action="add-recipe-ingredient">Add ingredient</button></div><div class="recipe-ingredient-type"><label>Legacy type compatibility<select data-field="ingredientType"><option value="material"${selected("material", legacyIngredientType)}>Materials</option><option value="item"${selected("item", legacyIngredientType)}>Items</option></select></label><span class="hint">Changing this compatibility control converts every row; use row types for mixed recipes.</span></div><div class="recipe-ingredient-list">${renderRecipeIngredientRows(recipe) || `<p class="hint">No ingredients. Add one to make this recipe craftable.</p>`}</div>${recipe.ingredientType ? `<p class="hint">Deprecated legacy ingredientType: ${escapeHtml(recipe.ingredientType)}. Saving converts this recipe to canonical typed rows.</p>` : ""}</section>
     <section class="section"><div class="section-heading"><div><h3>Output</h3><p>Expose the current item or provisions result shape without requiring raw JSON.</p></div></div><div class="form-grid"><label>Output type<select data-recipe-output-type><option value="item"${selected("item", outputType)}>Item</option><option value="provisions"${selected("provisions", outputType)}>Provisions</option></select></label>${outputType === "item" ? `<label>Quantity<input type="number" min="1" step="1" data-recipe-output-field="quantity" value="${escapeHtml(output.quantity ?? "")}"></label><label class="wide">Output item<span class="reference-inline"><input list="item-options" data-recipe-output-field="itemId" value="${escapeHtml(output.itemId || "")}" placeholder="Search item..."><button type="button" class="small-button inline-open" data-action="open-reference" data-reference-category="items" data-reference-id="${escapeHtml(output.itemId || "")}">Open Item</button></span></label>` : `<label>Provisions<input type="number" min="1" step="1" data-recipe-output-field="provisions" value="${escapeHtml(output.provisions ?? "")}"></label>`}</div></section>
     <section class="section"><div class="section-heading"><div><h3>Used by / references</h3><p>Known loot-table and other semantic recipe references.</p></div></div><div class="reference-list">${renderReferenceRows(references, "No known current references. Loot tables can directly unlock this recipe.")}</div></section>
     <section class="section"><details><summary>Raw recipe JSON (advanced)</summary><p class="hint">Uncommon existing fields survive typed edits and can be edited here when needed.</p><textarea id="raw-json" class="raw-editor">${jsonText(recipe)}</textarea><div class="button-row"><button type="button" class="small-button" data-action="apply-raw">Apply raw JSON</button></div></details></section>`;
@@ -1072,7 +1108,7 @@ function renderItem() {
   }).join("");
   const recipeEntries = Object.entries(state.catalog.recipes || {});
   const producedBy = recipeEntries.filter(([, recipe]) => recipe.output?.itemId === item.id);
-  const usedAsIngredient = recipeEntries.filter(([, recipe]) => recipe.ingredientType === "item" && Object.prototype.hasOwnProperty.call(recipe.ingredients || {}, item.id));
+  const usedAsIngredient = recipeEntries.filter(([, recipe]) => normalizedRecipeIngredients(recipe).some((ingredient) => ingredient.type === "item" && ingredient.id === item.id));
   const recipeRelationshipRows = (entries, emptyText) => entries.length
     ? entries.map(([recipeId, recipe]) => `<div class="reference-row"><strong>Recipe</strong><span>${escapeHtml(recipe.name || recipeId)}</span><code>${escapeHtml(recipeId)}</code><button type="button" class="small-button inline-open" data-action="open-reference" data-reference-category="recipes" data-reference-id="${escapeHtml(recipeId)}">Open Recipe</button></div>`).join("")
     : `<p class="hint">${escapeHtml(emptyText)}</p>`;
@@ -1164,23 +1200,119 @@ function renderCombat() {
     <section class="section"><details><summary>Raw combat JSON (advanced)</summary><p class="hint">Use raw JSON only for uncommon combat-level fields owned by the runtime.</p><textarea id="raw-json" class="raw-editor">${jsonText(combat)}</textarea><div class="button-row"><button type="button" class="small-button" data-action="apply-raw">Apply raw JSON</button></div></details></section>`;
 }
 
+const COMBAT_EFFECT_TYPES = [
+  "dealDamage", "weaponDamage", "heal", "modifyGauge", "applyStatus", "removeStatus",
+  "modifyStat", "modifyResource", "storeCharge", "consumeCharge", "conditional", "randomChance",
+  "setDefending", "setFlag", "attemptFlee", "applyInjury",
+];
+const COMBAT_EVENT_TYPES = [
+  "combatStart", "actorReady", "turnStart", "beforeAction", "actionUsed", "beforeDamage",
+  "damageDealt", "damageTaken", "damagePrevented", "afterDamage", "attackHit", "turnEnd",
+  "actorDefeated", "enemyDefeated", "allyDefeated", "combatVictory", "combatDefeat", "combatFled", "combatEnd",
+];
+
+function abilityPathValue(path) {
+  return pathValue(state.draft, path);
+}
+
+function setAbilityPathValue(path, value) {
+  const tokens = path.match(/[^.[\]]+|\[\d+\]/g) || [];
+  if (!tokens.length) return;
+  let target = state.draft;
+  tokens.slice(0, -1).forEach((token, index) => {
+    const key = token.startsWith("[") ? Number(token.slice(1, -1)) : token;
+    const nextToken = tokens[index + 1];
+    if (target[key] === undefined) target[key] = nextToken?.startsWith("[") ? [] : {};
+    target = target[key];
+  });
+  const last = tokens.at(-1);
+  const key = last.startsWith("[") ? Number(last.slice(1, -1)) : last;
+  if (value === undefined || value === "") delete target[key];
+  else target[key] = value;
+}
+
+function combatTargetOptions(current) {
+  return selectOptions(["target", "self", "source"], current, { target: "Selected target", self: "Ability owner", source: "Event source" });
+}
+
+function renderAbilityConditionEditor(condition, path) {
+  const value = condition && typeof condition === "object" && !Array.isArray(condition) ? condition : {};
+  const usesCombinator = Array.isArray(value.all) || Array.isArray(value.any);
+  const statusIds = state.catalog.known?.combatStatuses || Object.keys(state.catalog.combatStatuses || {}).sort();
+  const fields = usesCombinator
+    ? `<p class="hint">This uses an all/any condition group. Edit the full group in the advanced condition JSON below.</p>`
+    : `<div class="form-grid three">
+      <label>Source side<select data-ability-condition-field="sourceSide" data-ability-condition-path="${escapeHtml(path)}"><option value="">Any side</option><option value="ally"${selected("ally", value.sourceSide)}>Ally</option><option value="enemy"${selected("enemy", value.sourceSide)}>Enemy</option></select></label>
+      <label>Target side<select data-ability-condition-field="targetSide" data-ability-condition-path="${escapeHtml(path)}"><option value="">Any side</option><option value="ally"${selected("ally", value.targetSide)}>Ally</option><option value="enemy"${selected("enemy", value.targetSide)}>Enemy</option></select></label>
+      <label>Action ID<input data-ability-condition-field="actionId" data-ability-condition-path="${escapeHtml(path)}" value="${escapeHtml(value.actionId || "")}" placeholder="optional"></label>
+      <label>Health below<input type="number" min="0" max="1" step="0.05" data-ability-condition-field="healthBelowPercent" data-ability-condition-path="${escapeHtml(path)}" value="${escapeHtml(value.healthBelowPercent ?? "")}" placeholder="0.4"></label>
+      <label>Health above<input type="number" min="0" max="1" step="0.05" data-ability-condition-field="healthAbovePercent" data-ability-condition-path="${escapeHtml(path)}" value="${escapeHtml(value.healthAbovePercent ?? "")}" placeholder="0.8"></label>
+      <label>Target health below<input type="number" min="0" max="1" step="0.05" data-ability-condition-field="targetHealthBelowPercent" data-ability-condition-path="${escapeHtml(path)}" value="${escapeHtml(value.targetHealthBelowPercent ?? "")}"></label>
+      <label>Status present<select data-ability-condition-field="hasStatus" data-ability-condition-path="${escapeHtml(path)}"><option value="">Any</option>${selectOptions(statusIds, value.hasStatus, Object.fromEntries(statusIds.map((id) => [id, id])))}</select></label>
+      <label>Status missing<select data-ability-condition-field="missingStatus" data-ability-condition-path="${escapeHtml(path)}"><option value="">Any</option>${selectOptions(statusIds, value.missingStatus, Object.fromEntries(statusIds.map((id) => [id, id])))}</select></label>
+      <label>Chance<input type="number" min="0" max="1" step="0.05" data-ability-condition-field="chance" data-ability-condition-path="${escapeHtml(path)}" value="${escapeHtml(value.chance ?? "")}" placeholder="1"></label>
+      <label class="check-chip"><input type="checkbox" data-ability-condition-field="firstUse" data-ability-condition-path="${escapeHtml(path)}"${checked(value.firstUse)}> First use only</label>
+      <label class="check-chip"><input type="checkbox" data-ability-condition-field="oncePerCombat" data-ability-condition-path="${escapeHtml(path)}"${checked(value.oncePerCombat)}> Once per combat</label>
+    </div>`;
+  return `<div class="ability-condition-editor"><strong>Trigger conditions</strong>${fields}<details><summary>Condition JSON (advanced)</summary><textarea class="raw-editor" data-ability-condition-json="${escapeHtml(path)}">${jsonText(condition || {})}</textarea></details></div>`;
+}
+
+function renderAbilityEffectSpecificFields(effect, path) {
+  const type = effect.type;
+  const target = ["dealDamage", "weaponDamage", "heal", "modifyGauge", "applyStatus", "removeStatus", "modifyStat", "setDefending", "setFlag", "applyInjury"].includes(type)
+    ? `<label>Target<select data-ability-effect-field="target" data-ability-effect-path="${escapeHtml(path)}">${combatTargetOptions(effect.target || "target")}</select></label>` : "";
+  const amount = ["dealDamage", "heal", "modifyGauge", "modifyResource", "modifyStat", "storeCharge"].includes(type)
+    ? `<label>Amount<input type="number" step="any" data-ability-effect-field="amount" data-ability-effect-path="${escapeHtml(path)}" value="${escapeHtml(effect.amount ?? "")}"></label>` : "";
+  const multiplier = type === "weaponDamage"
+    ? `<label>Weapon multiplier<input type="number" min="0" step="0.05" data-ability-effect-field="multiplier" data-ability-effect-path="${escapeHtml(path)}" value="${escapeHtml(effect.multiplier ?? 1)}"></label><label class="check-chip"><input type="checkbox" data-ability-effect-field="triggersOnHit" data-ability-effect-path="${escapeHtml(path)}"${checked(effect.triggersOnHit !== false)}> Triggers on hit</label>` : "";
+  const resource = type === "modifyResource"
+    ? `<label>Resource<select data-ability-effect-field="resource" data-ability-effect-path="${escapeHtml(path)}"><option value="faith"${selected("faith", effect.resource)}>Faith</option><option value="health"${selected("health", effect.resource)}>Health</option><option value="provisions"${selected("provisions", effect.resource)}>Provisions</option></select></label>` : "";
+  const status = ["applyStatus", "removeStatus"].includes(type)
+    ? `<label>Status<select data-ability-effect-field="statusId" data-ability-effect-path="${escapeHtml(path)}">${selectOptions(state.catalog.known?.combatStatuses || [], effect.statusId)}</select></label>${type === "applyStatus" ? `<label>Chance<input type="number" min="0" max="1" step="0.05" data-ability-effect-field="chance" data-ability-effect-path="${escapeHtml(path)}" value="${escapeHtml(effect.chance ?? "")}"></label>` : ""}` : "";
+  const injury = type === "applyInjury"
+    ? `<label>Injury<select data-ability-effect-field="injuryId" data-ability-effect-path="${escapeHtml(path)}">${selectOptions(state.catalog.known?.injuries || [], effect.injuryId)}</select></label><label>Chance<input type="number" min="0" max="1" step="0.05" data-ability-effect-field="chance" data-ability-effect-path="${escapeHtml(path)}" value="${escapeHtml(effect.chance ?? "")}"></label>` : "";
+  const stat = type === "modifyStat"
+    ? `<label>Stat<input data-ability-effect-field="stat" data-ability-effect-path="${escapeHtml(path)}" value="${escapeHtml(effect.stat || "")}" placeholder="defense, speed..."></label><label>Mode<select data-ability-effect-field="mode" data-ability-effect-path="${escapeHtml(path)}"><option value="add"${selected("add", effect.mode || "add")}>Add</option><option value="set"${selected("set", effect.mode)}>Set</option></select></label>` : "";
+  const charge = ["storeCharge", "consumeCharge"].includes(type)
+    ? `<label>Charge ID<input data-ability-effect-field="chargeId" data-ability-effect-path="${escapeHtml(path)}" value="${escapeHtml(effect.chargeId || "")}" placeholder="resolve"></label>${type === "storeCharge" ? `<label>Cap<input type="number" min="0" step="1" data-ability-effect-field="cap" data-ability-effect-path="${escapeHtml(path)}" value="${escapeHtml(effect.cap ?? "")}"></label>` : ""}` : "";
+  const flag = type === "setFlag"
+    ? `<label>Flag<input data-ability-effect-field="flag" data-ability-effect-path="${escapeHtml(path)}" value="${escapeHtml(effect.flag || "")}"></label><label class="check-chip"><input type="checkbox" data-ability-effect-field="value" data-ability-effect-path="${escapeHtml(path)}"${checked(effect.value)}> Set true</label>` : "";
+  const defending = type === "setDefending"
+    ? `<label class="check-chip"><input type="checkbox" data-ability-effect-field="value" data-ability-effect-path="${escapeHtml(path)}"${checked(effect.value !== false)}> Set defending</label>` : "";
+  const chance = type === "randomChance"
+    ? `<label>Chance<input type="number" min="0" max="1" step="0.05" data-ability-effect-field="chance" data-ability-effect-path="${escapeHtml(path)}" value="${escapeHtml(effect.chance ?? "")}"></label>` : "";
+  return `${target}${amount}${multiplier}${resource}${status}${injury}${stat}${charge}${flag}${defending}${chance}`;
+}
+
+function renderAbilityEffects(effects, path, depth = 0) {
+  const list = Array.isArray(effects) ? effects : [];
+  return `<div class="ability-effects" data-ability-effects-path="${escapeHtml(path)}"><div class="nested-heading"><span>${depth ? "Nested effects" : "Effects"} <span class="panel-count">${list.length}</span></span><button type="button" class="small-button" data-action="add-ability-effect" data-ability-effects-path="${escapeHtml(path)}">Add effect</button></div>${list.map((effect, index) => {
+    const effectPath = `${path}[${index}]`;
+    const nested = ["conditional", "randomChance"].includes(effect?.type);
+    return `<div class="section-card ability-effect-row"><div class="form-grid"><label>Effect type<select data-ability-effect-field="type" data-ability-effect-path="${escapeHtml(effectPath)}">${selectOptions(COMBAT_EFFECT_TYPES, effect?.type)}</select></label>${renderAbilityEffectSpecificFields(effect || {}, effectPath)}</div>${effect?.type === "conditional" ? renderAbilityConditionEditor(effect.condition ?? effect.conditions, `${effectPath}.condition`) : ""}${nested && depth < 2 ? renderAbilityEffects(effect.effects, `${effectPath}.effects`, depth + 1) : ""}${nested && depth < 2 ? renderAbilityEffects(effect.elseEffects, `${effectPath}.elseEffects`, depth + 1) : ""}<div class="button-row"><button type="button" class="small-button danger-outline" data-action="remove-ability-effect" data-ability-effects-path="${escapeHtml(path)}" data-ability-effect-index="${index}">Remove effect</button></div></div>`;
+  }).join("") || `<p class="hint">No effects authored.</p>`}</div>`;
+}
+
 function renderAbility() {
   const ability = state.draft;
   if (!ability) return `<div class="empty-state">Choose an ability to edit.</div>`;
   const references = (liveReferences().abilities || []).filter((reference) => reference.id === ability.id);
-  return `<div class="editor-title"><div><h2>${escapeHtml(ability.name || ability.id || "New ability")}</h2><p>${escapeHtml(ability.id || "Unsaved ID")}</p></div><span class="schema-badge">Ability schema</span></div>
-    <section class="section"><div class="section-heading"><div><h3>Ability fields</h3><p>These controls cover the current shared combat ability shapes; uncommon fields remain available in raw JSON.</p></div></div><div class="form-grid">
+  const tags = Array.isArray(ability.tags) ? ability.tags.join(", ") : "";
+  const trigger = ability.trigger || {};
+  const effects = ability.kind === "passive" ? [] : ability.effects;
+  return `<div class="editor-title"><div><h2>${escapeHtml(ability.name || ability.id || "New ability")}</h2><p>${escapeHtml(ability.id || "Unsaved ID")} · ${escapeHtml(ability.kind || "active")}</p></div><span class="schema-badge">Combat ability schema</span></div>
+    <section class="section"><div class="section-heading"><div><h3>Identity and loadout behavior</h3><p>Active and passive abilities use one shared authoring surface. Tags and descriptions are visible in combat and loadout screens.</p></div></div><div class="form-grid">
       <label>ID<input data-field="id" value="${escapeHtml(ability.id || "")}"></label><label>Name<input data-field="name" value="${escapeHtml(ability.name || "")}"></label>
       <label class="wide">Description<textarea data-field="description">${escapeHtml(ability.description || "")}</textarea></label>
-      <label>Target<select data-field="target">${selectOptions(["enemy", "ally", "self", "menu", "none"], ability.target)}</select></label>
-      <label>Category<input data-field="category" value="${escapeHtml(ability.category || "")}"></label>
-      <label>Selection prompt<input data-field="selectionPrompt" value="${escapeHtml(ability.selectionPrompt || "")}"></label>
-      <label>Effect type<input data-field="effectType" value="${escapeHtml(ability.effectType || "")}"></label>
-      <label>Damage multiplier<input type="number" min="0" step="any" data-field="damageMultiplier" value="${escapeHtml(ability.damageMultiplier ?? "")}"></label>
-      <label>Gauge reduction<input type="number" min="0" step="any" data-field="gaugeReduction" value="${escapeHtml(ability.gaugeReduction ?? "")}"></label>
+      <label>Kind<select data-ability-field="kind"><option value="active"${selected("active", ability.kind || "active")}>Active</option><option value="passive"${selected("passive", ability.kind)}>Passive</option></select></label>
+      <label class="wide">Tags<input data-ability-tags value="${escapeHtml(tags)}" placeholder="martial, faith, control"></label>
+      <label>Target<select data-ability-field="target">${selectOptions(["enemy", "ally", "self", "menu", "none"], ability.target || "none")}</select></label>
+      <label>Target mode<select data-ability-field="targetMode">${selectOptions(["self", "singleEnemy", "singleAlly", "allEnemies", "allAllies", "none"], ability.targetMode || "none")}</select></label>
+      <label class="wide">Selection prompt<input data-ability-field="selectionPrompt" value="${escapeHtml(ability.selectionPrompt || "")}"></label>
     </div></section>
-    <section class="section"><div class="section-heading"><div><h3>Used by</h3><p>Items and other current definitions that grant or reference this ability.</p></div></div><div class="reference-list">${renderReferenceRows(references)}</div></section>
-    <section class="section"><details><summary>Raw ability JSON (advanced)</summary><p class="hint">Apply raw JSON for schema-specific fields not exposed above.</p><textarea id="raw-json" class="raw-editor">${jsonText(ability)}</textarea><div class="button-row"><button type="button" class="small-button" data-action="apply-raw">Apply raw JSON</button></div></details></section>`;
+    ${ability.kind === "passive" ? `<section class="section"><div class="section-heading"><div><h3>Passive trigger</h3><p>Choose from the runtime combat lifecycle. Conditions use source/target sides, health, statuses, action/event, chance, and once-per-combat gates.</p></div></div><div class="form-grid"><label>Event<select data-ability-trigger-field="event"><option value="">Select event...</option>${selectOptions(COMBAT_EVENT_TYPES, trigger.event)}</select></label><label class="check-chip"><input type="checkbox" data-ability-trigger-field="oncePerCombat"${checked(trigger.oncePerCombat)}> Once per combat</label></div>${renderAbilityConditionEditor(trigger.conditions, "trigger.conditions")}${renderAbilityEffects(trigger.effects, "trigger.effects")}</section>` : `<section class="section"><div class="section-heading"><div><h3>Active cost and timing</h3><p>Costs are paid before effects resolve. Cooldowns count completed activations; charges reset for each combat.</p></div></div><div class="form-grid"><label>Cost resource<select data-ability-cost-field="resource"><option value="">No cost</option><option value="faith"${selected("faith", ability.cost?.resource)}>Faith</option><option value="health"${selected("health", ability.cost?.resource)}>Health</option><option value="provisions"${selected("provisions", ability.cost?.resource)}>Provisions</option></select></label><label>Cost amount<input type="number" min="0" step="1" data-ability-cost-field="amount" value="${escapeHtml(ability.cost?.amount ?? "")}"></label><label>Cooldown activations<input type="number" min="1" step="1" data-ability-field="cooldownActivations" value="${escapeHtml(ability.cooldownActivations ?? "")}"></label><label>Charges per combat<input type="number" min="1" step="1" data-ability-field="chargesPerCombat" value="${escapeHtml(ability.chargesPerCombat ?? "")}"></label></div></section>${renderAbilityEffects(effects, "effects")}`}
+    <section class="section"><div class="section-heading"><div><h3>Used by / references</h3><p>Items, companions, encounters, and other authored content that grants or teaches this ability.</p></div></div><div class="reference-list">${renderReferenceRows(references, "No current references.")}</div></section>
+    <section class="section"><details><summary>Raw ability JSON (advanced)</summary><p class="hint">Use this for arbitrary future fields or condition groups deeper than the structured editor. Unknown fields are preserved.</p><textarea id="raw-json" class="raw-editor">${jsonText(ability)}</textarea><div class="button-row"><button type="button" class="small-button" data-action="apply-raw">Apply raw JSON</button></div></details></section>`;
 }
 
 function renderCombatStatus() {
@@ -1372,11 +1504,24 @@ function renderEncounterFilters(entries) {
   </div>`;
 }
 
+function renderAbilityFilters(entries) {
+  const filters = filterState("abilities");
+  const values = Object.values(entries);
+  const tags = values.flatMap((ability) => Array.isArray(ability.tags) ? ability.tags : []);
+  const resources = values.map((ability) => ability.cost?.resource);
+  return `<div class="filter-drawer"><div class="form-grid filter-grid">
+    <label>Kind<select data-filter-category="abilities" data-filter-field="kind"><option value="">Active and passive</option><option value="active"${selected("active", filters.kind)}>Active</option><option value="passive"${selected("passive", filters.kind)}>Passive</option></select></label>
+    <label>Cost resource<select data-filter-category="abilities" data-filter-field="resource"><option value="">Any resource</option>${filterOptions(resources, filters.resource)}</select></label>
+    <label class="wide">Tags<select multiple size="4" data-filter-category="abilities" data-filter-field="tags">${multiFilterOptions(tags, filters.tags)}</select></label>
+    <label>Tag matching<select data-filter-category="abilities" data-filter-field="tagMode"><option value="all"${selected("all", filters.tagMode)}>Match ALL</option><option value="any"${selected("any", filters.tagMode)}>Match ANY</option></select></label>
+  </div></div>`;
+}
+
 function renderFilterControls(entries, filtered) {
   const category = state.category;
   if (!filterState(category)) return "";
   const active = activeFilterCount(category);
-  const drawer = state.filterOpen ? (category === "items" ? renderItemFilters(entries) : renderEncounterFilters(entries)) : "";
+  const drawer = state.filterOpen ? (category === "items" ? renderItemFilters(entries) : category === "encounters" ? renderEncounterFilters(entries) : renderAbilityFilters(entries)) : "";
   const selectionHidden = state.selectedId && !filtered.some(([id]) => activeEntryId(id));
   return `<div class="filter-toolbar"><button type="button" class="filter-toggle" data-action="toggle-filters" aria-expanded="${state.filterOpen}">Filters</button><span class="filter-status">${active} active</span><button type="button" class="filter-clear" data-action="clear-filters"${active ? "" : " disabled"}>Clear filters</button></div>${drawer}${selectionHidden ? `<div class="filter-selection-note">The selected entry is hidden by the current filters.</div>` : ""}`;
 }
@@ -1408,7 +1553,7 @@ function render() {
   const query = currentSearch().trim().toLowerCase();
   const filtered = Object.entries(filterVisibleEntries).filter(([id, entry]) => {
     const recipeSearch = state.category === "recipes"
-      ? ` ${(entry.ingredients ? Object.keys(entry.ingredients).map((ingredientId) => state.catalog.items?.[ingredientId] ? itemLabel(ingredientId) : materialLabel(ingredientId)).join(" ") : "")} ${entry.output?.itemId ? itemLabel(entry.output.itemId) : "provisions"}`
+      ? ` ${normalizedRecipeIngredients(entry).map((ingredient) => ingredient.type === "item" ? itemLabel(ingredient.id) : materialLabel(ingredient.id)).join(" ")} ${entry.output?.itemId ? itemLabel(entry.output.itemId) : "provisions"}`
       : "";
     return !query || `${id} ${entry.title || entry.displayName || entry.name || ""} ${entry.category || ""} ${entry.rarity || ""}${recipeSearch}`.toLowerCase().includes(query);
   }).sort((a, b) => String(a[1].title || a[1].displayName || a[1].name || a[0]).localeCompare(String(b[1].title || b[1].displayName || b[1].name || b[0])));
@@ -1533,16 +1678,26 @@ function draftSnapshot() {
     enemyActions: clone(state.catalog.enemyActions),
     lootTables: clone(state.catalog.lootTables),
   };
+  Object.values(snapshot.recipes || {}).forEach((recipe) => {
+    if (!recipe || Array.isArray(recipe.ingredients)) return;
+    recipe.ingredients = normalizedRecipeIngredients(recipe);
+    delete recipe.ingredientType;
+  });
   if (state.draft && state.category !== "paths") {
     const map = snapshot[state.category];
     const draftId = state.draft.id || state.originalSelectedId;
+    const draftCopy = clone(state.draft);
+    if (state.category === "recipes" && !Array.isArray(draftCopy.ingredients)) {
+      draftCopy.ingredients = normalizedRecipeIngredients(draftCopy);
+      delete draftCopy.ingredientType;
+    }
     if (draftId === state.originalSelectedId || !Object.prototype.hasOwnProperty.call(map, draftId)) {
       delete map[state.originalSelectedId];
-      map[draftId] = clone(state.draft);
+      map[draftId] = draftCopy;
     } else {
       // Preserve the collision so the server reports the key/id mismatch
       // instead of silently overwriting an existing authored definition.
-      map[state.originalSelectedId] = clone(state.draft);
+      map[state.originalSelectedId] = draftCopy;
     }
   }
   return snapshot;
@@ -1643,7 +1798,7 @@ function defaultEntry(category) {
     unique: false,
   };
   if (category === "combats") return { id: "new_combat", enemyIds: [] };
-  if (category === "abilities") return { id: "new_ability", name: "New Ability", description: "", target: "enemy" };
+  if (category === "abilities") return { id: "new_ability", name: "New Ability", description: "", kind: "active", tags: [], target: "enemy", targetMode: "singleEnemy", effects: [] };
   if (category === "combatStatuses") return {
     id: "new_status",
     name: "New Status",
@@ -1695,7 +1850,7 @@ function defaultEntry(category) {
     name: "New Recipe",
     description: "",
     craftingProvider: Object.keys(state.catalog.craftingProviders || {})[0] || "",
-    ingredients: { [Object.keys(state.catalog.materials || {}).sort()[0] || ""]: 1 },
+    ingredients: [{ type: "material", id: Object.keys(state.catalog.materials || {}).sort()[0] || "", quantity: 1 }],
     output: { itemId: Object.keys(state.catalog.items || {})[0] || "", quantity: 1 },
     goldCost: 0,
     rarity: "common",
@@ -1849,6 +2004,70 @@ function handleInput(input) {
     return;
   }
   if (!state.draft) return;
+  if (input.dataset.abilityTags !== undefined) {
+    state.draft.tags = splitList(input.value);
+    markDirty();
+    return;
+  }
+  if (input.dataset.abilityField) {
+    const field = input.dataset.abilityField;
+    const value = parseInputValue(input, field);
+    setAbilityPathValue(field, value);
+    markDirty();
+    if (field === "kind" || field === "target" || field === "targetMode") render();
+    return;
+  }
+  if (input.dataset.abilityCostField) {
+    state.draft.cost ||= {};
+    const value = parseInputValue(input, input.dataset.abilityCostField);
+    if (value === undefined || value === "") delete state.draft.cost[input.dataset.abilityCostField];
+    else state.draft.cost[input.dataset.abilityCostField] = value;
+    if (!state.draft.cost.resource && state.draft.cost.amount === undefined) delete state.draft.cost;
+    markDirty();
+    if (input.dataset.abilityCostField === "resource") render();
+    return;
+  }
+  if (input.dataset.abilityTriggerField) {
+    state.draft.trigger ||= { event: "combatStart", effects: [] };
+    const value = parseInputValue(input, input.dataset.abilityTriggerField);
+    if (value === undefined || value === "") delete state.draft.trigger[input.dataset.abilityTriggerField];
+    else state.draft.trigger[input.dataset.abilityTriggerField] = value;
+    markDirty();
+    if (input.dataset.abilityTriggerField === "event") render();
+    return;
+  }
+  if (input.dataset.abilityEffectField) {
+    const path = input.dataset.abilityEffectPath;
+    const effect = abilityPathValue(path);
+    if (!effect) return;
+    const value = parseInputValue(input, input.dataset.abilityEffectField);
+    if (value === undefined || value === "") delete effect[input.dataset.abilityEffectField];
+    else effect[input.dataset.abilityEffectField] = value;
+    markDirty();
+    if (input.dataset.abilityEffectField === "type") render();
+    return;
+  }
+  if (input.dataset.abilityConditionField) {
+    const path = input.dataset.abilityConditionPath;
+    const condition = abilityPathValue(path) || {};
+    setAbilityPathValue(path, condition);
+    const value = parseInputValue(input, input.dataset.abilityConditionField);
+    if (value === undefined || value === "") delete condition[input.dataset.abilityConditionField];
+    else condition[input.dataset.abilityConditionField] = value;
+    markDirty();
+    return;
+  }
+  if (input.dataset.abilityConditionJson) {
+    try {
+      const value = JSON.parse(input.value);
+      setAbilityPathValue(input.dataset.abilityConditionJson, value);
+      markDirty();
+      render();
+    } catch (error) {
+      input.setCustomValidity(`Invalid condition JSON: ${error.message}`);
+    }
+    return;
+  }
   if (input.dataset.linesField) {
     state.draft[input.dataset.linesField] = input.value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
     markDirty();
@@ -1970,24 +2189,22 @@ function handleInput(input) {
     return;
   }
   if (input.dataset.recipeIngredientField) {
-    const entries = Object.entries(state.draft.ingredients || {});
+    const entries = normalizedRecipeIngredients(state.draft);
     const index = Number(input.dataset.ingredientIndex);
     const current = entries[index];
     if (!current) return;
-    if (input.dataset.recipeIngredientField === "id") {
-      const newId = input.value;
-      if (!newId || (newId !== current[0] && Object.prototype.hasOwnProperty.call(state.draft.ingredients, newId))) {
-        render();
-        return;
-      }
-      const next = {};
-      entries.forEach(([id, quantity], entryIndex) => { next[entryIndex === index ? newId : id] = quantity; });
-      state.draft.ingredients = next;
-    } else {
-      const quantity = input.value === "" ? undefined : Number(input.value);
-      if (quantity === undefined) delete state.draft.ingredients[current[0]];
-      else state.draft.ingredients[current[0]] = quantity;
+    state.draft.ingredients = entries;
+    delete state.draft.ingredientType;
+    if (input.dataset.recipeIngredientField === "type") {
+      current.type = input.value === "item" ? "item" : "material";
+      const ids = current.type === "item" ? Object.keys(state.catalog.items || {}).sort() : Object.keys(state.catalog.materials || {}).sort();
+      if (!ids.includes(current.id)) current.id = ids[0] || "";
+      markDirty();
+      render();
+      return;
     }
+    if (input.dataset.recipeIngredientField === "id") current.id = input.value;
+    else current.quantity = input.value === "" ? undefined : Number(input.value);
     markDirty();
     render();
     return;
@@ -2132,10 +2349,23 @@ function handleInput(input) {
     return;
   }
   if (input.dataset.field) {
+    if (input.dataset.field === "ingredientType" && state.category === "recipes") {
+      const type = input.value === "item" ? "item" : "material";
+      const ids = type === "item" ? Object.keys(state.catalog.items || {}).sort() : Object.keys(state.catalog.materials || {}).sort();
+      state.draft.ingredients = normalizedRecipeIngredients(state.draft).map((ingredient) => ({
+        ...ingredient,
+        type,
+        id: ids.includes(ingredient.id) ? ingredient.id : ids[0] || "",
+      }));
+      state.draft.ingredientType = type;
+      markDirty();
+      render();
+      return;
+    }
     const value = parseInputValue(input, input.dataset.field);
     setNested(state.draft, input.dataset.field, value);
     markDirty();
-    if (["category", "ingredientType"].includes(input.dataset.field)) render();
+    if (["category"].includes(input.dataset.field)) render();
     return;
   }
   if (input.dataset.arrayField) {
@@ -2342,7 +2572,9 @@ function handleAction(button) {
     if (state.filters[state.category]) {
       state.filters[state.category] = state.category === "items"
         ? { category: "", rarity: "", equippable: "any", equipmentSlot: "", carriable: "any", consumable: "any", questItem: "any", campaignItem: "any", unique: "any", sellable: "any", protected: "any", tags: [], tagMode: "all" }
-        : { pathIds: [], regionIds: [], direction: "all", minDistance: "", maxDistance: "", repeatable: "any", tags: [], tagMode: "all", combat: "any", hasRequirements: "any" };
+        : state.category === "encounters"
+          ? { pathIds: [], regionIds: [], direction: "all", minDistance: "", maxDistance: "", repeatable: "any", tags: [], tagMode: "all", combat: "any", hasRequirements: "any" }
+          : { kind: "", resource: "", tags: [], tagMode: "all" };
       renderEntryPaneOnly();
     }
   } else if (action === "category") {
@@ -2355,6 +2587,30 @@ function handleAction(button) {
     if (previous) switchCategory(previous.category, previous.id);
   } else if (action === "select") {
     selectEntry(button.dataset.id);
+  } else if (action === "add-ability-effect") {
+    const path = button.dataset.abilityEffectsPath;
+    let collection = abilityPathValue(path);
+    if (!Array.isArray(collection)) {
+      collection = [];
+      setAbilityPathValue(path, collection);
+    }
+    collection.push({ type: "dealDamage", amount: 1 });
+    markDirty();
+    render();
+  } else if (action === "remove-ability-effect") {
+    const collection = abilityPathValue(button.dataset.abilityEffectsPath);
+    if (!Array.isArray(collection)) return;
+    collection.splice(Number(button.dataset.abilityEffectIndex), 1);
+    markDirty();
+    render();
+  } else if (action === "move-ability-effect") {
+    const collection = abilityPathValue(button.dataset.abilityEffectsPath);
+    const index = Number(button.dataset.abilityEffectIndex);
+    const nextIndex = button.dataset.direction === "up" ? index - 1 : index + 1;
+    if (!Array.isArray(collection) || nextIndex < 0 || nextIndex >= collection.length) return;
+    [collection[index], collection[nextIndex]] = [collection[nextIndex], collection[index]];
+    markDirty();
+    render();
   } else if (action === "add-encounter-to-path") {
     const encounterId = $("#path-add-encounter")?.value;
     const encounter = state.catalog.encounters?.[encounterId];
@@ -2365,30 +2621,45 @@ function handleAction(button) {
     render();
   } else if (action === "add-recipe-ingredient") {
     const recipe = state.draft;
-    const ingredientType = recipe.ingredientType || "material";
-    const candidates = ingredientType === "item" ? Object.keys(state.catalog.items || {}).sort() : Object.keys(state.catalog.materials || {}).sort();
-    const ingredientId = candidates.find((id) => !Object.prototype.hasOwnProperty.call(recipe.ingredients || {}, id));
-    if (!ingredientId) return window.alert("No unused ingredient references are available.");
-    recipe.ingredients ||= {};
-    recipe.ingredients[ingredientId] = 1;
+    const ingredients = normalizedRecipeIngredients(recipe);
+    const type = "material";
+    const candidates = Object.keys(state.catalog.materials || {}).sort();
+    const ingredientId = candidates.find((id) => !ingredients.some((entry) => entry.type === type && entry.id === id));
+    if (!ingredientId) return window.alert("No unused material references are available.");
+    recipe.ingredients = ingredients;
+    delete recipe.ingredientType;
+    recipe.ingredients.push({ type, id: ingredientId, quantity: 1 });
     markDirty();
     render();
   } else if (action === "duplicate-recipe-ingredient") {
     const recipe = state.draft;
-    const entries = Object.entries(recipe.ingredients || {});
+    const entries = normalizedRecipeIngredients(recipe);
     const source = entries[Number(button.dataset.ingredientIndex)];
     if (!source) return;
-    const candidates = (recipe.ingredientType || "material") === "item" ? Object.keys(state.catalog.items || {}).sort() : Object.keys(state.catalog.materials || {}).sort();
-    const ingredientId = candidates.find((id) => !Object.prototype.hasOwnProperty.call(recipe.ingredients || {}, id));
+    const candidates = source.type === "item" ? Object.keys(state.catalog.items || {}).sort() : Object.keys(state.catalog.materials || {}).sort();
+    const ingredientId = candidates.find((id) => !entries.some((entry) => entry.type === source.type && entry.id === id));
     if (!ingredientId) return window.alert("No unused ingredient references are available.");
-    recipe.ingredients[ingredientId] = source[1];
+    recipe.ingredients = entries;
+    delete recipe.ingredientType;
+    recipe.ingredients.splice(Number(button.dataset.ingredientIndex) + 1, 0, { ...source, id: ingredientId });
     markDirty();
     render();
   } else if (action === "remove-recipe-ingredient") {
-    const entries = Object.entries(state.draft.ingredients || {});
-    const source = entries[Number(button.dataset.ingredientIndex)];
-    if (!source) return;
-    delete state.draft.ingredients[source[0]];
+    const entries = normalizedRecipeIngredients(state.draft);
+    if (!entries[Number(button.dataset.ingredientIndex)]) return;
+    state.draft.ingredients = entries;
+    delete state.draft.ingredientType;
+    state.draft.ingredients.splice(Number(button.dataset.ingredientIndex), 1);
+    markDirty();
+    render();
+  } else if (action === "move-recipe-ingredient") {
+    const entries = normalizedRecipeIngredients(state.draft);
+    const index = Number(button.dataset.ingredientIndex);
+    const nextIndex = button.dataset.direction === "up" ? index - 1 : index + 1;
+    if (nextIndex < 0 || nextIndex >= entries.length) return;
+    [entries[index], entries[nextIndex]] = [entries[nextIndex], entries[index]];
+    state.draft.ingredients = entries;
+    delete state.draft.ingredientType;
     markDirty();
     render();
   } else if (action === "remove-encounter-from-path") {

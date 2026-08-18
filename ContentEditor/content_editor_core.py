@@ -590,6 +590,15 @@ def collect_references(value: Any, source: str, references: dict[str, list[dict[
                     ref_type = "items" if ingredient_type == "item" else "materials"
                     for ingredient_id in child:
                         references.setdefault(ref_type, []).append({"source": source, "path": f"{child_path}.{ingredient_id}", "id": ingredient_id})
+                elif key == "ingredients" and isinstance(child, list):
+                    for index, ingredient in enumerate(child):
+                        if not isinstance(ingredient, dict):
+                            continue
+                        ingredient_type = ingredient.get("type")
+                        ref_type = "items" if ingredient_type == "item" else "materials" if ingredient_type == "material" else None
+                        ingredient_id = ingredient.get("id")
+                        if ref_type and isinstance(ingredient_id, str):
+                            references.setdefault(ref_type, []).append({"source": source, "path": f"{child_path}[{index}].id", "id": ingredient_id})
                 visit(child, child_path, key)
         elif isinstance(node, list):
             for index, child in enumerate(node):
@@ -1517,6 +1526,51 @@ def _validate_abilities(abilities: Any, known: dict[str, list[str]], errors: lis
         "randomChance", "setDefending", "setFlag", "attemptFlee", "applyInjury",
     }
     known_statuses = set(known.get("combatStatuses", []))
+    allowed_events = {
+        "combatStart", "actorReady", "turnStart", "beforeAction", "actionUsed",
+        "beforeDamage", "damageDealt", "damageTaken", "damagePrevented", "afterDamage",
+        "attackHit", "turnEnd", "actorDefeated", "enemyDefeated", "allyDefeated",
+        "combatVictory", "combatDefeat", "combatFled", "combatEnd",
+    }
+
+    def validate_conditions(conditions: Any, source: str, path: str) -> None:
+        if conditions is None:
+            return
+        if isinstance(conditions, list):
+            for index, condition in enumerate(conditions):
+                validate_conditions(condition, source, f"{path}[{index}]")
+            return
+        if not isinstance(conditions, dict):
+            errors.append(_issue("error", "Combat conditions must be objects or arrays.", source, path))
+            return
+        for combinator in ("all", "any"):
+            if combinator in conditions:
+                value = conditions[combinator]
+                if not isinstance(value, list) or not value:
+                    errors.append(_issue("error", f"Condition {combinator} must be a non-empty array.", source, f"{path}.{combinator}"))
+                else:
+                    for index, child in enumerate(value):
+                        validate_conditions(child, source, f"{path}.{combinator}[{index}]")
+        if "event" in conditions and (not isinstance(conditions["event"], str) or conditions["event"] not in allowed_events):
+            errors.append(_issue("error", f"Unknown combat event {conditions['event']!r}.", source, f"{path}.event"))
+        for field_name in ("sourceSide", "targetSide"):
+            if field_name in conditions and (not isinstance(conditions[field_name], str) or conditions[field_name] not in {"ally", "enemy"}):
+                errors.append(_issue("error", f"{field_name} must be ally or enemy.", source, f"{path}.{field_name}"))
+        for field_name in ("healthBelowPercent", "healthAbovePercent", "targetHealthBelowPercent", "targetHealthAbovePercent", "chance"):
+            if field_name in conditions and (not _is_number(conditions[field_name]) or not 0 <= conditions[field_name] <= 1):
+                errors.append(_issue("error", f"Combat condition {field_name} must be between 0 and 1.", source, f"{path}.{field_name}"))
+        for field_name in ("actionId", "event"):
+            if field_name in conditions and not isinstance(conditions[field_name], str):
+                errors.append(_issue("error", f"Combat condition {field_name} must be a string.", source, f"{path}.{field_name}"))
+        for field_name in ("firstUse", "oncePerCombat"):
+            if field_name in conditions and not isinstance(conditions[field_name], bool):
+                errors.append(_issue("error", f"Combat condition {field_name} must be boolean.", source, f"{path}.{field_name}"))
+        for field_name in ("hasStatus", "missingStatus"):
+            if field_name in conditions:
+                statuses = conditions[field_name] if isinstance(conditions[field_name], list) else [conditions[field_name]]
+                for index, status_id in enumerate(statuses):
+                    if not isinstance(status_id, str) or status_id not in known_statuses:
+                        errors.append(_issue("error", f"Combat condition {field_name} needs a known statusId.", source, f"{path}.{field_name}[{index}]"))
 
     def validate_effects(effects: Any, source: str, path: str) -> None:
         if not isinstance(effects, list):
@@ -1543,6 +1597,17 @@ def _validate_abilities(abilities: Any, known: dict[str, list[str]], errors: lis
                     errors.append(_issue("error", "applyInjury effects need a known injuryId.", source, f"{effect_path}.injuryId"))
             if effect_type == "modifyResource" and not isinstance(effect.get("resource"), str):
                 errors.append(_issue("error", "modifyResource effects need a string resource.", source, f"{effect_path}.resource"))
+            for field_name in ("amount", "multiplier", "cap"):
+                value = effect.get(field_name)
+                minimum = 0 if field_name in {"multiplier", "cap"} or effect_type in {"dealDamage", "heal"} else None
+                if field_name in effect and value != "damagePrevented" and (not _is_number(value) or (minimum is not None and value < minimum)):
+                    errors.append(_issue("error", f"Combat effect {field_name} must be a non-negative number.", source, f"{effect_path}.{field_name}"))
+            if effect_type == "modifyStat" and (not isinstance(effect.get("stat"), str) or not effect.get("stat")):
+                errors.append(_issue("error", "modifyStat effects need a stat name.", source, f"{effect_path}.stat"))
+            if effect_type == "setFlag" and (not isinstance(effect.get("flag"), str) or not effect.get("flag")):
+                errors.append(_issue("error", "setFlag effects need a flag name.", source, f"{effect_path}.flag"))
+            if effect_type in {"storeCharge", "consumeCharge"} and (not isinstance(effect.get("chargeId"), str) or not effect.get("chargeId")):
+                errors.append(_issue("error", f"{effect_type} effects need a chargeId.", source, f"{effect_path}.chargeId"))
             for field_name in ("triggersOnHit", "onHit"):
                 if field_name in effect and not isinstance(effect.get(field_name), bool):
                     errors.append(_issue("error", f"Combat effect {field_name} must be boolean.", source, f"{effect_path}.{field_name}"))
@@ -1550,6 +1615,10 @@ def _validate_abilities(abilities: Any, known: dict[str, list[str]], errors: lis
             if chance is not None:
                 _validate_chance(chance, source, f"{effect_path}.chance", errors)
             if effect_type in {"conditional", "randomChance"}:
+                if effect_type == "conditional":
+                    validate_conditions(effect.get("condition", effect.get("conditions")), source, f"{effect_path}.condition")
+                elif not _is_number(effect.get("chance")) or not 0 <= effect.get("chance") <= 1:
+                    errors.append(_issue("error", "randomChance effects need a chance between 0 and 1.", source, f"{effect_path}.chance"))
                 validate_effects(effect.get("effects", []), source, f"{effect_path}.effects")
                 if "elseEffects" in effect:
                     validate_effects(effect.get("elseEffects"), source, f"{effect_path}.elseEffects")
@@ -1594,6 +1663,14 @@ def _validate_abilities(abilities: Any, known: dict[str, list[str]], errors: lis
             trigger = ability.get("trigger")
             if not isinstance(trigger, dict) or not isinstance(trigger.get("event"), str) or not trigger.get("event"):
                 errors.append(_issue("error", "Passive abilities require a trigger event.", source, "trigger.event"))
+            elif trigger.get("event") not in allowed_events:
+                errors.append(_issue("error", f"Unknown passive trigger event {trigger.get('event')!r}.", source, "trigger.event"))
+            if isinstance(trigger, dict):
+                validate_conditions(trigger.get("conditions"), source, "trigger.conditions")
+                if "effects" in trigger:
+                    validate_effects(trigger.get("effects"), source, "trigger.effects")
+                if "oncePerCombat" in trigger and not isinstance(trigger.get("oncePerCombat"), bool):
+                    errors.append(_issue("error", "Passive trigger oncePerCombat must be boolean.", source, "trigger.oncePerCombat"))
         target_mode = ability.get("targetMode")
         if target_mode is not None and target_mode not in allowed_target_modes:
             errors.append(_issue("error", f"Unknown ability targetMode {target_mode!r}.", source, "targetMode"))
@@ -1603,6 +1680,8 @@ def _validate_abilities(abilities: Any, known: dict[str, list[str]], errors: lis
         effects = ability.get("effects")
         if effects is not None:
             validate_effects(effects, source, "effects")
+        if "conditions" in ability:
+            validate_conditions(ability.get("conditions"), source, "conditions")
         cost = ability.get("cost")
         if cost is not None:
             if not isinstance(cost, dict):
@@ -1806,20 +1885,46 @@ def _validate_recipes(recipes: Any, known: dict[str, list[str]], errors: list[di
         provider_id = recipe.get("craftingProvider")
         if not isinstance(provider_id, str) or provider_id not in provider_ids:
             errors.append(_issue("error", f"Unknown crafting provider ID {provider_id!r}.", source, "craftingProvider"))
-        ingredient_type = recipe.get("ingredientType", "material")
-        if ingredient_type not in {"material", "item"}:
-            errors.append(_issue("error", f"Unknown recipe ingredient type {ingredient_type!r}.", source, "ingredientType"))
         ingredients = recipe.get("ingredients")
-        if not isinstance(ingredients, dict) or not ingredients:
-            errors.append(_issue("error", "Recipe ingredients must be a non-empty object.", source, "ingredients"))
-        elif ingredient_type in {"material", "item"}:
+        if isinstance(ingredients, list):
+            if not ingredients:
+                errors.append(_issue("error", "Recipe ingredients must be a non-empty array.", source, "ingredients"))
+            seen_ingredients: set[tuple[str, str]] = set()
+            for index, ingredient in enumerate(ingredients):
+                ingredient_path = f"ingredients[{index}]"
+                if not isinstance(ingredient, dict):
+                    errors.append(_issue("error", "Canonical recipe ingredients must be objects.", source, ingredient_path))
+                    continue
+                ingredient_type = ingredient.get("type")
+                ingredient_id = ingredient.get("id")
+                quantity = ingredient.get("quantity")
+                if ingredient_type not in {"material", "item"}:
+                    errors.append(_issue("error", "Recipe ingredient type must be item or material.", source, f"{ingredient_path}.type"))
+                valid_ids = material_ids if ingredient_type == "material" else item_ids if ingredient_type == "item" else set()
+                if not isinstance(ingredient_id, str) or not ingredient_id:
+                    errors.append(_issue("error", "Recipe ingredients need an id.", source, f"{ingredient_path}.id"))
+                elif ingredient_id not in valid_ids:
+                    errors.append(_issue("error", f"Unknown {ingredient_type or 'ingredient'} ID {ingredient_id!r}.", source, f"{ingredient_path}.id"))
+                if not _is_number(quantity) or quantity <= 0 or float(quantity) != int(quantity):
+                    errors.append(_issue("error", "Recipe ingredient quantity must be a positive integer.", source, f"{ingredient_path}.quantity"))
+                if ingredient_type in {"material", "item"} and isinstance(ingredient_id, str):
+                    key = (ingredient_type, ingredient_id)
+                    if key in seen_ingredients:
+                        errors.append(_issue("error", "Recipe ingredients may not repeat the same typed ID.", source, f"{ingredient_path}.id"))
+                    seen_ingredients.add(key)
+        elif isinstance(ingredients, dict) and ingredients:
+            ingredient_type = recipe.get("ingredientType", "material")
+            if ingredient_type not in {"material", "item"}:
+                errors.append(_issue("error", f"Unknown recipe ingredient type {ingredient_type!r}.", source, "ingredientType"))
             for ingredient_id, quantity in ingredients.items():
                 if ingredient_type == "material" and ingredient_id not in material_ids:
                     errors.append(_issue("error", f"Unknown material ID {ingredient_id!r}.", source, f"ingredients.{ingredient_id}"))
-                elif ingredient_type == "item" and ingredient_id not in item_ids and ingredient_id not in material_ids:
-                    errors.append(_issue("error", f"Unknown item or material ID {ingredient_id!r}.", source, f"ingredients.{ingredient_id}"))
+                elif ingredient_type == "item" and ingredient_id not in item_ids:
+                    errors.append(_issue("error", f"Unknown item ID {ingredient_id!r}.", source, f"ingredients.{ingredient_id}"))
                 if not _is_number(quantity) or quantity <= 0:
                     errors.append(_issue("error", "Recipe ingredient quantity must be a positive number.", source, f"ingredients.{ingredient_id}"))
+        else:
+            errors.append(_issue("error", "Recipe ingredients must be a non-empty typed array.", source, "ingredients"))
         output = recipe.get("output")
         if not isinstance(output, dict):
             errors.append(_issue("error", "Recipe output must be an object.", source, "output"))

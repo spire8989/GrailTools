@@ -37,7 +37,7 @@ python server.py --project "E:\path\to\Grail"
 The default project is discovered as the sibling `../../Grail` relative to
 `ContentEditor/server.py`.
 
-## Supported Phase 7 content
+## Supported Pass 3 content
 
 - Encounters: metadata, path and direction filters, requirements, stages,
   choices, costs, outcomes/effects, pending actions, and advanced raw JSON.
@@ -68,8 +68,11 @@ The default project is discovered as the sibling `../../Grail` relative to
   identity, damage range, target mode, optional injury/chance, used-by
   navigation, and safe deletion. Uncommon future fields remain available in
   Advanced JSON.
-- Abilities: shared combat ability identity, description, target, category,
-  selection prompt, effect type, damage multiplier, and gauge reduction.
+- Abilities: one schema-aware active/passive editor for shared identity,
+  description, kind, tags, target mode, prompt, generic resource cost,
+  cooldowns, charges, lifecycle trigger, conditions, structured effects,
+  nested effect branches, used-by references, and raw JSON fallback. Filters
+  cover kind, resource, tags, and tag matching mode.
 - Loot Tables: rolls and ordered weighted gold, item, material, recipe, and
   nested loot-table entries, including fixed or min/max quantities.
 - Paths: a derived, read-only path index built from encounter `pathIds` and
@@ -79,10 +82,11 @@ The default project is discovered as the sibling `../../Grail` relative to
 - Expeditions: the canonical `EXPEDITION_DEFINITIONS` editor, including ID,
   name, description, danger, region, path, kind, camp-event table IDs,
   prerequisites, used-by references, and advanced raw JSON.
-- Recipes: canonical `RECIPE_DEFINITIONS` editing for the current material-map
-  and item-map ingredient shapes, item or provisions outputs, provider,
-  rarity, starter flag, gold cost, compact ingredient editing, references,
-  and raw JSON.
+- Recipes: canonical `RECIPE_DEFINITIONS` editing with typed item/material
+  ingredient rows, quantities, selectors, duplicate/reorder/remove controls,
+  item or provisions outputs, provider, rarity, starter flag, gold cost,
+  references, and raw JSON. Legacy ingredient maps plus `ingredientType` are
+  read for compatibility and normalize to typed rows on save.
 - Crafting Providers: the separate current `CRAFTING_PROVIDER_DEFINITIONS`
   editor. Providers currently author only ID and name; recipe assignment is
   authored by each recipe's `craftingProvider` field and grouped here for
@@ -107,7 +111,7 @@ The default project is discovered as the sibling `../../Grail` relative to
   metadata, visual keys, destination/NPC/shop/expedition/quest lists, and
   shared requirements.
 
-Encounter and camp-event effects/requirements use the same recursive,
+Encounter, camp-event, and combat-ability effects/requirements use the same recursive,
 schema-aware editor at supported nesting depths. This includes conditional
 requirements and effects, random chance branches, random-one options, and
 combat Victory/Fled outcomes. Add/remove controls are available for nested
@@ -162,7 +166,8 @@ unknown item/combat/ability/enemy-action/injury/path/region/loot references,
 unknown recipe/provider/material/dialogue/NPC/destination/location references,
 invalid recipe ingredient and output quantities, malformed recipe/provider
 definitions, malformed dialogue node links and choice branches,
-invalid chance values, malformed combat-resolution branches, invalid loot
+invalid chance values, malformed combat-resolution branches, invalid combat
+ability trigger/condition/effect fields, invalid loot
 rolls and direct reward quantities, invalid combat damage and stat ranges,
 invalid loot weights/quantities, invalid distance ranges, invalid shop
 prices/stock, and deletions that remain referenced by understood definitions.
