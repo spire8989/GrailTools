@@ -1499,6 +1499,46 @@ def _validate_abilities(abilities: Any, known: dict[str, list[str]], errors: lis
         errors.append(_issue("error", "Combat ability definitions must be an object.", "abilities"))
         return
     allowed_targets = {"enemy", "ally", "self", "menu", "none"}
+    allowed_target_modes = {"self", "singleEnemy", "singleAlly", "allEnemies", "allAllies", "none"}
+    allowed_kinds = {"active", "passive"}
+    allowed_effects = {
+        "dealDamage", "weaponDamage", "heal", "modifyGauge", "applyStatus", "removeStatus",
+        "modifyStat", "modifyResource", "storeCharge", "consumeCharge", "conditional",
+        "randomChance", "setDefending", "setFlag", "attemptFlee", "applyInjury",
+    }
+    known_statuses = set(known.get("combatStatuses", []))
+
+    def validate_effects(effects: Any, source: str, path: str) -> None:
+        if not isinstance(effects, list):
+            errors.append(_issue("error", "Ability effects must be an array.", source, path))
+            return
+        for index, effect in enumerate(effects):
+            effect_path = f"{path}[{index}]"
+            if not isinstance(effect, dict):
+                errors.append(_issue("error", "Ability effects must be objects.", source, effect_path))
+                continue
+            effect_type = effect.get("type")
+            if effect_type not in allowed_effects:
+                errors.append(_issue("error", f"Unknown combat effect {effect_type!r}.", source, f"{effect_path}.type"))
+            if effect_type in {"applyStatus", "removeStatus"}:
+                status_id = effect.get("statusId")
+                if not isinstance(status_id, str) or status_id not in known_statuses:
+                    errors.append(_issue("error", "Combat status effects need a known statusId.", source, f"{effect_path}.statusId"))
+            if effect_type == "modifyResource":
+                if not isinstance(effect.get("resource"), str) or not effect.get("resource"):
+                    errors.append(_issue("error", "modifyResource effects need a resource.", source, f"{effect_path}.resource"))
+            if effect_type == "applyInjury":
+                injury_id = effect.get("injuryId")
+                if not isinstance(injury_id, str) or injury_id not in set(known.get("injuries", [])):
+                    errors.append(_issue("error", "applyInjury effects need a known injuryId.", source, f"{effect_path}.injuryId"))
+            chance = effect.get("chance")
+            if chance is not None:
+                _validate_chance(chance, source, f"{effect_path}.chance", errors)
+            if effect_type in {"conditional", "randomChance"}:
+                validate_effects(effect.get("effects", []), source, f"{effect_path}.effects")
+                if "elseEffects" in effect:
+                    validate_effects(effect.get("elseEffects"), source, f"{effect_path}.elseEffects")
+
     seen_ids: set[str] = set()
     for entry_id, ability in abilities.items():
         source = f"ability:{entry_id}"
@@ -1514,10 +1554,14 @@ def _validate_abilities(abilities: Any, known: dict[str, list[str]], errors: lis
             errors.append(_issue("error", f"Duplicate ability ID {ability_id!r}.", source, "id"))
         else:
             seen_ids.add(ability_id)
-        for field_name in ("name", "target"):
-            if not isinstance(ability.get(field_name), str) or not ability.get(field_name):
-                errors.append(_issue("error", f"Ability {field_name} is required.", source, field_name))
-        if isinstance(ability.get("target"), str) and ability["target"] not in allowed_targets:
+        kind = ability.get("kind", "active")
+        if kind not in allowed_kinds:
+            errors.append(_issue("error", f"Unknown ability kind {kind!r}.", source, "kind"))
+        if not isinstance(ability.get("name"), str) or not ability.get("name"):
+            errors.append(_issue("error", "Ability name is required.", source, "name"))
+        if kind == "active" and (not isinstance(ability.get("target"), str) or not ability.get("target")):
+            errors.append(_issue("error", "Active abilities require a target.", source, "target"))
+        if "target" in ability and isinstance(ability.get("target"), str) and ability["target"] not in allowed_targets:
             errors.append(_issue("error", f"Unknown ability target {ability['target']!r}.", source, "target"))
         for field_name in ("damageMultiplier", "gaugeReduction"):
             if field_name in ability and (not _is_number(ability.get(field_name)) or ability[field_name] < 0):
@@ -1525,6 +1569,28 @@ def _validate_abilities(abilities: Any, known: dict[str, list[str]], errors: lis
         for field_name in ("description", "selectionPrompt", "effectType", "category"):
             if field_name in ability and not isinstance(ability.get(field_name), str):
                 errors.append(_issue("error", f"Ability {field_name} must be a string.", source, field_name))
+        if kind == "passive":
+            trigger = ability.get("trigger")
+            if not isinstance(trigger, dict) or not isinstance(trigger.get("event"), str) or not trigger.get("event"):
+                errors.append(_issue("error", "Passive abilities require a trigger event.", source, "trigger.event"))
+        target_mode = ability.get("targetMode")
+        if target_mode is not None and target_mode not in allowed_target_modes:
+            errors.append(_issue("error", f"Unknown ability targetMode {target_mode!r}.", source, "targetMode"))
+        tags = ability.get("tags")
+        if tags is not None and (not isinstance(tags, list) or not all(isinstance(tag, str) for tag in tags)):
+            errors.append(_issue("error", "Ability tags must be an array of strings.", source, "tags"))
+        effects = ability.get("effects")
+        if effects is not None:
+            validate_effects(effects, source, "effects")
+        cost = ability.get("cost")
+        if cost is not None:
+            if not isinstance(cost, dict):
+                errors.append(_issue("error", "Ability cost must be an object.", source, "cost"))
+            else:
+                if not isinstance(cost.get("resource"), str) or not cost.get("resource"):
+                    errors.append(_issue("error", "Ability costs need a resource.", source, "cost.resource"))
+                if not _is_number(cost.get("amount")) or cost.get("amount") < 0:
+                    errors.append(_issue("error", "Ability cost amount must be non-negative.", source, "cost.amount"))
 
 
 def _validate_quantity_fields(entry: dict[str, Any], source: str, errors: list[dict[str, str]]) -> None:
