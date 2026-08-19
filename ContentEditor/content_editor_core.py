@@ -1813,6 +1813,32 @@ def _validate_expeditions(expeditions: Any, known: dict[str, list[str]], errors:
             value = expedition.get(field_name)
             if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
                 errors.append(_issue("error", f"Expedition {label} must be an array of IDs.", source, field_name))
+        if "travelScenes" in expedition:
+            travel_scenes = expedition.get("travelScenes")
+            if not isinstance(travel_scenes, list):
+                errors.append(_issue("error", "Expedition travelScenes must be an array.", source, "travelScenes"))
+            else:
+                previous_distance: float | None = None
+                seen_distances: set[float] = set()
+                for index, scene in enumerate(travel_scenes):
+                    scene_path = f"travelScenes[{index}]"
+                    if not isinstance(scene, dict):
+                        errors.append(_issue("error", "Travel scene must be an object.", source, scene_path))
+                        continue
+                    min_distance = scene.get("minDistance")
+                    if not _is_number(min_distance) or min_distance < 0:
+                        errors.append(_issue("error", "Travel scene minDistance must be a non-negative number.", source, f"{scene_path}.minDistance"))
+                    else:
+                        numeric_distance = float(min_distance)
+                        if numeric_distance in seen_distances:
+                            errors.append(_issue("error", f"Travel scene minDistance {min_distance!r} is duplicated.", source, f"{scene_path}.minDistance"))
+                        seen_distances.add(numeric_distance)
+                        if previous_distance is not None and numeric_distance < previous_distance:
+                            errors.append(_issue("error", "Travel scenes must be sorted by ascending minDistance.", source, "travelScenes"))
+                        previous_distance = numeric_distance
+                    visual_asset_id = scene.get("visualAssetId")
+                    if not isinstance(visual_asset_id, str) or not visual_asset_id:
+                        errors.append(_issue("error", "Travel scene visualAssetId must reference an expedition image asset.", source, f"{scene_path}.visualAssetId"))
         if isinstance(expedition.get("kind"), str) and not expedition["kind"]:
             errors.append(_issue("error", "Expedition kind cannot be empty.", source, "kind"))
 
@@ -2158,6 +2184,7 @@ def _validate_asset_references(values: dict[str, Any], errors: list[dict[str, st
         "destinations": {"location"},
         "encounters": {"encounter"},
         "campEvents": {"encounter"},
+        "expeditions": {"expedition"},
         "enemyDefinitions": {"combat"},
     }
 

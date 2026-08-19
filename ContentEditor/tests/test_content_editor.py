@@ -813,6 +813,43 @@ class ContentEditorTests(unittest.TestCase):
             if key != "fountain_of_barenton":
                 self.assertEqual(after_blocks[key], before_blocks[key], key)
 
+    def test_distance_based_travel_scenes_validate_and_round_trip(self) -> None:
+        temp, project = self.temporary_grail()
+        self.addCleanup(temp.cleanup)
+        catalog = load_catalog(project)
+        expedition_assets = sorted(
+            asset_id for asset_id, asset in catalog["imageAssets"].items()
+            if asset.get("category") == "expedition"
+        )
+        self.assertTrue(expedition_assets)
+        expedition_id = "fountain_of_barenton"
+        incoming = {"expeditions": clone(catalog["expeditions"]), "imageAssets": clone(catalog["imageAssets"])}
+        incoming["expeditions"][expedition_id]["travelScenes"] = [
+            {"minDistance": 0, "visualAssetId": expedition_assets[0]},
+            {"minDistance": 40, "visualAssetId": expedition_assets[-1]},
+        ]
+        validation = validate_catalog(incoming, catalog["known"], catalog["references"], project_root=project)
+        self.assertFalse(validation["errors"])
+        save_catalog(project, incoming, catalog["sourceHashes"], Path(temp.name) / "backups")
+        self.assertEqual(
+            load_catalog(project)["expeditions"][expedition_id]["travelScenes"],
+            incoming["expeditions"][expedition_id]["travelScenes"],
+        )
+
+        invalid = clone(incoming)
+        invalid["expeditions"][expedition_id]["travelScenes"] = [
+            {"minDistance": 40, "visualAssetId": expedition_assets[0]},
+            {"minDistance": 40, "visualAssetId": "missing_expedition_scene"},
+            {"minDistance": 20, "visualAssetId": expedition_assets[-1]},
+            {"minDistance": -1, "visualAssetId": expedition_assets[-1]},
+        ]
+        invalid_validation = validate_catalog(invalid, catalog["known"], catalog["references"], project_root=project)
+        messages = [issue["message"] for issue in invalid_validation["errors"]]
+        self.assertTrue(any("duplicated" in message for message in messages))
+        self.assertTrue(any("sorted" in message for message in messages))
+        self.assertTrue(any("non-negative" in message for message in messages))
+        self.assertTrue(any("Unknown image asset ID 'missing_expedition_scene'" in message for message in messages))
+
     def test_phase4_path_and_expedition_references_validate_and_protect_deletion(self) -> None:
         catalog = load_catalog(GRAIL)
         invalid_encounters = {"encounters": clone(catalog["encounters"])}

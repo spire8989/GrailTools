@@ -242,6 +242,22 @@ function renderAssetSelector(label, field, current, assetType = "image", categor
   return `<label class="asset-selector wide"><span>${escapeHtml(label)}</span><span class="asset-selector-controls"><select data-field="${escapeHtml(field)}">${assetOptions(assetType, current, category)}</select><button type="button" class="small-button" data-action="upload-asset" data-asset-type="${assetType}" data-asset-category="${category}" data-asset-field="${escapeHtml(field)}" data-asset-context="${escapeHtml(context)}" data-asset-profile="${escapeHtml(optimizationProfile)}">Upload New</button></span><span class="asset-field-preview-wrap">${preview}</span></label>`;
 }
 
+function renderTravelScenes(expedition) {
+  const scenes = Array.isArray(expedition.travelScenes) ? expedition.travelScenes : [];
+  const rows = scenes.map((scene, index) => {
+    const asset = scene?.visualAssetId ? state.catalog?.imageAssets?.[scene.visualAssetId] : null;
+    const preview = asset
+      ? `<img class="asset-field-preview" src="${assetPreviewUrl(asset.path)}" alt="Preview of ${escapeHtml(scene.visualAssetId)}">`
+      : `<span class="asset-field-placeholder">Choose or upload an expedition image</span>`;
+    return `<div class="travel-scene-editor-row" data-travel-scene-index="${index}">
+      <label>Minimum distance<input type="number" min="0" step="any" data-travel-scene-field="minDistance" data-travel-scene-index="${index}" value="${escapeHtml(scene?.minDistance ?? "")}"></label>
+      <label class="asset-selector"><span>Scene image</span><span class="asset-selector-controls"><select data-travel-scene-field="visualAssetId" data-travel-scene-index="${index}">${assetOptions("image", scene?.visualAssetId, "expedition")}</select><button type="button" class="small-button" data-action="upload-asset" data-asset-type="image" data-asset-category="expedition" data-asset-field="visualAssetId" data-asset-scene-index="${index}" data-asset-context="${escapeHtml(expedition.name || expedition.id || "travel scene")}" data-asset-profile="scene">Upload New</button></span><span class="asset-field-preview-wrap">${preview}</span></label>
+      <button type="button" class="small-button danger-outline" data-action="remove-travel-scene" data-travel-scene-index="${index}">Remove</button>
+    </div>`;
+  }).join("");
+  return `<section class="section travel-scenes-editor"><div class="section-heading"><div><h3>Travel Scenes</h3><p>Optional distance-based artwork. Scenes are selected by the current distance and must stay sorted from nearest to farthest.</p></div><button type="button" class="small-button" data-action="add-travel-scene">Add Scene</button></div><div class="travel-scene-editor-list">${rows || `<p class="hint">No distance-based scenes. The legacy Travel visual is used for the whole route.</p>`}</div></section>`;
+}
+
 const ITEM_FILTER_FLAGS = ["carriable", "consumable", "questItem", "campaignItem", "unique", "sellable", "protected"];
 
 function filterState(category) {
@@ -805,6 +821,7 @@ function renderExpedition() {
   const campEventLinks = [...new Set((expedition.campEventTableIds || []).flatMap((tableId) => (state.catalog.campEventTables?.[tableId]?.entries || []).map((entry) => entry.eventId)).filter((eventId) => state.catalog.campEvents?.[eventId]))].map((eventId) => `<button type="button" class="small-button inline-open" data-action="open-reference" data-reference-category="campEvents" data-reference-id="${escapeHtml(eventId)}">Open ${escapeHtml(campEventLabel(eventId))}</button>`).join(" ");
   return `<div class="editor-title"><div><h2>${escapeHtml(expedition.name || expedition.id || "New expedition")}</h2><p>${escapeHtml(expedition.id || "Unsaved ID")}</p></div><span class="schema-badge">Expedition schema</span></div>
     <section class="section"><div class="section-heading"><div><h3>Expedition metadata</h3><p>These fields are authored in <code>js/expedition-data.js</code> and remain the canonical expedition definition.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(expedition.id || "")}"></label><label>Name<input data-field="name" value="${escapeHtml(expedition.name || "")}"></label><label class="wide">Description<textarea data-field="description">${escapeHtml(expedition.description || "")}</textarea></label><label>Danger<input type="number" min="0" step="any" data-field="danger" value="${escapeHtml(expedition.danger ?? "")}"></label><label>Minimum objective distance<input type="number" min="0" step="any" data-field="minimumObjectiveDistance" value="${escapeHtml(expedition.minimumObjectiveDistance ?? "")}"></label><label>Region<select data-field="regionId"><option value="">Select region...</option>${selectOptions(known.regions || [], expedition.regionId)}</select></label><label>Kind<select data-field="kind"><option value="">Select kind...</option>${selectOptions(kinds, expedition.kind)}</select></label><label class="wide">Path${referenceInput("pathId", expedition.pathId, true)}</label></div>${renderAssetSelector("Travel visual", "travelVisualAssetId", expedition.travelVisualAssetId, "image", "expedition", expedition.name || expedition.id)}${renderAssetSelector("Camp visual", "campVisualAssetId", expedition.campVisualAssetId, "image", "expedition", expedition.name || expedition.id)}${renderAssetSelector("Travel ambience", "travelAmbienceAssetId", expedition.travelAmbienceAssetId, "audio", "ambience", expedition.name || expedition.id)}${renderAssetSelector("Camp ambience", "campAmbienceAssetId", expedition.campAmbienceAssetId, "audio", "ambience", expedition.name || expedition.id)}</section>
+    ${renderTravelScenes(expedition)}
     <section class="section"><div class="section-heading"><div><h3>Camp event tables</h3><p>Choose reusable table IDs from <code>CAMP_EVENT_TABLE_DEFINITIONS</code>.</p></div></div>${renderReferenceChecks("campEventTableIds", expedition.campEventTableIds || [], known.campEventTables || [])}<div class="button-row">${campEventLinks || `<span class="hint">Selected tables have no editable camp-event entries.</span>`}</div></section>
     <section class="section"><div class="section-heading"><div><h3>Prerequisites</h3><p>These are item IDs required by the existing expedition runtime.</p></div></div>${renderReferenceChecks("prerequisites", expedition.prerequisites || [], known.items || [], Object.fromEntries((known.items || []).map((id) => [id, itemLabel(id)])))}</section>
     <section class="section"><div class="section-heading"><div><h3>Used by</h3><p>Known encounter and location references are shown before an expedition is deleted.</p></div></div><div class="reference-list">${renderReferenceRows(references, "No known current references to this expedition.")}</div></section>
@@ -2471,6 +2488,15 @@ function handleInput(input) {
     markDirty();
     return;
   }
+  if (input.dataset.travelSceneField) {
+    const scene = state.draft.travelScenes?.[Number(input.dataset.travelSceneIndex)];
+    if (!scene) return;
+    const value = parseInputValue(input, input.dataset.travelSceneField);
+    if (value === undefined || value === "") delete scene[input.dataset.travelSceneField];
+    else scene[input.dataset.travelSceneField] = value;
+    markDirty();
+    return;
+  }
   if (input.dataset.field) {
     if (input.dataset.field === "ingredientType" && state.category === "recipes") {
       const type = input.value === "item" ? "item" : "material";
@@ -2723,7 +2749,10 @@ async function submitAssetUpload(file, target, assetId, options = {}) {
   if (!response.ok) throw new Error(payload.error || payload.errors?.[0]?.message || "Asset upload failed.");
   state.catalog = payload;
   if (target.field && state.draft) {
-    if (target.nodeId) state.draft.nodes[target.nodeId][target.field] = payload.assetResult.assetId;
+    if (target.sceneIndex !== null && target.sceneIndex !== undefined) {
+      state.draft.travelScenes ||= [];
+      state.draft.travelScenes[Number(target.sceneIndex)][target.field] = payload.assetResult.assetId;
+    } else if (target.nodeId) state.draft.nodes[target.nodeId][target.field] = payload.assetResult.assetId;
     else state.draft[target.field] = payload.assetResult.assetId;
     markDirty();
   } else {
@@ -2778,6 +2807,7 @@ function handleAction(button) {
       category: button.dataset.assetBrowser === "true" ? $("#asset-browser-category")?.value || button.dataset.assetCategory : button.dataset.assetCategory,
       field: button.dataset.assetField || null,
       nodeId: button.dataset.assetNodeId || null,
+      sceneIndex: button.dataset.assetSceneIndex ?? null,
       assetId: button.dataset.assetId || null,
       replace: action === "replace-asset",
       context: button.dataset.assetContext || state.draft?.name || state.draft?.id || "asset",
@@ -2788,6 +2818,21 @@ function handleAction(button) {
       input.value = "";
       input.click();
     }
+  } else if (action === "add-travel-scene") {
+    state.draft.travelScenes ||= [];
+    const lastDistance = Number(state.draft.travelScenes.at(-1)?.minDistance);
+    state.draft.travelScenes.push({
+      minDistance: Number.isFinite(lastDistance) ? lastDistance + 1 : 0,
+      visualAssetId: Object.keys(state.catalog?.imageAssets || {})
+        .filter((id) => state.catalog.imageAssets[id]?.category === "expedition")
+        .sort()[0] || "",
+    });
+    markDirty();
+    render();
+  } else if (action === "remove-travel-scene") {
+    state.draft.travelScenes?.splice(Number(button.dataset.travelSceneIndex), 1);
+    markDirty();
+    render();
   } else if (action === "add-dialogue-node") {
     state.draft.nodes ||= {};
     const id = uniqueId("new_node", state.draft.nodes);
