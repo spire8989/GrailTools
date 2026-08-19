@@ -46,6 +46,8 @@ class ContentEditorTests(unittest.TestCase):
         self.assertIn('data-asset-profile="travel_panorama"', app)
         self.assertIn('data-travel-scene-field="motion"', app)
         self.assertIn('motion: "loop"', app)
+        self.assertIn('travelTransitionAssetId', app)
+        self.assertIn("Optional foreground artwork used to hide Travel Scene changes", app)
         self.assertIn("Recommended: 3:1 panoramic artwork", app)
         self.assertIn('renderAssetSelector("Camp visual"', app)
 
@@ -838,12 +840,17 @@ class ContentEditorTests(unittest.TestCase):
             {"minDistance": 0, "visualAssetId": expedition_assets[0], "motion": "loop"},
             {"minDistance": 40, "visualAssetId": expedition_assets[-1], "motion": "pan"},
         ]
+        incoming["expeditions"][expedition_id]["travelTransitionAssetId"] = expedition_assets[0]
         validation = validate_catalog(incoming, catalog["known"], catalog["references"], project_root=project)
         self.assertFalse(validation["errors"])
         save_catalog(project, incoming, catalog["sourceHashes"], Path(temp.name) / "backups")
         self.assertEqual(
             load_catalog(project)["expeditions"][expedition_id]["travelScenes"],
             incoming["expeditions"][expedition_id]["travelScenes"],
+        )
+        self.assertEqual(
+            load_catalog(project)["expeditions"][expedition_id]["travelTransitionAssetId"],
+            expedition_assets[0],
         )
 
         invalid = clone(incoming)
