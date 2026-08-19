@@ -4,17 +4,34 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+import tempfile
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
-from content_editor_core import JsParseError, load_catalog, merged_state, save_catalog, validate_catalog
+from content_editor_core import JsParseError, load_catalog, merged_state, save_catalog, upload_asset, validate_catalog
 
 
 TOOL_ROOT = Path(__file__).resolve().parent
 STATIC_ROOT = TOOL_ROOT / "static"
 DEFAULT_PROJECT = TOOL_ROOT.parents[1] / "Grail"
+
+
+def backup_directory() -> Path:
+    """Return a writable recovery-backup directory for this editor process."""
+    preferred = TOOL_ROOT / ".backups"
+    try:
+        preferred.mkdir(parents=True, exist_ok=True)
+        probe = preferred / f".write-test-{os.getpid()}"
+        probe.write_bytes(b"")
+        probe.unlink()
+        return preferred
+    except OSError:
+        fallback = Path(tempfile.gettempdir()) / "GrailContentEditorBackups"
+        fallback.mkdir(parents=True, exist_ok=True)
+        return fallback
 
 
 class EditorHandler(BaseHTTPRequestHandler):
@@ -31,6 +48,20 @@ class EditorHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/health":
             self._json_response({"ok": True, "projectRoot": str(self.project_root)})
+            return
+        if path == "/api/assets/file":
+            requested = parse_qs(urlparse(self.path).query).get("path", [""])[0]
+            target = (self.project_root / unquote(requested)).resolve()
+            assets_root = (self.project_root / "assets").resolve()
+            if assets_root not in target.parents or not target.is_file():
+                self.send_error(404, "Asset not found")
+                return
+            content_type = {
+                ".png": "image/png", ".webp": "image/webp", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                ".gif": "image/gif", ".avif": "image/avif", ".mp3": "audio/mpeg", ".ogg": "audio/ogg",
+                ".wav": "audio/wav", ".m4a": "audio/mp4", ".aac": "audio/aac", ".webm": "audio/webm",
+            }.get(target.suffix.lower(), "application/octet-stream")
+            self._static_response(target, content_type)
             return
         if path in {"/", "/index.html"}:
             self._static_response(STATIC_ROOT / "index.html", "text/html; charset=utf-8")
@@ -51,11 +82,31 @@ class EditorHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802 - stdlib handler API
         path = urlparse(self.path).path
         try:
+            if path in {"/api/assets/upload", "/api/assets/replace"}:
+                fields, filename, content = self._read_multipart()
+                asset_type = fields.get("assetType", "")
+                category = fields.get("category", "")
+                asset_id = fields.get("assetId", "")
+                if not filename or content is None:
+                    raise ValueError("Choose a file before uploading an asset.")
+                result = upload_asset(
+                    self.project_root,
+                    asset_type=asset_type,
+                    category=category,
+                    asset_id=asset_id,
+                    filename=filename,
+                    content=content,
+                    expected_hash=fields.get("sourceHash") or None,
+                    replace=path.endswith("/replace"),
+                    backup_dir=backup_directory(),
+                )
+                self._json_response(result)
+                return
             payload = self._read_json()
             if path == "/api/validate":
                 current = load_catalog(self.project_root)
                 values = merged_state(current, payload)
-                validation = validate_catalog(values, current["known"], current["references"])
+                validation = validate_catalog(values, current["known"], current["references"], project_root=self.project_root)
                 self._json_response(validation)
                 return
             if path == "/api/save":
@@ -63,7 +114,7 @@ class EditorHandler(BaseHTTPRequestHandler):
                     self.project_root,
                     payload,
                     expected_hashes=payload.get("sourceHashes"),
-                    backup_dir=TOOL_ROOT / ".backups",
+                    backup_dir=backup_directory(),
                 )
                 self._json_response(result)
                 return
@@ -93,6 +144,47 @@ class EditorHandler(BaseHTTPRequestHandler):
         if not isinstance(payload, dict):
             raise ValueError("Request body must be a JSON object")
         return payload
+
+    def _read_multipart(self) -> tuple[dict[str, str], str | None, bytes | None]:
+        content_length = int(self.headers.get("Content-Length", "0"))
+        if content_length <= 0 or content_length > 64 * 1024 * 1024:
+            raise ValueError("Upload is empty or exceeds the 64 MB editor limit.")
+        content_type = self.headers.get("Content-Type", "")
+        pieces = [piece.strip() for piece in content_type.split(";")]
+        boundary_value = next((piece.split("=", 1)[1].strip('"') for piece in pieces[1:] if piece.startswith("boundary=")), None)
+        if not boundary_value:
+            raise ValueError("Expected a multipart upload.")
+        body = self.rfile.read(content_length)
+        delimiter = b"--" + boundary_value.encode("utf-8")
+        fields: dict[str, str] = {}
+        filename: str | None = None
+        content: bytes | None = None
+        for part in body.split(delimiter)[1:]:
+            if part.startswith(b"--"):
+                break
+            part = part.lstrip(b"\r\n")
+            header_end = part.find(b"\r\n\r\n")
+            if header_end < 0:
+                continue
+            raw_headers = part[:header_end].decode("utf-8", errors="replace")
+            value = part[header_end + 4:]
+            if value.endswith(b"\r\n"):
+                value = value[:-2]
+            disposition = next((line for line in raw_headers.split("\r\n") if line.lower().startswith("content-disposition:")), "")
+            params = {}
+            for item in disposition.split(";", 1)[1].split(";") if ";" in disposition else []:
+                if "=" in item:
+                    key, raw_value = item.strip().split("=", 1)
+                    params[key] = raw_value.strip().strip('"')
+            field_name = params.get("name")
+            if not field_name:
+                continue
+            if "filename" in params:
+                filename = params["filename"]
+                content = value
+            else:
+                fields[field_name] = value.decode("utf-8")
+        return fields, filename, content
 
     def _json_response(self, payload: object, status: int = 200) -> None:
         raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")

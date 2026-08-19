@@ -16,6 +16,8 @@ const COMMON_EFFECT_TYPES = [
 ];
 
 const CONTENT_CATEGORIES = [
+  ["imageAssets", "Images"],
+  ["audioAssets", "Audio"],
   ["encounters", "Encounters"],
   ["injuries", "Injuries"],
   ["campEvents", "Camp Events"],
@@ -93,6 +95,7 @@ const state = {
   validationPending: false,
   navigationHistory: [],
   pathFilters: { search: "", direction: "all", minDistance: "", maxDistance: "", tag: "", sort: "title" },
+  uploadTarget: null,
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -206,6 +209,34 @@ function destinationLabel(destinationId) {
 function locationLabel(locationId) {
   const location = state.catalog?.locations?.[locationId];
   return location?.name || state.catalog?.locationLabels?.[locationId] || locationId;
+}
+
+function assetTypeForCategory(category) {
+  return category === "audioAssets" ? "audio" : "image";
+}
+
+function assetPreviewUrl(path) {
+  return `/api/assets/file?path=${encodeURIComponent(path || "")}`;
+}
+
+function assetOptions(assetType, current, category = "") {
+  const sourceCategory = assetType === "audio" ? "audioAssets" : "imageAssets";
+  const assets = state.catalog?.[sourceCategory] || {};
+  const entries = Object.entries(assets)
+    .filter(([, asset]) => !category || asset.category === category)
+    .sort(([left], [right]) => left.localeCompare(right));
+  return `<option value="">None (use placeholder)</option>${entries.map(([id, asset]) => `<option value="${escapeHtml(id)}"${selected(id, current)}>${escapeHtml(id)} · ${escapeHtml(asset.category || assetType)}</option>`).join("")}`;
+}
+
+function renderAssetSelector(label, field, current, assetType = "image", category = "", context = "") {
+  const sourceCategory = assetType === "audio" ? "audioAssets" : "imageAssets";
+  const asset = current ? state.catalog?.[sourceCategory]?.[current] : null;
+  const preview = asset && assetType === "image"
+    ? `<img class="asset-field-preview" src="${assetPreviewUrl(asset.path)}" alt="Preview of ${escapeHtml(current)}">`
+    : asset && assetType === "audio"
+      ? `<audio class="asset-field-audio" controls preload="none" src="${assetPreviewUrl(asset.path)}"></audio>`
+      : `<span class="asset-field-placeholder">Placeholder fallback</span>`;
+  return `<label class="asset-selector wide"><span>${escapeHtml(label)}</span><span class="asset-selector-controls"><select data-field="${escapeHtml(field)}">${assetOptions(assetType, current, category)}</select><button type="button" class="small-button" data-action="upload-asset" data-asset-type="${assetType}" data-asset-category="${category}" data-asset-field="${escapeHtml(field)}" data-asset-context="${escapeHtml(context)}">Upload New</button></span><span class="asset-field-preview-wrap">${preview}</span></label>`;
 }
 
 const ITEM_FILTER_FLAGS = ["carriable", "consumable", "questItem", "campaignItem", "unique", "sellable", "protected"];
@@ -631,6 +662,9 @@ function renderEncounter() {
         <label>ID<input data-field="id" value="${escapeHtml(encounter.id || "")}"></label>
         <label>Title<input data-field="title" value="${escapeHtml(encounter.title || "")}"></label>
         <label class="wide">Description<textarea data-field="description">${escapeHtml(encounter.description || "")}</textarea></label>
+        ${renderAssetSelector("Encounter visual", "visualAssetId", encounter.visualAssetId, "image", "encounter", encounter.title || encounter.id)}
+        ${renderAssetSelector("Encounter ambience", "ambienceAssetId", encounter.ambienceAssetId, "audio", "ambience", encounter.title || encounter.id)}
+        ${renderAssetSelector("Encounter sting", "stingAssetId", encounter.stingAssetId, "audio", "sfx", encounter.title || encounter.id)}
         <label>Region<select data-field="regionId"><option value="">Select region…</option>${selectOptions(known.regions || [], encounter.regionId)}</select></label>
         <label>Weight<input type="number" step="any" data-field="weight" value="${escapeHtml(encounter.weight ?? "")}"></label>
         <label>Minimum distance<input type="number" step="any" data-field="minimumDistance" value="${escapeHtml(encounter.minimumDistance ?? "")}"></label>
@@ -767,7 +801,7 @@ function renderExpedition() {
   const references = (liveReferences().expeditions || []).filter((reference) => reference.id === expedition.id);
   const campEventLinks = [...new Set((expedition.campEventTableIds || []).flatMap((tableId) => (state.catalog.campEventTables?.[tableId]?.entries || []).map((entry) => entry.eventId)).filter((eventId) => state.catalog.campEvents?.[eventId]))].map((eventId) => `<button type="button" class="small-button inline-open" data-action="open-reference" data-reference-category="campEvents" data-reference-id="${escapeHtml(eventId)}">Open ${escapeHtml(campEventLabel(eventId))}</button>`).join(" ");
   return `<div class="editor-title"><div><h2>${escapeHtml(expedition.name || expedition.id || "New expedition")}</h2><p>${escapeHtml(expedition.id || "Unsaved ID")}</p></div><span class="schema-badge">Expedition schema</span></div>
-    <section class="section"><div class="section-heading"><div><h3>Expedition metadata</h3><p>These fields are authored in <code>js/expedition-data.js</code> and remain the canonical expedition definition.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(expedition.id || "")}"></label><label>Name<input data-field="name" value="${escapeHtml(expedition.name || "")}"></label><label class="wide">Description<textarea data-field="description">${escapeHtml(expedition.description || "")}</textarea></label><label>Danger<input type="number" min="0" step="any" data-field="danger" value="${escapeHtml(expedition.danger ?? "")}"></label><label>Minimum objective distance<input type="number" min="0" step="any" data-field="minimumObjectiveDistance" value="${escapeHtml(expedition.minimumObjectiveDistance ?? "")}"></label><label>Region<select data-field="regionId"><option value="">Select region...</option>${selectOptions(known.regions || [], expedition.regionId)}</select></label><label>Kind<select data-field="kind"><option value="">Select kind...</option>${selectOptions(kinds, expedition.kind)}</select></label><label class="wide">Path${referenceInput("pathId", expedition.pathId, true)}</label></div></section>
+    <section class="section"><div class="section-heading"><div><h3>Expedition metadata</h3><p>These fields are authored in <code>js/expedition-data.js</code> and remain the canonical expedition definition.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(expedition.id || "")}"></label><label>Name<input data-field="name" value="${escapeHtml(expedition.name || "")}"></label><label class="wide">Description<textarea data-field="description">${escapeHtml(expedition.description || "")}</textarea></label><label>Danger<input type="number" min="0" step="any" data-field="danger" value="${escapeHtml(expedition.danger ?? "")}"></label><label>Minimum objective distance<input type="number" min="0" step="any" data-field="minimumObjectiveDistance" value="${escapeHtml(expedition.minimumObjectiveDistance ?? "")}"></label><label>Region<select data-field="regionId"><option value="">Select region...</option>${selectOptions(known.regions || [], expedition.regionId)}</select></label><label>Kind<select data-field="kind"><option value="">Select kind...</option>${selectOptions(kinds, expedition.kind)}</select></label><label class="wide">Path${referenceInput("pathId", expedition.pathId, true)}</label></div>${renderAssetSelector("Travel visual", "travelVisualAssetId", expedition.travelVisualAssetId, "image", "expedition", expedition.name || expedition.id)}${renderAssetSelector("Camp visual", "campVisualAssetId", expedition.campVisualAssetId, "image", "expedition", expedition.name || expedition.id)}${renderAssetSelector("Travel ambience", "travelAmbienceAssetId", expedition.travelAmbienceAssetId, "audio", "ambience", expedition.name || expedition.id)}${renderAssetSelector("Camp ambience", "campAmbienceAssetId", expedition.campAmbienceAssetId, "audio", "ambience", expedition.name || expedition.id)}</section>
     <section class="section"><div class="section-heading"><div><h3>Camp event tables</h3><p>Choose reusable table IDs from <code>CAMP_EVENT_TABLE_DEFINITIONS</code>.</p></div></div>${renderReferenceChecks("campEventTableIds", expedition.campEventTableIds || [], known.campEventTables || [])}<div class="button-row">${campEventLinks || `<span class="hint">Selected tables have no editable camp-event entries.</span>`}</div></section>
     <section class="section"><div class="section-heading"><div><h3>Prerequisites</h3><p>These are item IDs required by the existing expedition runtime.</p></div></div>${renderReferenceChecks("prerequisites", expedition.prerequisites || [], known.items || [], Object.fromEntries((known.items || []).map((id) => [id, itemLabel(id)])))}</section>
     <section class="section"><div class="section-heading"><div><h3>Used by</h3><p>Known encounter and location references are shown before an expedition is deleted.</p></div></div><div class="reference-list">${renderReferenceRows(references, "No known current references to this expedition.")}</div></section>
@@ -776,6 +810,7 @@ function renderExpedition() {
 
 function collectClientReferences(value, source, references) {
   const scalarTypes = {
+    portraitAssetId: "imageAssets", visualAssetId: "imageAssets", travelVisualAssetId: "imageAssets", campVisualAssetId: "imageAssets", combatVisualAssetId: "imageAssets", travelAmbienceAssetId: "audioAssets", campAmbienceAssetId: "audioAssets", ambienceAssetId: "audioAssets", stingAssetId: "audioAssets",
     itemId: "items", treatmentItemId: "items", combatId: "combats", abilityId: "abilities", statusId: "combatStatuses", injuryId: "injuries",
     tableId: "lootTables", lootTableId: "lootTables", pathId: "paths", expeditionId: "expeditions",
     nextExpeditionId: "expeditions", materialId: "materials", recipeId: "recipes",
@@ -1375,6 +1410,88 @@ function renderLootTable() {
     <section class="section"><details><summary>Raw loot table JSON (advanced)</summary><p class="hint">Use raw JSON for uncommon entry shapes while keeping validation enabled.</p><textarea id="raw-json" class="raw-editor">${jsonText(table)}</textarea><div class="button-row"><button type="button" class="small-button" data-action="apply-raw">Apply raw JSON</button></div></details></section>`;
 }
 
+function assetUsages(assetId, assetType) {
+  const fields = assetType === "image"
+    ? new Set(["portraitAssetId", "visualAssetId", "travelVisualAssetId", "campVisualAssetId", "combatVisualAssetId"])
+    : new Set(["travelAmbienceAssetId", "campAmbienceAssetId", "ambienceAssetId", "stingAssetId"]);
+  const usages = [];
+  const visit = (value, source, path) => {
+    if (Array.isArray(value)) {
+      value.forEach((child, index) => visit(child, source, `${path}[${index}]`));
+      return;
+    }
+    if (!value || typeof value !== "object") return;
+    Object.entries(value).forEach(([key, child]) => {
+      const childPath = path ? `${path}.${key}` : key;
+      if (fields.has(key) && child === assetId) usages.push({ source, path: childPath });
+      visit(child, source, childPath);
+    });
+  };
+  const snapshot = draftSnapshot();
+  Object.entries(snapshot).forEach(([category, entries]) => {
+    if (["imageAssets", "audioAssets", "known", "files", "sourceHashes", "validation", "references", "paths", "projectRoot"].includes(category)) return;
+    if (!entries || typeof entries !== "object") return;
+    Object.entries(entries).forEach(([id, entry]) => visit(entry, category, id));
+  });
+  const referenceType = assetType === "image" ? "imageAssets" : "audioAssets";
+  const seen = new Set(usages.map((usage) => `${usage.source}:${usage.path}`));
+  (state.catalog?.references?.[referenceType] || []).forEach((reference) => {
+    if (reference.id !== assetId) return;
+    const key = `${reference.source}:${reference.path}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    usages.push({ source: reference.source, path: reference.path });
+  });
+  return usages;
+}
+
+function renderAsset() {
+  const asset = state.draft;
+  const assetType = assetTypeForCategory(state.category);
+  const categoryValues = assetType === "image" ? ["location", "expedition", "encounter", "combat", "portrait", "ui"] : ["ambience", "sfx", "music"];
+  const categoryLabel = categoryValues[0];
+  if (!asset) {
+    return `<div class="empty-state"><h2>No ${assetType} assets yet</h2><p>Upload a file to add it to the game's canonical assets folder and catalog.</p><label class="asset-upload-category">Asset category<select id="asset-browser-category">${categoryValues.map((category) => `<option value="${category}">${category}</option>`).join("")}</select></label><button type="button" class="primary" data-action="upload-asset" data-asset-browser="true" data-asset-type="${assetType}" data-asset-category="${categoryLabel}">Upload New ${assetType}</button></div>`;
+  }
+  const preview = assetType === "image"
+    ? `<img class="asset-browser-preview" src="${assetPreviewUrl(asset.path)}" alt="Preview of ${escapeHtml(asset.id)}">`
+    : `<audio controls preload="none" src="${assetPreviewUrl(asset.path)}"></audio>`;
+  const usages = assetUsages(asset.id, assetType);
+  return `<div class="editor-title"><div><h2>${escapeHtml(asset.id || "Asset")}</h2><p>${escapeHtml(asset.path || "No path")}</p></div><span class="schema-badge">${assetType} asset</span></div>
+    <section class="section"><div class="asset-browser-card">${preview}<div><strong>${escapeHtml(asset.id)}</strong><span>${escapeHtml(asset.category || "Uncategorized")} · ${escapeHtml(asset.path || "")}</span><button type="button" class="small-button" data-action="replace-asset" data-asset-type="${assetType}" data-asset-id="${escapeHtml(asset.id)}" data-asset-category="${escapeHtml(asset.category || categoryLabel)}">Replace File</button></div></div></section>
+    <section class="section"><div class="section-heading"><div><h3>Used by</h3><p>Current authored references to this stable asset ID.</p></div></div>${usages.length ? `<div class="asset-usage-list">${usages.map((usage) => `<div class="asset-usage-row"><strong>${escapeHtml(usage.source)}</strong><code>${escapeHtml(usage.path)}</code></div>`).join("")}</div>` : `<p class="hint">No authored references yet.</p>`}</section>
+    <section class="section"><details><summary>Raw asset metadata (read-only)</summary><pre class="raw-json-preview">${jsonText(asset)}</pre></details></section>`;
+}
+
+function injectAssetEditors() {
+  if (!state.draft || ["paths", "imageAssets", "audioAssets", "encounters", "expeditions", "npcs"].includes(state.category)) return;
+  if (["destinations", "locations", "enemyDefinitions", "campEvents"].includes(state.category)) {
+    const form = $("#editor-root .form-grid");
+    if (!form) return;
+    const config = {
+      destinations: ["Visual asset", "visualAssetId", "location"],
+      locations: ["Visual asset", "visualAssetId", "location"],
+      enemyDefinitions: ["Combat visual", "visualAssetId", "combat"],
+      campEvents: ["Event visual", "visualAssetId", "encounter"],
+    }[state.category];
+    form.insertAdjacentHTML("beforeend", renderAssetSelector(config[0], config[1], state.draft[config[1]], "image", config[2], state.draft.name || state.draft.id));
+    if (state.category === "campEvents") {
+      form.insertAdjacentHTML("beforeend", renderAssetSelector("Event ambience", "ambienceAssetId", state.draft.ambienceAssetId, "audio", "ambience", state.draft.title || state.draft.id));
+      form.insertAdjacentHTML("beforeend", renderAssetSelector("Event sting", "stingAssetId", state.draft.stingAssetId, "audio", "sfx", state.draft.title || state.draft.id));
+    }
+  }
+  if (state.category === "dialogues") {
+    document.querySelectorAll(".dialogue-node-card").forEach((card) => {
+      const speaker = card.querySelector("[data-dialogue-node-field='speakerId']");
+      if (!speaker || card.querySelector("[data-dialogue-node-field='portraitAssetId']")) return;
+      const nodeId = speaker.dataset.dialogueNodeId;
+      const node = state.draft.nodes?.[nodeId] || {};
+      const field = `<label class="asset-selector wide"><span>Portrait override</span><span class="asset-selector-controls"><select data-dialogue-node-field="portraitAssetId" data-dialogue-node-id="${escapeHtml(nodeId)}">${assetOptions("image", node.portraitAssetId, "portrait")}</select><button type="button" class="small-button" data-action="upload-asset" data-asset-type="image" data-asset-category="portrait" data-asset-field="portraitAssetId" data-asset-node-id="${escapeHtml(nodeId)}" data-asset-context="${escapeHtml(node.speakerId || nodeId)}">Upload New</button></span></label>`;
+      speaker.closest(".form-grid")?.insertAdjacentHTML("beforeend", field);
+    });
+  }
+}
+
 function referenceArrayOptions(category, current) {
   const values = Object.keys(state.catalog?.[category] || {}).sort();
   const labels = category === "items" ? Object.fromEntries(values.map((id) => [id, itemLabel(id)]))
@@ -1430,7 +1547,7 @@ function renderNpc() {
   if (!npc) return `<div class="empty-state">Choose an NPC to edit.</div>`;
   const references = (liveReferences().npcs || []).filter((reference) => reference.id === npc.id);
   const locations = Object.keys(state.catalog.locations || {}).sort();
-  return `<div class="editor-title"><div><h2>${escapeHtml(npc.name || npc.id || "New NPC")}</h2><p>${escapeHtml(npc.id || "Unsaved ID")}</p></div><span class="schema-badge">NPC schema</span></div><section class="section"><div class="section-heading"><div><h3>NPC identity</h3><p>NPCs are authored in <code>js/location-data.js</code> and referenced by stable ID.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(npc.id || "")}"></label><label>Name<input data-field="name" value="${escapeHtml(npc.name || "")}"></label><label>Role<input data-field="role" value="${escapeHtml(npc.role || "")}"></label><label class="wide">Description<textarea data-field="description">${escapeHtml(npc.description || "")}</textarea></label><label>Dialogue sequence${referenceInput("dialogueSequenceId", npc.dialogueSequenceId, true)}</label><label>Intro sequence${referenceInput("introDialogueSequenceId", npc.introDialogueSequenceId, true)}</label></div></section><section class="section"><div class="form-grid"><label class="wide">Simple dialogue lines<textarea data-lines-field="dialogue" placeholder="One line per entry">${escapeHtml((npc.dialogue || []).join("\n"))}</textarea></label><label class="wide">Rumor lines<textarea data-lines-field="rumors" placeholder="One line per entry">${escapeHtml((npc.rumors || []).join("\n"))}</textarea></label></div><div class="nested-heading"><span>Locations</span></div><div class="check-grid">${locations.map((id) => `<div class="reference-array-row"><label class="check-chip"><input type="checkbox" data-reference-toggle-field="locationIds" data-reference-toggle-value="${escapeHtml(id)}"${checked((npc.locationIds || []).includes(id))}>${escapeHtml(locationLabel(id))}</label><button type="button" class="small-button inline-open" data-action="open-reference" data-reference-category="locations" data-reference-id="${escapeHtml(id)}">Open Location</button></div>`).join("")}</div></section><section class="section"><div class="section-heading"><div><h3>Used by</h3><p>Destinations, locations, and dialogue references.</p></div></div><div class="reference-list">${renderReferenceRows(references, "No current references.")}</div></section><section class="section"><details><summary>Raw NPC JSON (advanced)</summary><textarea id="raw-json" class="raw-editor">${jsonText(npc)}</textarea><div class="button-row"><button type="button" class="small-button" data-action="apply-raw">Apply raw JSON</button></div></details></section>`;
+  return `<div class="editor-title"><div><h2>${escapeHtml(npc.name || npc.id || "New NPC")}</h2><p>${escapeHtml(npc.id || "Unsaved ID")}</p></div><span class="schema-badge">NPC schema</span></div><section class="section"><div class="section-heading"><div><h3>NPC identity</h3><p>NPCs are authored in <code>js/location-data.js</code> and referenced by stable ID.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(npc.id || "")}"></label><label>Name<input data-field="name" value="${escapeHtml(npc.name || "")}"></label><label>Role<input data-field="role" value="${escapeHtml(npc.role || "")}"></label><label class="wide">Description<textarea data-field="description">${escapeHtml(npc.description || "")}</textarea></label><label>Dialogue sequence${referenceInput("dialogueSequenceId", npc.dialogueSequenceId, true)}</label><label>Intro sequence${referenceInput("introDialogueSequenceId", npc.introDialogueSequenceId, true)}</label>${renderAssetSelector("Portrait asset", "portraitAssetId", npc.portraitAssetId, "image", "portrait", npc.name || npc.id)}</div></section><section class="section"><div class="form-grid"><label class="wide">Simple dialogue lines<textarea data-lines-field="dialogue" placeholder="One line per entry">${escapeHtml((npc.dialogue || []).join("\n"))}</textarea></label><label class="wide">Rumor lines<textarea data-lines-field="rumors" placeholder="One line per entry">${escapeHtml((npc.rumors || []).join("\n"))}</textarea></label></div><div class="nested-heading"><span>Locations</span></div><div class="check-grid">${locations.map((id) => `<div class="reference-array-row"><label class="check-chip"><input type="checkbox" data-reference-toggle-field="locationIds" data-reference-toggle-value="${escapeHtml(id)}"${checked((npc.locationIds || []).includes(id))}>${escapeHtml(locationLabel(id))}</label><button type="button" class="small-button inline-open" data-action="open-reference" data-reference-category="locations" data-reference-id="${escapeHtml(id)}">Open Location</button></div>`).join("")}</div></section><section class="section"><div class="section-heading"><div><h3>Used by</h3><p>Destinations, locations, and dialogue references.</p></div></div><div class="reference-list">${renderReferenceRows(references, "No current references.")}</div></section><section class="section"><details><summary>Raw NPC JSON (advanced)</summary><textarea id="raw-json" class="raw-editor">${jsonText(npc)}</textarea><div class="button-row"><button type="button" class="small-button" data-action="apply-raw">Apply raw JSON</button></div></details></section>`;
 }
 
 function renderDestination() {
@@ -1451,7 +1568,7 @@ function renderLocation() {
 function currentEntries() {
   if (!state.catalog) return {};
   const entries = { ...state.catalog[state.category] };
-  if (state.draft && state.category !== "paths") {
+  if (state.draft && !["paths", "imageAssets", "audioAssets"].includes(state.category)) {
     delete entries[state.originalSelectedId];
     const draftId = state.draft.id || state.originalSelectedId;
     if (!entries[draftId] || draftId === state.originalSelectedId) entries[draftId] = state.draft;
@@ -1566,11 +1683,13 @@ function render() {
     const recipeOutput = state.category === "recipes" ? ` · Produces: ${entry.output?.itemId ? itemLabel(entry.output.itemId) : `${entry.output?.provisions ?? 0} provisions`}` : "";
     return `<button type="button" role="option" aria-selected="${id === state.selectedId || (state.draft?.id === id && state.originalSelectedId === state.selectedId)}" class="entry-row ${(id === state.selectedId || (state.draft?.id === id && state.originalSelectedId === state.selectedId)) ? "active" : ""}" data-action="select" data-id="${escapeHtml(id)}"><span class="entry-title">${escapeHtml(entry.title || entry.displayName || entry.name || id)}</span><span class="entry-id">${escapeHtml(id)}${state.category === "paths" ? ` · ${escapeHtml(entry.encounterCount || 0)} encounters` : recipeOutput}</span></button>`;
   }).join("") : `<div class="empty-state">No matching entries.</div>`;
-  const readonlyPaths = state.category === "paths";
+  const readonlyPaths = ["paths", "imageAssets", "audioAssets"].includes(state.category);
   $("[data-action='add']").disabled = readonlyPaths;
   $("[data-action='duplicate']").disabled = readonlyPaths;
   $("[data-action='delete']").disabled = readonlyPaths;
-  $("#editor-root").innerHTML = state.category === "encounters"
+  $("#editor-root").innerHTML = state.category === "imageAssets" || state.category === "audioAssets"
+    ? renderAsset()
+    : state.category === "encounters"
     ? renderEncounter()
     : state.category === "injuries"
     ? renderInjury()
@@ -1610,6 +1729,7 @@ function render() {
                ? renderCombatStatus()
              : renderLootTable();
    if (state.navigationHistory.length) $("#editor-root").insertAdjacentHTML("afterbegin", renderNavigationControls());
+   injectAssetEditors();
    updateSaveState();
   renderValidation();
   populateItemDatalist();
@@ -1683,7 +1803,7 @@ function draftSnapshot() {
     recipe.ingredients = normalizedRecipeIngredients(recipe);
     delete recipe.ingredientType;
   });
-  if (state.draft && state.category !== "paths") {
+  if (state.draft && !["paths", "imageAssets", "audioAssets"].includes(state.category)) {
     const map = snapshot[state.category];
     const draftId = state.draft.id || state.originalSelectedId;
     const draftCopy = clone(state.draft);
@@ -2482,9 +2602,68 @@ function switchCategory(category, id = null) {
   render();
 }
 
+function suggestClientAssetId(filename, assetType, category, context = "") {
+  const stem = filename.replace(/\.[^.]+$/, "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "asset";
+  const contextSlug = String(context || "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  const prefix = category === "portrait" ? "portrait" : category;
+  return [prefix, contextSlug, stem].filter(Boolean).join("_").slice(0, 64).replace(/_+$/, "") || (assetType === "audio" ? "audio_asset" : "image_asset");
+}
+
+async function uploadSelectedAsset(file) {
+  const target = state.uploadTarget;
+  state.uploadTarget = null;
+  if (!file || !target) return;
+  const defaultId = target.assetId || suggestClientAssetId(file.name, target.assetType, target.category, target.context);
+  const assetId = target.replace ? defaultId : window.prompt("Asset ID (lowercase slug)", defaultId);
+  if (!assetId) return;
+  const form = new FormData();
+  form.append("assetType", target.assetType);
+  form.append("category", target.category);
+  form.append("assetId", assetId.trim());
+  form.append("sourceHash", state.catalog?.sourceHashes?.["js/asset-data.js"] || "");
+  form.append("file", file, file.name);
+  try {
+    const response = await fetch(target.replace ? "/api/assets/replace" : "/api/assets/upload", { method: "POST", body: form });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(payload.error || payload.errors?.[0]?.message || "Asset upload failed.");
+    state.catalog = payload;
+    if (target.field && state.draft) {
+      if (target.nodeId) state.draft.nodes[target.nodeId][target.field] = payload.assetResult.assetId;
+      else state.draft[target.field] = payload.assetResult.assetId;
+      markDirty();
+    } else {
+      state.category = target.assetType === "audio" ? "audioAssets" : "imageAssets";
+      state.selectedId = payload.assetResult.assetId;
+      state.originalSelectedId = state.selectedId;
+      state.draft = clone(state.catalog[state.category][state.selectedId]);
+      state.dirty = false;
+      state.draftDirty = false;
+    }
+    render();
+  } catch (error) {
+    window.alert(error.message);
+  }
+}
+
 function handleAction(button) {
   const action = button.dataset.action;
-  if (action === "add-dialogue-node") {
+  if (action === "upload-asset" || action === "replace-asset") {
+    if (action === "replace-asset" && !window.confirm("Replace this file while keeping the same stable asset ID? A recovery backup will be created.")) return;
+    state.uploadTarget = {
+      assetType: button.dataset.assetType,
+      category: button.dataset.assetBrowser === "true" ? $("#asset-browser-category")?.value || button.dataset.assetCategory : button.dataset.assetCategory,
+      field: button.dataset.assetField || null,
+      nodeId: button.dataset.assetNodeId || null,
+      assetId: button.dataset.assetId || null,
+      replace: action === "replace-asset",
+      context: button.dataset.assetContext || state.draft?.name || state.draft?.id || "asset",
+    };
+    const input = $("#asset-upload-input");
+    if (input) {
+      input.value = "";
+      input.click();
+    }
+  } else if (action === "add-dialogue-node") {
     state.draft.nodes ||= {};
     const id = uniqueId("new_node", state.draft.nodes);
     state.draft.nodes[id] = { speakerId: "arthur", text: "", end: true, choices: [] };
@@ -2941,7 +3120,7 @@ async function saveChanges() {
     state.validationPending = false;
     render();
     const updates = (payload.saveResults || []).filter((result) => result.status === "updated");
-    window.alert(updates.length ? `Saved ${updates.map((result) => result.file).join(" and ")}. A recovery backup was kept under Tools/ContentEditor/.backups.` : "No file changes were necessary.");
+    window.alert(updates.length ? `Saved ${updates.map((result) => result.file).join(" and ")}. A recovery backup was kept by the editor.` : "No file changes were necessary.");
   } catch (error) {
     state.validationPending = false;
     state.validation = { errors: [{ severity: "error", source: "save", message: error.message }], warnings: [] };
@@ -2955,7 +3134,8 @@ document.addEventListener("click", (event) => {
 });
 document.addEventListener("input", (event) => handleInput(event.target));
 document.addEventListener("change", (event) => {
-  if (event.target.matches("textarea[data-object-json]")) handleObjectJson(event.target);
+  if (event.target.matches("#asset-upload-input")) uploadSelectedAsset(event.target.files?.[0]);
+  else if (event.target.matches("textarea[data-object-json]")) handleObjectJson(event.target);
   else if (event.target.matches("textarea[data-dialogue-choice-json]")) {
     try {
       const node = state.draft.nodes?.[event.target.dataset.dialogueNodeId];

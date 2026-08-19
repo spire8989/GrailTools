@@ -449,6 +449,8 @@ def serialize_js(value: Any, indent: int = 0, newline: str = "\n") -> str:
 
 
 CONTENT_FILES = {
+    "imageAssets": ("js/asset-data.js", "IMAGE_ASSET_DEFINITIONS"),
+    "audioAssets": ("js/asset-data.js", "AUDIO_ASSET_DEFINITIONS"),
     "encounters": ("js/encounter-data.js", "ENCOUNTER_DEFINITIONS"),
     "injuries": ("js/injury-data.js", "INJURY_DEFINITIONS"),
     "campEvents": ("js/camp-data.js", "CAMP_EVENT_DEFINITIONS"),
@@ -469,6 +471,13 @@ CONTENT_FILES = {
     "enemyActions": ("js/combat-data.js", "COMBAT_ENEMY_ACTION_DEFINITIONS"),
     "lootTables": ("js/loot-data.js", "LOOT_TABLE_DEFINITIONS"),
 }
+
+ASSET_IMAGE_CATEGORIES = ("location", "expedition", "encounter", "combat", "portrait", "ui")
+ASSET_AUDIO_CATEGORIES = ("ambience", "sfx", "music")
+ASSET_IMAGE_EXTENSIONS = {".png", ".webp", ".jpg", ".jpeg", ".gif", ".avif"}
+ASSET_AUDIO_EXTENSIONS = {".mp3", ".ogg", ".wav", ".m4a", ".aac", ".webm"}
+ASSET_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{1,63}$")
+ASSET_FILENAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 
 REFERENCE_FILES = {
     "combats": ("js/combat-data.js", "COMBAT_DEFINITIONS"),
@@ -513,6 +522,10 @@ def _walk(value: Any, path: str = "") -> Iterable[tuple[str, Any, Any]]:
 
 
 def _ref_type_for_key(key: str) -> str | None:
+    if key in {"portraitAssetId", "visualAssetId", "travelVisualAssetId", "campVisualAssetId", "combatVisualAssetId"}:
+        return "imageAssets"
+    if key in {"travelAmbienceAssetId", "campAmbienceAssetId", "ambienceAssetId", "stingAssetId"}:
+        return "audioAssets"
     return {
         "itemId": "items",
         "treatmentItemId": "items",
@@ -732,6 +745,8 @@ def load_catalog(project_root: Path) -> dict[str, Any]:
     known["expeditions"] = sorted(_id_map(values.get("expeditions")))
     known["recipes"] = sorted(_id_map(values.get("recipes")))
     known["craftingProviders"] = sorted(_id_map(values.get("craftingProviders")))
+    known["imageAssets"] = sorted(_id_map(values.get("imageAssets")))
+    known["audioAssets"] = sorted(_id_map(values.get("audioAssets")))
     known["itemCategories"] = sorted({
         *(item.get("category") for item in item_map.values() if isinstance(item, dict) and isinstance(item.get("category"), str)),
         "other",
@@ -746,7 +761,7 @@ def load_catalog(project_root: Path) -> dict[str, Any]:
         "armor", "relic", "weapon",
     })
 
-    validation = validate_catalog(values, known, refs, parse_duplicates)
+    validation = validate_catalog(values, known, refs, parse_duplicates, project_root)
     item_labels = {key: item.get("name", key) for key, item in item_map.items() if isinstance(item, dict)}
     material_map = {}
     try:
@@ -773,6 +788,8 @@ def load_catalog(project_root: Path) -> dict[str, Any]:
         "projectRoot": str(project_root),
         "files": source_paths,
         "sourceHashes": source_hashes,
+        "imageAssets": values["imageAssets"],
+        "audioAssets": values["audioAssets"],
         "encounters": values["encounters"],
         "injuries": values["injuries"],
         "campEvents": values["campEvents"],
@@ -2076,7 +2093,98 @@ def _validate_locations(locations: Any, known: dict[str, list[str]], errors: lis
                 errors.append(_issue("error", f"Location {field_name} must be an array.", source, field_name))
 
 
-def validate_catalog(values: dict[str, Any], known: dict[str, list[str]], references: dict[str, list[dict[str, str]]] | None = None, parse_duplicates: list[dict[str, str]] | None = None) -> dict[str, list[dict[str, str]]]:
+def _validate_asset_map(
+    assets: Any,
+    asset_type: str,
+    project_root: Path | None,
+    errors: list[dict[str, str]],
+) -> None:
+    categories = ASSET_IMAGE_CATEGORIES if asset_type == "image" else ASSET_AUDIO_CATEGORIES
+    extensions = ASSET_IMAGE_EXTENSIONS if asset_type == "image" else ASSET_AUDIO_EXTENSIONS
+    root_prefix = "assets/images/" if asset_type == "image" else "assets/audio/"
+    if not isinstance(assets, dict):
+        errors.append(_issue("error", f"{asset_type.title()} asset definitions must be an object.", f"{asset_type}Assets"))
+        return
+    for entry_id, asset in assets.items():
+        source = f"{asset_type}Asset:{entry_id}"
+        if not isinstance(asset, dict):
+            errors.append(_issue("error", "Asset must be an object.", source))
+            continue
+        if asset.get("id") != entry_id:
+            errors.append(_issue("error", f"Definition key {entry_id!r} does not match its id field.", source, "id"))
+        if not isinstance(entry_id, str) or not ASSET_ID_PATTERN.fullmatch(entry_id):
+            errors.append(_issue("error", f"Asset ID {entry_id!r} must be lowercase slug-like text.", source, "id"))
+        category = asset.get("category")
+        if category not in categories:
+            errors.append(_issue("error", f"Asset category {category!r} is not valid for {asset_type} assets.", source, "category"))
+        path = asset.get("path")
+        path_object = Path(path) if isinstance(path, str) else None
+        safe_path = bool(
+            isinstance(path, str)
+            and path.startswith(root_prefix)
+            and not path_object.is_absolute()
+            and "\\" not in path
+            and ".." not in path_object.parts
+            and all(part not in {"", "."} for part in path_object.parts)
+            and Path(path).suffix.lower() in extensions
+        )
+        if not safe_path:
+            errors.append(_issue("error", f"Asset path must be a relative file inside {root_prefix[:-1]}/ with a supported extension.", source, "path"))
+        elif project_root is not None and not (project_root / path).is_file():
+            errors.append(_issue("error", f"Referenced asset file does not exist: {path!r}.", source, "path"))
+        if asset_type == "audio" and not isinstance(asset.get("loop", False), bool):
+            errors.append(_issue("error", "Audio loop must be true or false.", source, "loop"))
+
+
+def _validate_asset_references(values: dict[str, Any], errors: list[dict[str, str]]) -> None:
+    image_assets = _id_map(values.get("imageAssets"))
+    audio_assets = _id_map(values.get("audioAssets"))
+    image_fields = {
+        "portraitAssetId": {"portrait"},
+        "travelVisualAssetId": {"expedition"},
+        "campVisualAssetId": {"expedition"},
+        "combatVisualAssetId": {"combat"},
+    }
+    audio_fields = {
+        "travelAmbienceAssetId": {"ambience"},
+        "campAmbienceAssetId": {"ambience"},
+        "ambienceAssetId": {"ambience"},
+        "stingAssetId": {"sfx"},
+    }
+    visual_field_categories = {
+        "locations": {"location"},
+        "destinations": {"location"},
+        "encounters": {"encounter"},
+        "campEvents": {"encounter"},
+        "enemyDefinitions": {"combat"},
+    }
+
+    def visit(node: Any, source: str, path: str = "") -> None:
+        if isinstance(node, dict):
+            for key, child in node.items():
+                child_path = f"{path}.{key}" if path else str(key)
+                allowed_image_categories = image_fields.get(key)
+                if key == "visualAssetId":
+                    allowed_image_categories = visual_field_categories.get(source)
+                if isinstance(child, str) and allowed_image_categories:
+                    asset = image_assets.get(child)
+                    if asset and asset.get("category") not in allowed_image_categories:
+                        errors.append(_issue("error", f"Image asset {child!r} has category {asset.get('category')!r}, incompatible with {key}.", source, child_path))
+                elif isinstance(child, str) and key in audio_fields:
+                    asset = audio_assets.get(child)
+                    if asset and asset.get("category") not in audio_fields[key]:
+                        errors.append(_issue("error", f"Audio asset {child!r} has category {asset.get('category')!r}, incompatible with {key}.", source, child_path))
+                visit(child, source, child_path)
+        elif isinstance(node, list):
+            for index, child in enumerate(node):
+                visit(child, source, f"{path}[{index}]")
+
+    for category, value in values.items():
+        if category not in {"imageAssets", "audioAssets"}:
+            visit(value, category)
+
+
+def validate_catalog(values: dict[str, Any], known: dict[str, list[str]], references: dict[str, list[dict[str, str]]] | None = None, parse_duplicates: list[dict[str, str]] | None = None, project_root: Path | None = None) -> dict[str, list[dict[str, str]]]:
     errors: list[dict[str, str]] = []
     warnings: list[dict[str, str]] = []
     effective_known = {key: list(value) for key, value in known.items()}
@@ -2095,6 +2203,10 @@ def validate_catalog(values: dict[str, Any], known: dict[str, list[str]], refere
         effective_known["craftingProviders"] = sorted(_id_map(values.get("craftingProviders")))
     if "materials" in values:
         effective_known["materials"] = sorted(_id_map(values.get("materials")))
+    if "imageAssets" in values:
+        effective_known["imageAssets"] = sorted(_id_map(values.get("imageAssets")))
+    if "audioAssets" in values:
+        effective_known["audioAssets"] = sorted(_id_map(values.get("audioAssets")))
     for duplicate in parse_duplicates or []:
         errors.append(_issue("error", f"Duplicate object key {duplicate['id']!r}.", duplicate["source"]))
     if "encounters" in values:
@@ -2135,6 +2247,15 @@ def validate_catalog(values: dict[str, Any], known: dict[str, list[str]], refere
         _validate_abilities(values.get("abilities"), effective_known, errors)
     if "lootTables" in values:
         _validate_loot_tables(values.get("lootTables"), effective_known, errors)
+    if "imageAssets" in values:
+        _validate_asset_map(values.get("imageAssets"), "image", project_root, errors)
+    if "audioAssets" in values:
+        _validate_asset_map(values.get("audioAssets"), "audio", project_root, errors)
+    if "imageAssets" in values and "audioAssets" in values:
+        duplicate_asset_ids = set(_id_map(values.get("imageAssets"))) & set(_id_map(values.get("audioAssets")))
+        for asset_id in sorted(duplicate_asset_ids):
+            errors.append(_issue("error", f"Duplicate asset ID {asset_id!r} is used by both an image and audio asset.", "assets"))
+    _validate_asset_references(values, errors)
 
     effective_references: dict[str, list[dict[str, str]]] = {}
     editable_categories = {category for category in CONTENT_FILES if category in values}
@@ -2157,6 +2278,7 @@ def validate_catalog(values: dict[str, Any], known: dict[str, list[str]], refere
                     "craftingProviders": "crafting provider", "campEvents": "camp event",
                     "dialogues": "dialogue", "npcs": "NPC", "destinations": "destination", "locations": "location",
                     "combatStatuses": "combat status",
+                    "imageAssets": "image asset", "audioAssets": "audio asset",
                 }.get(ref_type, ref_type[:-1] if ref_type.endswith("s") else ref_type)
                 errors.append(_issue("error", f"Unknown {label} ID {entry['id']!r}.", entry["source"], entry["path"]))
 
@@ -2342,7 +2464,7 @@ def save_catalog(project_root: Path, incoming: dict[str, Any], expected_hashes: 
             raise RuntimeError(f"Conflict: {relative} changed on disk since the editor loaded it. Reload before saving.")
 
     merged = merged_state(current, incoming)
-    validation = validate_catalog(merged, current["known"], current["references"])
+    validation = validate_catalog(merged, current["known"], current["references"], project_root=project_root)
     if validation["errors"]:
         raise ValueError(json.dumps(validation))
 
@@ -2357,4 +2479,157 @@ def save_catalog(project_root: Path, incoming: dict[str, Any], expected_hashes: 
         results.append(_write_source_constants(project_root, relative, definitions, backup_dir, current["sourceHashes"].get(relative)))
     result = load_catalog(project_root)
     result["saveResults"] = results
+    return result
+
+
+def suggest_asset_id(filename: str, asset_type: str, category: str, context: str | None = None) -> str:
+    stem = Path(filename).stem.lower()
+    stem = re.sub(r"[^a-z0-9]+", "_", stem).strip("_") or "asset"
+    prefix = "portrait" if category == "portrait" else category
+    pieces = [prefix]
+    if context:
+        context_slug = re.sub(r"[^a-z0-9]+", "_", context.lower()).strip("_")
+        if context_slug:
+            pieces.append(context_slug)
+    pieces.append(stem)
+    base = "_".join(pieces)
+    if asset_type == "audio" and category not in base.split("_"):
+        base = f"{category}_{base}"
+    return base[:64].rstrip("_") or "asset"
+
+
+def _validate_upload_metadata(asset_type: str, category: str, asset_id: str, filename: str, content: bytes) -> str:
+    categories = ASSET_IMAGE_CATEGORIES if asset_type == "image" else ASSET_AUDIO_CATEGORIES
+    extensions = ASSET_IMAGE_EXTENSIONS if asset_type == "image" else ASSET_AUDIO_EXTENSIONS
+    if asset_type not in {"image", "audio"}:
+        raise ValueError("Asset type must be image or audio.")
+    if category not in categories:
+        raise ValueError(f"Unsupported {asset_type} asset category {category!r}.")
+    if not ASSET_ID_PATTERN.fullmatch(asset_id or ""):
+        raise ValueError("Asset ID must be lowercase slug-like text (2-64 characters).")
+    if not ASSET_FILENAME_PATTERN.fullmatch(filename or "") or Path(filename).name != filename:
+        raise ValueError("Filename must be a simple name without folders or unsafe characters.")
+    suffix = Path(filename).suffix.lower()
+    if suffix not in extensions:
+        supported = ", ".join(sorted(extensions))
+        raise ValueError(f"Unsupported {asset_type} format {suffix or '(none)'}; use {supported}.")
+    if not content:
+        raise ValueError("Uploaded asset is empty.")
+    return suffix
+
+
+def _atomic_write_bytes(path: Path, content: bytes) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_name, path)
+    finally:
+        if os.path.exists(temp_name):
+            os.unlink(temp_name)
+
+
+def upload_asset(
+    project_root: Path,
+    *,
+    asset_type: str,
+    category: str,
+    asset_id: str,
+    filename: str,
+    content: bytes,
+    expected_hash: str | None = None,
+    replace: bool = False,
+    backup_dir: Path | None = None,
+) -> dict[str, Any]:
+    """Safely add or explicitly replace a binary asset and its catalog entry."""
+    project_root = project_root.resolve()
+    _validate_upload_metadata(asset_type, category, asset_id, filename, content)
+    current = load_catalog(project_root)
+    source_relative = "js/asset-data.js"
+    actual_hash = current["sourceHashes"].get(source_relative)
+    if expected_hash and actual_hash != expected_hash:
+        raise RuntimeError("Conflict: js/asset-data.js changed on disk since the editor loaded it. Reload before saving.")
+
+    image_assets = clone(current["imageAssets"])
+    audio_assets = clone(current["audioAssets"])
+    target_map = image_assets if asset_type == "image" else audio_assets
+    other_map = audio_assets if asset_type == "image" else image_assets
+    existing = target_map.get(asset_id)
+    if asset_id in other_map:
+        raise ValueError(f"Asset ID {asset_id!r} already belongs to the other asset type.")
+    if existing and not replace:
+        raise ValueError(f"Asset ID {asset_id!r} already exists. Use Replace File explicitly.")
+    if replace and not existing:
+        raise ValueError(f"Cannot replace missing asset ID {asset_id!r}.")
+
+    if existing:
+        if existing.get("category") != category:
+            raise ValueError("Replacement files must keep the existing asset category.")
+        old_path = existing.get("path")
+        expected_root = "assets/images/" if asset_type == "image" else "assets/audio/"
+        if not isinstance(old_path, str) or not old_path.startswith(expected_root) or ".." in Path(old_path).parts:
+            raise ValueError(f"Existing asset {asset_id!r} has an unsafe catalog path.")
+        relative_path = old_path
+        if Path(relative_path).suffix.lower() != Path(filename).suffix.lower():
+            raise ValueError("Replacement files must keep the existing asset file extension.")
+    else:
+        root = "assets/images" if asset_type == "image" else "assets/audio"
+        relative_path = f"{root}/{category}/{filename}"
+        if (project_root / relative_path).exists():
+            raise ValueError(f"Asset file {relative_path!r} already exists. Choose a new filename or replace the asset explicitly.")
+
+    destination = (project_root / relative_path).resolve()
+    assets_root = (project_root / "assets").resolve()
+    if assets_root not in destination.parents:
+        raise ValueError("Asset destination must remain inside the game assets directory.")
+
+    backup_dir = backup_dir or (Path(__file__).resolve().parent / ".backups")
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    previous_bytes = destination.read_bytes() if destination.is_file() else None
+    binary_backup = None
+    if previous_bytes is not None:
+        binary_backup_path = backup_dir / f"asset-{asset_id}.{stamp}.bak"
+        binary_backup_path.write_bytes(previous_bytes)
+        binary_backup = str(binary_backup_path)
+
+    definition = {
+        **(existing or {}),
+        "id": asset_id,
+        "path": relative_path.replace("\\", "/"),
+        "category": category,
+    }
+    if asset_type == "audio":
+        definition.setdefault("loop", category == "ambience")
+    target_map[asset_id] = definition
+    source_written = False
+    try:
+        _atomic_write_bytes(destination, content)
+        _write_source_constants(
+            project_root,
+            source_relative,
+            {"IMAGE_ASSET_DEFINITIONS": image_assets, "AUDIO_ASSET_DEFINITIONS": audio_assets},
+            backup_dir,
+            actual_hash,
+        )
+        source_written = True
+    except Exception:
+        if previous_bytes is None:
+            destination.unlink(missing_ok=True)
+        else:
+            _atomic_write_bytes(destination, previous_bytes)
+        raise
+
+    result = load_catalog(project_root)
+    result["assetResult"] = {
+        "assetId": asset_id,
+        "type": asset_type,
+        "path": relative_path.replace("\\", "/"),
+        "replaced": bool(existing),
+        "binaryBackup": binary_backup,
+        "sourceWritten": source_written,
+    }
     return result

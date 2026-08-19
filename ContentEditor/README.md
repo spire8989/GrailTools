@@ -159,7 +159,9 @@ are written with the same surgical definition-property behavior. Combat
 definitions, enemy definitions, enemy actions, and abilities share
 `combat-data.js`; a single save groups those changes into one
 source-preserving update and performs one stale-file check. Recovery backups
-are retained for each changed source file.
+are retained for each changed source file. If the preferred backup directory
+is not writable in the local environment, the server falls back to an
+OS-temporary recovery directory rather than making the content write unsafe.
 
 Validation reports duplicate keys, missing required encounter structure,
 unknown item/combat/ability/enemy-action/injury/path/region/loot references,
@@ -172,6 +174,24 @@ rolls and direct reward quantities, invalid combat damage and stat ranges,
 invalid loot weights/quantities, invalid distance ranges, invalid shop
 prices/stock, and deletions that remain referenced by understood definitions.
 The editor never silently repairs authored content.
+
+## Asset browser and upload workflow
+
+The Images and Audio categories browse the canonical maps in
+`Grail/js/asset-data.js`. Upload New validates the stable lowercase asset ID,
+category, filename, and supported extension, writes the binary file under the
+matching `Grail/assets/images/...` or `Grail/assets/audio/...` folder, and then
+updates only the two asset constants. Replace File keeps the existing path and
+ID and creates a recovery copy of the previous binary. Source writes remain
+atomic and retain the normal `.backups` source-file backup behavior.
+
+The editor exposes asset selectors for locations, destinations, expeditions,
+encounters, NPC portraits, dialogue-node portrait overrides, and combat
+visuals. Validation checks that referenced files exist, paths stay within the
+asset roots, IDs are unique across image/audio catalogs, and field/category
+pairs are compatible (for example, a portrait cannot point at a location
+asset). The game-side catalog is still authoritative; the editor stores no
+separate asset database.
 
 ## Known limitations
 
@@ -206,15 +226,20 @@ The editor never silently repairs authored content.
   authored shapes remain available through the raw encounter/object editors.
 - There is no autosave, collaboration lock, or automatic merge. A stale-file
   save is rejected and the editor must be reloaded before trying again.
+- The editor accepts browser-supported raster/audio formats only; it does not
+  transcode, resize, normalize loudness, or generate final artwork or sound.
 
 ## Tests
 
 From `ContentEditor`:
 
 ```powershell
-python -m unittest discover -s tests -v
+python tests/test_content_editor.py
+python tests/test_asset_pipeline.py
 ```
 
 The tests load the real current definitions, round-trip parsed data, and use a
 temporary copy for all write tests. They do not modify the live Grail
-worktree.
+worktree. The browser smoke tests additionally verify the local editor UI;
+they require the same Chrome and websocket prerequisites as the existing
+phase tests.
