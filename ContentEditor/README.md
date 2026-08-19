@@ -199,6 +199,13 @@ separate asset database.
 
 ### Image optimization
 
+Expedition **Travel Scene** rows are the exception to the normal Scene
+profile: they use a dedicated approximately 2400x800, 3:1 Travel Panorama
+WebP profile. The import is optimized automatically and is intended for
+horizontal side-scrolling/panning behind the party; it does not force the
+artwork into a 16:9 crop. Camp visuals continue to use the normal Scene
+profile.
+
 Image uploads and replacements open an import review with **Optimize for game**
 enabled by default. High-resolution generated PNG/JPG/WebP files can be
 imported directly; the selected source file is never modified or copied into
@@ -215,6 +222,10 @@ the runtime assets folder.
 - Smaller sources are not unnecessarily upscaled. The review shows source and
   output dimensions, format, file size, profile, and soft size warnings.
 - Turning optimization off keeps the existing raw-copy upload behavior.
+- The generic Asset Browser offers Portrait, Scene, Travel Panorama, Combat,
+  UI, and None/Original profiles. Uploading from an Expedition Travel Scene
+  row selects Travel Panorama by default, while Expedition Camp Visual keeps
+  the normal Scene profile.
 - Replacements preserve the stable asset ID and existing WebP path. When an
   older PNG/JPG runtime path is optimized, its catalog path moves to a sibling
   WebP and the old runtime file is backed up and removed after the catalog

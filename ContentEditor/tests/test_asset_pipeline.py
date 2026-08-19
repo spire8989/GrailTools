@@ -101,6 +101,94 @@ class AssetPipelineTests(unittest.TestCase):
         with self.webp_info((project / result["assetResult"]["path"]).read_bytes()) as image:
             self.assertEqual(image.size, (1280, 720))
 
+    def test_travel_panorama_profile_caps_large_3_by_1_source(self) -> None:
+        temp, project = self.temporary_grail()
+        self.addCleanup(temp.cleanup)
+        result = upload_asset(
+            project,
+            asset_type="image",
+            category="expedition",
+            asset_id="expedition_panorama_large",
+            filename="forest-panorama.png",
+            content=self.image_bytes((3000, 1000), (50, 90, 110)),
+            optimize_for_game=True,
+            optimization_profile="travel_panorama",
+            backup_dir=Path(temp.name) / "backups",
+        )
+        self.assertEqual(result["assetResult"]["imageProcessing"]["profile"], "travel_panorama")
+        self.assertEqual(result["assetResult"]["imageProcessing"]["profileLabel"], "Travel Panorama 3:1")
+        with self.webp_info((project / result["assetResult"]["path"]).read_bytes()) as image:
+            self.assertEqual(image.size, (2400, 800))
+
+    def test_small_travel_panorama_is_not_upscaled_or_cropped_to_16_by_9(self) -> None:
+        temp, project = self.temporary_grail()
+        self.addCleanup(temp.cleanup)
+        result = upload_asset(
+            project,
+            asset_type="image",
+            category="expedition",
+            asset_id="expedition_panorama_small",
+            filename="small-panorama.png",
+            content=self.image_bytes((1800, 600), (50, 90, 110)),
+            optimize_for_game=True,
+            optimization_profile="travel_panorama",
+            backup_dir=Path(temp.name) / "backups",
+        )
+        with self.webp_info((project / result["assetResult"]["path"]).read_bytes()) as image:
+            self.assertEqual(image.size, (1800, 600))
+        self.assertTrue(any("not upscaled" in warning for warning in result["assetResult"]["imageProcessing"]["warnings"]))
+
+    def test_expedition_default_and_travel_scene_profiles_stay_distinct(self) -> None:
+        source = self.image_bytes((2000, 1200), (50, 90, 110))
+        default_scene = preview_image(category="expedition", filename="camp.png", content=source)
+        self.assertEqual(default_scene["imageProcessing"]["profile"], "scene")
+        self.assertEqual(
+            (default_scene["imageProcessing"]["output"]["width"], default_scene["imageProcessing"]["output"]["height"]),
+            (1280, 720),
+        )
+        panorama = preview_image(
+            category="expedition",
+            filename="travel.png",
+            content=self.image_bytes((1800, 600), (50, 90, 110)),
+            optimization_profile="travel_panorama",
+        )
+        self.assertEqual(panorama["imageProcessing"]["profile"], "travel_panorama")
+        self.assertEqual(
+            (panorama["imageProcessing"]["output"]["width"], panorama["imageProcessing"]["output"]["height"]),
+            (1800, 600),
+        )
+
+    def test_travel_panorama_replacement_preserves_stable_asset_id(self) -> None:
+        temp, project = self.temporary_grail()
+        self.addCleanup(temp.cleanup)
+        backup_dir = Path(temp.name) / "backups"
+        first = upload_asset(
+            project,
+            asset_type="image",
+            category="expedition",
+            asset_id="expedition_panorama_replace",
+            filename="forest-a.png",
+            content=self.image_bytes((1800, 600), (120, 30, 30)),
+            optimize_for_game=True,
+            optimization_profile="travel_panorama",
+            backup_dir=backup_dir,
+        )
+        replaced = upload_asset(
+            project,
+            asset_type="image",
+            category="expedition",
+            asset_id="expedition_panorama_replace",
+            filename="forest-b.png",
+            content=self.image_bytes((3000, 1000), (30, 120, 30)),
+            replace=True,
+            optimize_for_game=True,
+            optimization_profile="travel_panorama",
+            backup_dir=backup_dir,
+        )
+        self.assertEqual(replaced["assetResult"]["assetId"], first["assetResult"]["assetId"])
+        self.assertEqual(replaced["assetResult"]["path"], first["assetResult"]["path"])
+        self.assertEqual(replaced["assetResult"]["imageProcessing"]["output"]["width"], 2400)
+
     def test_fixed_profiles_do_not_upscale_small_sources(self) -> None:
         temp, project = self.temporary_grail()
         self.addCleanup(temp.cleanup)

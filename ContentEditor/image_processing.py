@@ -37,6 +37,14 @@ IMAGE_PROFILES: dict[str, dict[str, Any]] = {
         "size_warning": 800 * 1024,
         "size_warning_message": "Scene runtime file is larger than the roughly 800 KB guidance target.",
     },
+    "travel_panorama": {
+        "label": "Travel Panorama 3:1",
+        "target": (2400, 800),
+        "quality": 85,
+        "ratio_tolerance": 0.02,
+        "size_warning": 1200 * 1024,
+        "size_warning_message": "Travel Panorama runtime file is larger than the roughly 1.2 MB guidance target.",
+    },
     "combat": {
         "label": "Combat Cutout",
         "max_dimension": 768,
@@ -60,6 +68,8 @@ IMAGE_PROFILES: dict[str, dict[str, Any]] = {
 PROFILE_ALIASES = {
     "location": "scene",
     "expedition": "scene",
+    "travel_panorama": "travel_panorama",
+    "travel": "travel_panorama",
     "encounter": "scene",
     "portrait": "portrait",
     "combat": "combat",
@@ -144,9 +154,9 @@ def _anchor_offset(available: int, crop: int, anchor: str) -> int:
     return (available - crop) // 2
 
 
-def _crop_to_ratio(image: Any, target_ratio: float, anchor: str) -> Any:
+def _crop_to_ratio(image: Any, target_ratio: float, anchor: str, tolerance: float = 0.0001) -> Any:
     source_ratio = image.width / image.height
-    if abs(source_ratio - target_ratio) < 0.0001:
+    if abs(source_ratio - target_ratio) < tolerance:
         return image
     if source_ratio > target_ratio:
         crop_width = max(1, min(image.width, round(image.height * target_ratio)))
@@ -198,7 +208,12 @@ def optimize_image(
             settings = IMAGE_PROFILES[normalized_profile]
             if "target" in settings:
                 target_width, target_height = settings["target"]
-                image = _crop_to_ratio(image, target_width / target_height, anchor)
+                image = _crop_to_ratio(
+                    image,
+                    target_width / target_height,
+                    anchor,
+                    float(settings.get("ratio_tolerance", 0.0001)),
+                )
                 image = _resize_to_fit(image, target_width, target_height)
             elif "max_dimension" in settings:
                 image = _resize_to_fit(image, settings["max_dimension"], settings["max_dimension"])
@@ -216,7 +231,7 @@ def optimize_image(
 
     warnings: list[str] = []
     if source.width < settings.get("target", (0, 0))[0] or source.height < settings.get("target", (0, 0))[1]:
-        if normalized_profile in {"portrait", "scene"}:
+        if normalized_profile in {"portrait", "scene", "travel_panorama"}:
             target_width, target_height = settings["target"]
             warnings.append(f"Source is smaller than the recommended {target_width}×{target_height} {normalized_profile} size; it was not upscaled.")
     size_warning = settings.get("size_warning")

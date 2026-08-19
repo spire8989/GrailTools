@@ -39,6 +39,14 @@ class ContentEditorTests(unittest.TestCase):
         self.assertGreaterEqual(len(catalog["campEvents"]), 6)
         self.assertEqual(catalog["validation"]["errors"], [])
 
+    def test_asset_browser_exposes_travel_panorama_and_travel_rows_select_it(self) -> None:
+        index = (CONTENT_EDITOR / "static" / "index.html").read_text(encoding="utf-8")
+        app = (CONTENT_EDITOR / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertIn('value="travel_panorama"', index)
+        self.assertIn('data-asset-profile="travel_panorama"', app)
+        self.assertIn("Recommended: 3:1 panoramic artwork", app)
+        self.assertIn('renderAssetSelector("Camp visual"', app)
+
     def test_unchanged_values_round_trip_semantically(self) -> None:
         encounter_path = GRAIL / "js" / "encounter-data.js"
         shop_path = GRAIL / "js" / "location-data.js"

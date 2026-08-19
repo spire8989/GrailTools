@@ -234,12 +234,13 @@ function assetOptions(assetType, current, category = "") {
 function renderAssetSelector(label, field, current, assetType = "image", category = "", context = "", optimizationProfile = "") {
   const sourceCategory = assetType === "audio" ? "audioAssets" : "imageAssets";
   const asset = current ? state.catalog?.[sourceCategory]?.[current] : null;
+  const displayLabel = field === "campVisualAssetId" ? `${label} · Scene 16:9` : label;
   const preview = asset && assetType === "image"
     ? `<img class="asset-field-preview" src="${assetPreviewUrl(asset.path)}" alt="Preview of ${escapeHtml(current)}">`
     : asset && assetType === "audio"
       ? `<audio class="asset-field-audio" controls preload="none" src="${assetPreviewUrl(asset.path)}"></audio>`
       : `<span class="asset-field-placeholder">Placeholder fallback</span>`;
-  return `<label class="asset-selector wide"><span>${escapeHtml(label)}</span><span class="asset-selector-controls"><select data-field="${escapeHtml(field)}">${assetOptions(assetType, current, category)}</select><button type="button" class="small-button" data-action="upload-asset" data-asset-type="${assetType}" data-asset-category="${category}" data-asset-field="${escapeHtml(field)}" data-asset-context="${escapeHtml(context)}" data-asset-profile="${escapeHtml(optimizationProfile)}">Upload New</button></span><span class="asset-field-preview-wrap">${preview}</span></label>`;
+  return `<label class="asset-selector wide"><span>${escapeHtml(displayLabel)}</span><span class="asset-selector-controls"><select data-field="${escapeHtml(field)}">${assetOptions(assetType, current, category)}</select><button type="button" class="small-button" data-action="upload-asset" data-asset-type="${assetType}" data-asset-category="${category}" data-asset-field="${escapeHtml(field)}" data-asset-context="${escapeHtml(context)}" data-asset-profile="${escapeHtml(optimizationProfile)}">Upload New</button></span><span class="asset-field-preview-wrap">${preview}</span></label>`;
 }
 
 function renderTravelScenes(expedition) {
@@ -251,11 +252,11 @@ function renderTravelScenes(expedition) {
       : `<span class="asset-field-placeholder">Choose or upload an expedition image</span>`;
     return `<div class="travel-scene-editor-row" data-travel-scene-index="${index}">
       <label>Minimum distance<input type="number" min="0" step="any" data-travel-scene-field="minDistance" data-travel-scene-index="${index}" value="${escapeHtml(scene?.minDistance ?? "")}"></label>
-      <label class="asset-selector"><span>Scene image</span><span class="asset-selector-controls"><select data-travel-scene-field="visualAssetId" data-travel-scene-index="${index}">${assetOptions("image", scene?.visualAssetId, "expedition")}</select><button type="button" class="small-button" data-action="upload-asset" data-asset-type="image" data-asset-category="expedition" data-asset-field="visualAssetId" data-asset-scene-index="${index}" data-asset-context="${escapeHtml(expedition.name || expedition.id || "travel scene")}" data-asset-profile="scene">Upload New</button></span><span class="asset-field-preview-wrap">${preview}</span></label>
+      <label class="asset-selector"><span>Travel panorama</span><span class="asset-selector-controls"><select data-travel-scene-field="visualAssetId" data-travel-scene-index="${index}">${assetOptions("image", scene?.visualAssetId, "expedition")}</select><button type="button" class="small-button" data-action="upload-asset" data-asset-type="image" data-asset-category="expedition" data-asset-field="visualAssetId" data-asset-scene-index="${index}" data-asset-context="${escapeHtml(expedition.name || expedition.id || "travel scene")}" data-asset-profile="travel_panorama">Upload New</button></span><span class="asset-field-preview-wrap">${preview}</span></label>
       <button type="button" class="small-button danger-outline" data-action="remove-travel-scene" data-travel-scene-index="${index}">Remove</button>
     </div>`;
   }).join("");
-  return `<section class="section travel-scenes-editor"><div class="section-heading"><div><h3>Travel Scenes</h3><p>Optional distance-based artwork. Scenes are selected by the current distance and must stay sorted from nearest to farthest.</p></div><button type="button" class="small-button" data-action="add-travel-scene">Add Scene</button></div><div class="travel-scene-editor-list">${rows || `<p class="hint">No distance-based scenes. The legacy Travel visual is used for the whole route.</p>`}</div></section>`;
+  return `<section class="section travel-scenes-editor"><div class="section-heading"><div><h3>Travel Scenes</h3><p>Recommended: 3:1 panoramic artwork. Optional distance-based artwork is selected by current distance and must stay sorted from nearest to farthest.</p></div><button type="button" class="small-button" data-action="add-travel-scene">Add Scene</button></div><div class="travel-scene-editor-list">${rows || `<p class="hint">No distance-based scenes. The legacy Travel visual is used for the whole route.</p>`}</div></section>`;
 }
 
 const ITEM_FILTER_FLAGS = ["carriable", "consumable", "questItem", "campaignItem", "unique", "sellable", "protected"];
