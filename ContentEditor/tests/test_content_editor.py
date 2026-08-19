@@ -44,6 +44,8 @@ class ContentEditorTests(unittest.TestCase):
         app = (CONTENT_EDITOR / "static" / "app.js").read_text(encoding="utf-8")
         self.assertIn('value="travel_panorama"', index)
         self.assertIn('data-asset-profile="travel_panorama"', app)
+        self.assertIn('data-travel-scene-field="motion"', app)
+        self.assertIn('motion: "loop"', app)
         self.assertIn("Recommended: 3:1 panoramic artwork", app)
         self.assertIn('renderAssetSelector("Camp visual"', app)
 
@@ -833,8 +835,8 @@ class ContentEditorTests(unittest.TestCase):
         expedition_id = "fountain_of_barenton"
         incoming = {"expeditions": clone(catalog["expeditions"]), "imageAssets": clone(catalog["imageAssets"])}
         incoming["expeditions"][expedition_id]["travelScenes"] = [
-            {"minDistance": 0, "visualAssetId": expedition_assets[0]},
-            {"minDistance": 40, "visualAssetId": expedition_assets[-1]},
+            {"minDistance": 0, "visualAssetId": expedition_assets[0], "motion": "loop"},
+            {"minDistance": 40, "visualAssetId": expedition_assets[-1], "motion": "pan"},
         ]
         validation = validate_catalog(incoming, catalog["known"], catalog["references"], project_root=project)
         self.assertFalse(validation["errors"])
@@ -849,7 +851,7 @@ class ContentEditorTests(unittest.TestCase):
             {"minDistance": 40, "visualAssetId": expedition_assets[0]},
             {"minDistance": 40, "visualAssetId": "missing_expedition_scene"},
             {"minDistance": 20, "visualAssetId": expedition_assets[-1]},
-            {"minDistance": -1, "visualAssetId": expedition_assets[-1]},
+            {"minDistance": -1, "visualAssetId": expedition_assets[-1], "motion": "teleport"},
         ]
         invalid_validation = validate_catalog(invalid, catalog["known"], catalog["references"], project_root=project)
         messages = [issue["message"] for issue in invalid_validation["errors"]]
@@ -857,6 +859,7 @@ class ContentEditorTests(unittest.TestCase):
         self.assertTrue(any("sorted" in message for message in messages))
         self.assertTrue(any("non-negative" in message for message in messages))
         self.assertTrue(any("Unknown image asset ID 'missing_expedition_scene'" in message for message in messages))
+        self.assertTrue(any("motion must be 'loop' or 'pan'" in message for message in messages))
 
     def test_phase4_path_and_expedition_references_validate_and_protect_deletion(self) -> None:
         catalog = load_catalog(GRAIL)

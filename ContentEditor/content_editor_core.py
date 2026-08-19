@@ -1839,6 +1839,9 @@ def _validate_expeditions(expeditions: Any, known: dict[str, list[str]], errors:
                     visual_asset_id = scene.get("visualAssetId")
                     if not isinstance(visual_asset_id, str) or not visual_asset_id:
                         errors.append(_issue("error", "Travel scene visualAssetId must reference an expedition image asset.", source, f"{scene_path}.visualAssetId"))
+                    motion = scene.get("motion", "loop")
+                    if motion not in {"loop", "pan"}:
+                        errors.append(_issue("error", "Travel scene motion must be 'loop' or 'pan'.", source, f"{scene_path}.motion"))
         if isinstance(expedition.get("kind"), str) and not expedition["kind"]:
             errors.append(_issue("error", "Expedition kind cannot be empty.", source, "kind"))
 
