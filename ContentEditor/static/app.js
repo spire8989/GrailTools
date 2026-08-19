@@ -96,6 +96,9 @@ const state = {
   navigationHistory: [],
   pathFilters: { search: "", direction: "all", minDistance: "", maxDistance: "", tag: "", sort: "title" },
   uploadTarget: null,
+  pendingAssetUpload: null,
+  assetPreview: null,
+  assetPreviewRequest: 0,
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -228,7 +231,7 @@ function assetOptions(assetType, current, category = "") {
   return `<option value="">None (use placeholder)</option>${entries.map(([id, asset]) => `<option value="${escapeHtml(id)}"${selected(id, current)}>${escapeHtml(id)} · ${escapeHtml(asset.category || assetType)}</option>`).join("")}`;
 }
 
-function renderAssetSelector(label, field, current, assetType = "image", category = "", context = "") {
+function renderAssetSelector(label, field, current, assetType = "image", category = "", context = "", optimizationProfile = "") {
   const sourceCategory = assetType === "audio" ? "audioAssets" : "imageAssets";
   const asset = current ? state.catalog?.[sourceCategory]?.[current] : null;
   const preview = asset && assetType === "image"
@@ -236,7 +239,7 @@ function renderAssetSelector(label, field, current, assetType = "image", categor
     : asset && assetType === "audio"
       ? `<audio class="asset-field-audio" controls preload="none" src="${assetPreviewUrl(asset.path)}"></audio>`
       : `<span class="asset-field-placeholder">Placeholder fallback</span>`;
-  return `<label class="asset-selector wide"><span>${escapeHtml(label)}</span><span class="asset-selector-controls"><select data-field="${escapeHtml(field)}">${assetOptions(assetType, current, category)}</select><button type="button" class="small-button" data-action="upload-asset" data-asset-type="${assetType}" data-asset-category="${category}" data-asset-field="${escapeHtml(field)}" data-asset-context="${escapeHtml(context)}">Upload New</button></span><span class="asset-field-preview-wrap">${preview}</span></label>`;
+  return `<label class="asset-selector wide"><span>${escapeHtml(label)}</span><span class="asset-selector-controls"><select data-field="${escapeHtml(field)}">${assetOptions(assetType, current, category)}</select><button type="button" class="small-button" data-action="upload-asset" data-asset-type="${assetType}" data-asset-category="${category}" data-asset-field="${escapeHtml(field)}" data-asset-context="${escapeHtml(context)}" data-asset-profile="${escapeHtml(optimizationProfile)}">Upload New</button></span><span class="asset-field-preview-wrap">${preview}</span></label>`;
 }
 
 const ITEM_FILTER_FLAGS = ["carriable", "consumable", "questItem", "campaignItem", "unique", "sellable", "protected"];
@@ -2609,6 +2612,131 @@ function suggestClientAssetId(filename, assetType, category, context = "") {
   return [prefix, contextSlug, stem].filter(Boolean).join("_").slice(0, 64).replace(/_+$/, "") || (assetType === "audio" ? "audio_asset" : "image_asset");
 }
 
+function imageProfileForCategory(category) {
+  return { portrait: "portrait", location: "scene", expedition: "scene", encounter: "scene", combat: "combat", ui: "ui" }[category] || "none";
+}
+
+function formatAssetBytes(bytes) {
+  if (!Number.isFinite(bytes)) return "unknown size";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function formatAssetImageSummary(processing) {
+  const source = processing.source;
+  const output = processing.output;
+  const title = processing.profile === "none" ? "Original" : `${processing.profileLabel} · Quality 85 · ${processing.cropAnchor[0].toUpperCase()}${processing.cropAnchor.slice(1)} crop`;
+  const warnings = (processing.warnings || []).map((warning) => `<div class="warning">Warning: ${escapeHtml(warning)}</div>`).join("");
+  return `<div><strong>Source</strong><br>${source.width} × ${source.height} ${escapeHtml(source.format)}<br>${formatAssetBytes(source.bytes)}</div><div><strong>${processing.profile === "none" ? "Output" : "Optimized"}</strong><br>${output.width} × ${output.height} ${escapeHtml(output.format)}<br>${formatAssetBytes(output.bytes)}</div><div>${escapeHtml(title)}</div>${warnings}`;
+}
+
+function closeAssetImportDialog() {
+  state.pendingAssetUpload = null;
+  state.assetPreview = null;
+  state.assetPreviewRequest += 1;
+  const dialog = $("#asset-import-dialog");
+  if (dialog) dialog.hidden = true;
+}
+
+function importOptions() {
+  const optimize = $("#asset-optimize-toggle")?.checked ?? true;
+  return {
+    optimize,
+    profile: optimize ? $("#asset-optimization-profile")?.value || "none" : "none",
+    cropAnchor: $("#asset-crop-anchor")?.value || "center",
+  };
+}
+
+async function refreshImageImportPreview() {
+  const pending = state.pendingAssetUpload;
+  if (!pending) return;
+  const status = $("#asset-import-status");
+  const summary = $("#asset-import-summary");
+  const preview = $("#asset-import-preview");
+  const confirm = $("[data-action='confirm-asset-upload']");
+  const profile = $("#asset-optimization-profile");
+  const anchor = $("#asset-crop-anchor");
+  const options = importOptions();
+  if (profile) profile.disabled = !options.optimize;
+  if (anchor) anchor.disabled = !options.optimize || options.profile === "none";
+  if (confirm) confirm.disabled = true;
+  if (status) status.textContent = "Processing preview…";
+  if (summary) summary.textContent = "";
+  const requestId = ++state.assetPreviewRequest;
+  const form = new FormData();
+  form.append("assetType", "image");
+  form.append("category", pending.target.category);
+  form.append("assetId", pending.assetId);
+  form.append("optimizeForGame", String(options.optimize));
+  form.append("optimizationProfile", options.profile);
+  form.append("cropAnchor", options.cropAnchor);
+  form.append("file", pending.file, pending.file.name);
+  try {
+    const response = await fetch("/api/assets/preview", { method: "POST", body: form });
+    const payload = await response.json();
+    if (requestId !== state.assetPreviewRequest || !state.pendingAssetUpload) return;
+    if (!response.ok) throw new Error(payload.error || payload.errors?.[0]?.message || "Image preview failed.");
+    state.assetPreview = { ...payload, options };
+    if (preview) preview.src = payload.previewDataUrl;
+    if (summary) summary.innerHTML = formatAssetImageSummary(payload.imageProcessing);
+    if (status) status.textContent = "Ready to import. The source file remains untouched.";
+    if (confirm) confirm.disabled = false;
+  } catch (error) {
+    if (requestId !== state.assetPreviewRequest) return;
+    state.assetPreview = null;
+    if (status) status.textContent = error.message;
+    if (summary) summary.innerHTML = `<div class="error">${escapeHtml(error.message)}</div>`;
+  }
+}
+
+function openImageImportDialog(file, target, assetId) {
+  state.pendingAssetUpload = { file, target, assetId };
+  state.assetPreview = null;
+  const dialog = $("#asset-import-dialog");
+  const filename = $("#asset-import-filename");
+  const profile = $("#asset-optimization-profile");
+  const anchor = $("#asset-crop-anchor");
+  const optimize = $("#asset-optimize-toggle");
+  if (filename) filename.textContent = `${target.replace ? "Replace" : "Upload"} · ${assetId} · ${file.name}`;
+  if (profile) profile.value = target.optimizationProfile || imageProfileForCategory(target.category);
+  if (anchor) anchor.value = "center";
+  if (optimize) optimize.checked = true;
+  if (dialog) dialog.hidden = false;
+  refreshImageImportPreview();
+}
+
+async function submitAssetUpload(file, target, assetId, options = {}) {
+  const form = new FormData();
+  form.append("assetType", target.assetType);
+  form.append("category", target.category);
+  form.append("assetId", assetId.trim());
+  form.append("sourceHash", state.catalog?.sourceHashes?.["js/asset-data.js"] || "");
+  if (target.assetType === "image") {
+    form.append("optimizeForGame", String(options.optimize ?? true));
+    form.append("optimizationProfile", options.profile || "none");
+    form.append("cropAnchor", options.cropAnchor || "center");
+  }
+  form.append("file", file, file.name);
+  const response = await fetch(target.replace ? "/api/assets/replace" : "/api/assets/upload", { method: "POST", body: form });
+  const payload = await response.json();
+  if (!response.ok) throw new Error(payload.error || payload.errors?.[0]?.message || "Asset upload failed.");
+  state.catalog = payload;
+  if (target.field && state.draft) {
+    if (target.nodeId) state.draft.nodes[target.nodeId][target.field] = payload.assetResult.assetId;
+    else state.draft[target.field] = payload.assetResult.assetId;
+    markDirty();
+  } else {
+    state.category = target.assetType === "audio" ? "audioAssets" : "imageAssets";
+    state.selectedId = payload.assetResult.assetId;
+    state.originalSelectedId = state.selectedId;
+    state.draft = clone(state.catalog[state.category][state.selectedId]);
+    state.dirty = false;
+    state.draftDirty = false;
+  }
+  render();
+}
+
 async function uploadSelectedAsset(file) {
   const target = state.uploadTarget;
   state.uploadTarget = null;
@@ -2616,30 +2744,12 @@ async function uploadSelectedAsset(file) {
   const defaultId = target.assetId || suggestClientAssetId(file.name, target.assetType, target.category, target.context);
   const assetId = target.replace ? defaultId : window.prompt("Asset ID (lowercase slug)", defaultId);
   if (!assetId) return;
-  const form = new FormData();
-  form.append("assetType", target.assetType);
-  form.append("category", target.category);
-  form.append("assetId", assetId.trim());
-  form.append("sourceHash", state.catalog?.sourceHashes?.["js/asset-data.js"] || "");
-  form.append("file", file, file.name);
+  if (target.assetType === "image") {
+    openImageImportDialog(file, target, assetId.trim());
+    return;
+  }
   try {
-    const response = await fetch(target.replace ? "/api/assets/replace" : "/api/assets/upload", { method: "POST", body: form });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.error || payload.errors?.[0]?.message || "Asset upload failed.");
-    state.catalog = payload;
-    if (target.field && state.draft) {
-      if (target.nodeId) state.draft.nodes[target.nodeId][target.field] = payload.assetResult.assetId;
-      else state.draft[target.field] = payload.assetResult.assetId;
-      markDirty();
-    } else {
-      state.category = target.assetType === "audio" ? "audioAssets" : "imageAssets";
-      state.selectedId = payload.assetResult.assetId;
-      state.originalSelectedId = state.selectedId;
-      state.draft = clone(state.catalog[state.category][state.selectedId]);
-      state.dirty = false;
-      state.draftDirty = false;
-    }
-    render();
+    await submitAssetUpload(file, target, assetId);
   } catch (error) {
     window.alert(error.message);
   }
@@ -2647,7 +2757,21 @@ async function uploadSelectedAsset(file) {
 
 function handleAction(button) {
   const action = button.dataset.action;
-  if (action === "upload-asset" || action === "replace-asset") {
+  if (action === "cancel-asset-upload") {
+    closeAssetImportDialog();
+  } else if (action === "confirm-asset-upload") {
+    const pending = state.pendingAssetUpload;
+    const preview = state.assetPreview;
+    if (!pending || !preview) return;
+    button.disabled = true;
+    submitAssetUpload(pending.file, pending.target, pending.assetId, preview.options)
+      .then(() => closeAssetImportDialog())
+      .catch((error) => {
+        button.disabled = false;
+        const status = $("#asset-import-status");
+        if (status) status.textContent = error.message;
+      });
+  } else if (action === "upload-asset" || action === "replace-asset") {
     if (action === "replace-asset" && !window.confirm("Replace this file while keeping the same stable asset ID? A recovery backup will be created.")) return;
     state.uploadTarget = {
       assetType: button.dataset.assetType,
@@ -2657,6 +2781,7 @@ function handleAction(button) {
       assetId: button.dataset.assetId || null,
       replace: action === "replace-asset",
       context: button.dataset.assetContext || state.draft?.name || state.draft?.id || "asset",
+      optimizationProfile: button.dataset.assetProfile || imageProfileForCategory(button.dataset.assetCategory),
     };
     const input = $("#asset-upload-input");
     if (input) {
@@ -3135,6 +3260,7 @@ document.addEventListener("click", (event) => {
 document.addEventListener("input", (event) => handleInput(event.target));
 document.addEventListener("change", (event) => {
   if (event.target.matches("#asset-upload-input")) uploadSelectedAsset(event.target.files?.[0]);
+  else if (event.target.matches("#asset-optimize-toggle, #asset-optimization-profile, #asset-crop-anchor")) refreshImageImportPreview();
   else if (event.target.matches("textarea[data-object-json]")) handleObjectJson(event.target);
   else if (event.target.matches("textarea[data-dialogue-choice-json]")) {
     try {

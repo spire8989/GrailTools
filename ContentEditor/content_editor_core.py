@@ -20,6 +20,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
+from image_processing import ProcessedImage, optimize_image, profile_for_category
+
 
 class JsParseError(ValueError):
     """Raised when a supported JavaScript data literal cannot be parsed."""
@@ -2518,6 +2520,32 @@ def _validate_upload_metadata(asset_type: str, category: str, asset_id: str, fil
     return suffix
 
 
+def preview_image(
+    *,
+    category: str,
+    filename: str,
+    content: bytes,
+    optimize_for_game: bool = True,
+    optimization_profile: str | None = None,
+    crop_anchor: str = "center",
+) -> dict[str, Any]:
+    """Prepare an image for the import dialog without writing project files."""
+    _validate_upload_metadata("image", category, "preview_asset", filename, content)
+    selected_profile = profile_for_category(category, optimization_profile) if optimize_for_game else "none"
+    processed = optimize_image(
+        content,
+        category=category,
+        profile=selected_profile,
+        crop_anchor=crop_anchor,
+        filename=filename,
+    )
+    return {
+        "imageProcessing": _image_processing_result(processed),
+        "previewDataUrl": processed.preview_data_url,
+        "optimized": bool(optimize_for_game and selected_profile != "none"),
+    }
+
+
 def _atomic_write_bytes(path: Path, content: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temp_name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
@@ -2532,6 +2560,36 @@ def _atomic_write_bytes(path: Path, content: bytes) -> None:
             os.unlink(temp_name)
 
 
+def _safe_runtime_stem(filename: str, asset_id: str) -> str:
+    stem = re.sub(r"[^a-z0-9]+", "-", Path(filename).stem.lower()).strip("-")
+    return stem[:120] or asset_id
+
+
+def _image_processing_result(processed: ProcessedImage) -> dict[str, Any]:
+    return {
+        "profile": processed.profile,
+        "profileLabel": processed.profile_label,
+        "cropAnchor": processed.crop_anchor,
+        "source": {
+            "width": processed.source.width,
+            "height": processed.source.height,
+            "format": processed.source.format,
+            "mode": processed.source.mode,
+            "hasAlpha": processed.source.has_alpha,
+            "bytes": processed.source.size,
+        },
+        "output": {
+            "width": processed.output.width,
+            "height": processed.output.height,
+            "format": processed.output.format,
+            "mode": processed.output.mode,
+            "hasAlpha": processed.output.has_alpha,
+            "bytes": processed.output.size,
+        },
+        "warnings": list(processed.warnings),
+    }
+
+
 def upload_asset(
     project_root: Path,
     *,
@@ -2543,10 +2601,30 @@ def upload_asset(
     expected_hash: str | None = None,
     replace: bool = False,
     backup_dir: Path | None = None,
+    optimize_for_game: bool = False,
+    optimization_profile: str | None = None,
+    crop_anchor: str = "center",
 ) -> dict[str, Any]:
-    """Safely add or explicitly replace a binary asset and its catalog entry."""
+    """Safely add or explicitly replace a binary asset and its catalog entry.
+
+    Image optimization is opt-in at this Python API boundary for compatibility
+    with existing scripts. The Content Editor UI sends it enabled by default.
+    """
     project_root = project_root.resolve()
-    _validate_upload_metadata(asset_type, category, asset_id, filename, content)
+    input_suffix = _validate_upload_metadata(asset_type, category, asset_id, filename, content)
+    processed: ProcessedImage | None = None
+    selected_profile = None
+    if asset_type == "image" and optimize_for_game:
+        selected_profile = profile_for_category(category, optimization_profile)
+        processed = optimize_image(
+            content,
+            category=category,
+            profile=selected_profile,
+            crop_anchor=crop_anchor,
+            filename=filename,
+        )
+    output_content = processed.content if processed is not None else content
+    optimized_webp = bool(processed is not None and processed.profile != "none")
     current = load_catalog(project_root)
     source_relative = "js/asset-data.js"
     actual_hash = current["sourceHashes"].get(source_relative)
@@ -2572,12 +2650,17 @@ def upload_asset(
         expected_root = "assets/images/" if asset_type == "image" else "assets/audio/"
         if not isinstance(old_path, str) or not old_path.startswith(expected_root) or ".." in Path(old_path).parts:
             raise ValueError(f"Existing asset {asset_id!r} has an unsafe catalog path.")
-        relative_path = old_path
-        if Path(relative_path).suffix.lower() != Path(filename).suffix.lower():
+        old_suffix = Path(old_path).suffix.lower()
+        if optimized_webp:
+            relative_path = old_path if old_suffix == ".webp" else str(Path(old_path).with_suffix(".webp")).replace("\\", "/")
+        else:
+            relative_path = old_path
+        if not optimized_webp and old_suffix != input_suffix:
             raise ValueError("Replacement files must keep the existing asset file extension.")
     else:
         root = "assets/images" if asset_type == "image" else "assets/audio"
-        relative_path = f"{root}/{category}/{filename}"
+        runtime_filename = f"{_safe_runtime_stem(filename, asset_id)}.webp" if optimized_webp else filename
+        relative_path = f"{root}/{category}/{runtime_filename}"
         if (project_root / relative_path).exists():
             raise ValueError(f"Asset file {relative_path!r} already exists. Choose a new filename or replace the asset explicitly.")
 
@@ -2585,15 +2668,34 @@ def upload_asset(
     assets_root = (project_root / "assets").resolve()
     if assets_root not in destination.parents:
         raise ValueError("Asset destination must remain inside the game assets directory.")
+    if optimized_webp and destination.suffix.lower() != ".webp":
+        raise ValueError("Optimized image assets must use a .webp runtime path.")
+
+    old_destination = None
+    if existing:
+        old_destination = (project_root / existing["path"]).resolve()
+        if assets_root not in old_destination.parents:
+            raise ValueError("Existing asset path must remain inside the game assets directory.")
+    if existing and old_destination != destination and destination.exists():
+        raise ValueError(f"Optimized replacement destination {relative_path!r} already exists; remove it or choose another source name.")
+    catalog_paths = {
+        asset.get("path")
+        for key, asset in target_map.items()
+        if key != asset_id and isinstance(asset, dict) and isinstance(asset.get("path"), str)
+    }
+    if relative_path in catalog_paths:
+        raise ValueError(f"Asset path {relative_path!r} is already assigned to another asset.")
 
     backup_dir = backup_dir or (Path(__file__).resolve().parent / ".backups")
     backup_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     previous_bytes = destination.read_bytes() if destination.is_file() else None
+    old_bytes = old_destination.read_bytes() if old_destination and old_destination.is_file() else None
     binary_backup = None
-    if previous_bytes is not None:
+    backup_bytes = old_bytes if old_bytes is not None else previous_bytes
+    if backup_bytes is not None:
         binary_backup_path = backup_dir / f"asset-{asset_id}.{stamp}.bak"
-        binary_backup_path.write_bytes(previous_bytes)
+        binary_backup_path.write_bytes(backup_bytes)
         binary_backup = str(binary_backup_path)
 
     definition = {
@@ -2607,7 +2709,7 @@ def upload_asset(
     target_map[asset_id] = definition
     source_written = False
     try:
-        _atomic_write_bytes(destination, content)
+        _atomic_write_bytes(destination, output_content)
         _write_source_constants(
             project_root,
             source_relative,
@@ -2616,8 +2718,14 @@ def upload_asset(
             actual_hash,
         )
         source_written = True
+        if old_destination and old_destination != destination:
+            old_destination.unlink(missing_ok=True)
     except Exception:
-        if previous_bytes is None:
+        if old_destination and old_destination != destination:
+            destination.unlink(missing_ok=True)
+            if old_bytes is not None:
+                _atomic_write_bytes(old_destination, old_bytes)
+        elif previous_bytes is None:
             destination.unlink(missing_ok=True)
         else:
             _atomic_write_bytes(destination, previous_bytes)
@@ -2632,4 +2740,6 @@ def upload_asset(
         "binaryBackup": binary_backup,
         "sourceWritten": source_written,
     }
+    if processed is not None:
+        result["assetResult"]["imageProcessing"] = _image_processing_result(processed)
     return result

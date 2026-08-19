@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import base64
 import shutil
 import sys
 import tempfile
+from io import BytesIO
 import unittest
 from pathlib import Path
+
+from PIL import Image
 
 CONTENT_EDITOR = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(CONTENT_EDITOR))
@@ -12,6 +16,7 @@ sys.path.insert(0, str(CONTENT_EDITOR))
 from content_editor_core import (  # noqa: E402
     clone,
     load_catalog,
+    preview_image,
     save_catalog,
     suggest_asset_id,
     upload_asset,
@@ -29,6 +34,177 @@ class AssetPipelineTests(unittest.TestCase):
         shutil.copytree(GRAIL, project)
         return temp, project
 
+    @staticmethod
+    def image_bytes(size: tuple[int, int], color: tuple[int, ...], image_format: str = "PNG") -> bytes:
+        image = Image.new("RGBA" if len(color) == 4 else "RGB", size, color)
+        output = BytesIO()
+        image.save(output, format=image_format)
+        return output.getvalue()
+
+    @staticmethod
+    def webp_info(content: bytes) -> Image.Image:
+        image = Image.open(BytesIO(content))
+        image.load()
+        return image
+
+    def test_optimized_portrait_is_webp_and_does_not_touch_source_bytes(self) -> None:
+        temp, project = self.temporary_grail()
+        self.addCleanup(temp.cleanup)
+        source = self.image_bytes((1122, 1402), (80, 120, 180))
+        original_source = source[:]
+        result = upload_asset(
+            project,
+            asset_type="image",
+            category="portrait",
+            asset_id="portrait_high_res",
+            filename="Reeve_Final_v3.PNG",
+            content=source,
+            optimize_for_game=True,
+            backup_dir=Path(temp.name) / "backups",
+        )
+        self.assertEqual(source, original_source)
+        self.assertEqual(result["assetResult"]["path"], "assets/images/portrait/reeve-final-v3.webp")
+        output = project / result["assetResult"]["path"]
+        with self.webp_info(output.read_bytes()) as image:
+            self.assertEqual(image.format, "WEBP")
+            self.assertEqual(image.size, (480, 600))
+        self.assertEqual(load_catalog(project)["imageAssets"]["portrait_high_res"]["path"], result["assetResult"]["path"])
+
+    def test_portrait_crop_anchor_changes_fixed_aspect_crop(self) -> None:
+        temp, project = self.temporary_grail()
+        self.addCleanup(temp.cleanup)
+        source_image = Image.new("RGB", (1000, 1000), (0, 0, 255))
+        for x in range(0, 500):
+            for y in range(1000):
+                source_image.putpixel((x, y), (255, 0, 0))
+        source = BytesIO()
+        source_image.save(source, format="PNG")
+        preview = preview_image(category="portrait", filename="anchor.png", content=source.getvalue(), crop_anchor="left")
+        with self.webp_info(base64.b64decode(preview["previewDataUrl"].split(",", 1)[1])) as image:
+            self.assertEqual(image.size, (480, 600))
+            self.assertGreater(image.getpixel((20, 300))[0], 200)
+            self.assertLess(image.getpixel((20, 300))[2], 100)
+
+    def test_scene_profile_resizes_large_source_to_16_by_9(self) -> None:
+        temp, project = self.temporary_grail()
+        self.addCleanup(temp.cleanup)
+        result = upload_asset(
+            project,
+            asset_type="image",
+            category="location",
+            asset_id="location_large",
+            filename="village.png",
+            content=self.image_bytes((2000, 1200), (50, 90, 110)),
+            optimize_for_game=True,
+            backup_dir=Path(temp.name) / "backups",
+        )
+        with self.webp_info((project / result["assetResult"]["path"]).read_bytes()) as image:
+            self.assertEqual(image.size, (1280, 720))
+
+    def test_fixed_profiles_do_not_upscale_small_sources(self) -> None:
+        temp, project = self.temporary_grail()
+        self.addCleanup(temp.cleanup)
+        result = upload_asset(
+            project,
+            asset_type="image",
+            category="portrait",
+            asset_id="portrait_small",
+            filename="small.png",
+            content=self.image_bytes((320, 400), (90, 100, 110)),
+            optimize_for_game=True,
+            backup_dir=Path(temp.name) / "backups",
+        )
+        with self.webp_info((project / result["assetResult"]["path"]).read_bytes()) as image:
+            self.assertEqual(image.size, (320, 400))
+        self.assertTrue(any("not upscaled" in warning for warning in result["assetResult"]["imageProcessing"]["warnings"]))
+
+    def test_combat_profile_preserves_alpha_and_caps_longest_dimension(self) -> None:
+        temp, project = self.temporary_grail()
+        self.addCleanup(temp.cleanup)
+        result = upload_asset(
+            project,
+            asset_type="image",
+            category="combat",
+            asset_id="combat_cutout",
+            filename="enemy.png",
+            content=self.image_bytes((1200, 600), (20, 30, 40, 0)),
+            optimize_for_game=True,
+            backup_dir=Path(temp.name) / "backups",
+        )
+        with self.webp_info((project / result["assetResult"]["path"]).read_bytes()) as image:
+            self.assertEqual(image.size, (768, 384))
+            self.assertEqual(image.mode, "RGBA")
+            self.assertEqual(image.getpixel((10, 10))[3], 0)
+
+    def test_optimized_replacement_moves_legacy_image_to_webp_and_keeps_id(self) -> None:
+        temp, project = self.temporary_grail()
+        self.addCleanup(temp.cleanup)
+        backup_dir = Path(temp.name) / "backups"
+        first = upload_asset(
+            project,
+            asset_type="image",
+            category="portrait",
+            asset_id="portrait_replace_me",
+            filename="reeve.png",
+            content=self.image_bytes((480, 600), (120, 30, 30)),
+            backup_dir=backup_dir,
+        )
+        old_path = project / first["assetResult"]["path"]
+        old_bytes = old_path.read_bytes()
+        replaced = upload_asset(
+            project,
+            asset_type="image",
+            category="portrait",
+            asset_id="portrait_replace_me",
+            filename="new-artwork.png",
+            content=self.image_bytes((1122, 1402), (30, 120, 30)),
+            replace=True,
+            optimize_for_game=True,
+            backup_dir=backup_dir,
+        )
+        self.assertEqual(replaced["assetResult"]["assetId"], "portrait_replace_me")
+        self.assertEqual(replaced["assetResult"]["path"], "assets/images/portrait/reeve.webp")
+        self.assertFalse(old_path.exists())
+        self.assertNotEqual((project / replaced["assetResult"]["path"]).read_bytes(), old_bytes)
+        self.assertTrue(replaced["assetResult"]["binaryBackup"])
+        self.assertEqual(load_catalog(project)["imageAssets"]["portrait_replace_me"]["path"], replaced["assetResult"]["path"])
+
+    def test_optimization_off_keeps_raw_copy_behavior(self) -> None:
+        temp, project = self.temporary_grail()
+        self.addCleanup(temp.cleanup)
+        source = self.image_bytes((80, 90), (10, 20, 30))
+        result = upload_asset(
+            project,
+            asset_type="image",
+            category="ui",
+            asset_id="ui_raw_copy",
+            filename="badge.png",
+            content=source,
+            optimize_for_game=False,
+            backup_dir=Path(temp.name) / "backups",
+        )
+        self.assertEqual((project / result["assetResult"]["path"]).read_bytes(), source)
+        self.assertEqual(result["assetResult"]["path"], "assets/images/ui/badge.png")
+
+    def test_corrupt_optimized_image_does_not_mutate_catalog_or_runtime(self) -> None:
+        temp, project = self.temporary_grail()
+        self.addCleanup(temp.cleanup)
+        source_path = project / "js" / "asset-data.js"
+        before_source = source_path.read_bytes()
+        with self.assertRaisesRegex(ValueError, "Could not decode image"):
+            upload_asset(
+                project,
+                asset_type="image",
+                category="portrait",
+                asset_id="portrait_corrupt",
+                filename="corrupt.png",
+                content=b"not-an-image",
+                optimize_for_game=True,
+                backup_dir=Path(temp.name) / "backups",
+            )
+        self.assertEqual(source_path.read_bytes(), before_source)
+        self.assertFalse((project / "assets/images/portrait/corrupt.webp").exists())
+
     def test_upload_replace_and_assign_preserve_canonical_sources(self) -> None:
         temp, project = self.temporary_grail()
         self.addCleanup(temp.cleanup)
@@ -40,7 +216,7 @@ class AssetPipelineTests(unittest.TestCase):
             project,
             asset_type="image",
             category="portrait",
-            asset_id="portrait_reeve",
+            asset_id="portrait_pipeline_reeve",
             filename="reeve.png",
             content=b"first-image",
             expected_hash=before["sourceHashes"]["js/asset-data.js"],
@@ -66,7 +242,7 @@ class AssetPipelineTests(unittest.TestCase):
             project,
             asset_type="image",
             category="portrait",
-            asset_id="portrait_reeve",
+            asset_id="portrait_pipeline_reeve",
             filename="replacement.png",
             content=b"replacement-image",
             expected_hash=audio["sourceHashes"]["js/asset-data.js"],
@@ -79,10 +255,10 @@ class AssetPipelineTests(unittest.TestCase):
 
         current = load_catalog(project)
         incoming = {"npcs": clone(current["npcs"]), "imageAssets": clone(current["imageAssets"]), "audioAssets": clone(current["audioAssets"])}
-        incoming["npcs"]["village_reeve"]["portraitAssetId"] = "portrait_reeve"
+        incoming["npcs"]["village_reeve"]["portraitAssetId"] = "portrait_pipeline_reeve"
         saved = save_catalog(project, incoming, current["sourceHashes"], backup_dir)
         self.assertEqual(saved["validation"]["errors"], [])
-        self.assertEqual(load_catalog(project)["npcs"]["village_reeve"]["portraitAssetId"], "portrait_reeve")
+        self.assertEqual(load_catalog(project)["npcs"]["village_reeve"]["portraitAssetId"], "portrait_pipeline_reeve")
         self.assertEqual((project / "js" / "data.js").read_bytes(), unrelated_before)
 
     def test_asset_validation_rejects_unsafe_or_incompatible_definitions(self) -> None:

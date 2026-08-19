@@ -16,9 +16,13 @@ by the game at runtime.
       ContentEditor/
   ```
 
-No npm package, cloud service, database, or third-party runtime dependency is
-required. The machine used for Phase 1 does not have Node/npm installed, so
-the editor uses a Python standard-library server and a browser UI.
+No npm package, cloud service, database, or frontend build is required. The
+editor uses a Python standard-library server and browser UI. Image optimization
+uses the small Pillow dependency; install it from this directory with:
+
+```powershell
+python -m pip install -r requirements.txt
+```
 
 ## Start
 
@@ -193,6 +197,33 @@ pairs are compatible (for example, a portrait cannot point at a location
 asset). The game-side catalog is still authoritative; the editor stores no
 separate asset database.
 
+### Image optimization
+
+Image uploads and replacements open an import review with **Optimize for game**
+enabled by default. High-resolution generated PNG/JPG/WebP files can be
+imported directly; the selected source file is never modified or copied into
+the runtime assets folder.
+
+- Portrait assets use a 480×600, 4:5 WebP profile.
+- Location, destination, expedition, and encounter art use a 1280×720, 16:9
+  WebP profile.
+- Combat cutouts preserve aspect ratio and transparency with a 768px longest
+  dimension cap.
+- UI images preserve aspect ratio with a 1024px longest dimension cap.
+- Fixed-aspect profiles use a center crop by default. The import dialog also
+  offers top, bottom, left, and right anchors.
+- Smaller sources are not unnecessarily upscaled. The review shows source and
+  output dimensions, format, file size, profile, and soft size warnings.
+- Turning optimization off keeps the existing raw-copy upload behavior.
+- Replacements preserve the stable asset ID and existing WebP path. When an
+  older PNG/JPG runtime path is optimized, its catalog path moves to a sibling
+  WebP and the old runtime file is backed up and removed after the catalog
+  update succeeds.
+
+If Pillow is missing, the editor reports the actionable command
+`python -m pip install Pillow` when an image preview or optimized import is
+attempted.
+
 ## Known limitations
 
 - The parser intentionally supports the data-only object-literal subset used
@@ -226,8 +257,8 @@ separate asset database.
   authored shapes remain available through the raw encounter/object editors.
 - There is no autosave, collaboration lock, or automatic merge. A stale-file
   save is rejected and the editor must be reloaded before trying again.
-- The editor accepts browser-supported raster/audio formats only; it does not
-  transcode, resize, normalize loudness, or generate final artwork or sound.
+- The editor accepts browser-supported raster/audio formats; audio remains a
+  raw-copy pipeline and is not transcoded or normalized.
 
 ## Tests
 

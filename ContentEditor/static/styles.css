@@ -104,6 +104,17 @@ h2, h3, h4 { margin: 0; }
 .asset-usage-row { display: flex; justify-content: space-between; gap: 10px; padding: 8px 9px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 4px; }
 .asset-usage-row strong { color: #dce3ed; font-size: 11px; }
 .asset-usage-row code { overflow-wrap: anywhere; color: var(--muted); font-size: 10px; }
+.asset-import-dialog { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 18px; background: rgba(5, 7, 10, .78); }
+.asset-import-dialog[hidden] { display: none; }
+.asset-import-card { width: min(760px, 100%); max-height: min(720px, 100%); overflow: auto; padding: 20px; background: var(--panel); border: 1px solid #725b39; border-radius: 7px; box-shadow: 0 18px 60px rgba(0, 0, 0, .45); }
+.asset-import-grid { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(260px, 1fr); gap: 20px; align-items: start; }
+.asset-import-preview { display: block; width: 100%; max-height: 390px; object-fit: contain; background: #101319; border: 1px solid var(--border); border-radius: 5px; }
+.asset-import-controls { display: grid; gap: 12px; }
+.asset-import-controls > label:not(.check-chip) { display: grid; gap: 5px; }
+.asset-import-summary { display: grid; gap: 8px; padding: 11px; background: #171c24; border: 1px solid var(--border); border-radius: 5px; color: #d9e0e9; font-size: 12px; line-height: 1.45; }
+.asset-import-summary strong { color: #e2c27d; }
+.asset-import-summary .warning { color: #e1bb73; }
+.asset-import-summary .error { color: #ef9d9d; }
 .raw-json-preview { overflow: auto; margin: 0; padding: 10px; background: #12151b; border: 1px solid var(--border); border-radius: 4px; color: #c9d1dd; font-size: 11px; }
 .form-grid.three { grid-template-columns: repeat(3, minmax(120px, 1fr)); }
 .check-grid { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 6px; }
@@ -192,4 +203,5 @@ h2, h3, h4 { margin: 0; }
   body { min-width: 980px; }
   .workspace { grid-template-columns: 145px 360px minmax(575px, 1fr); }
   .quick-fields { grid-template-columns: repeat(2, minmax(100px, 1fr)); }
+  .asset-import-grid { grid-template-columns: 1fr; }
 }

@@ -11,7 +11,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 
-from content_editor_core import JsParseError, load_catalog, merged_state, save_catalog, upload_asset, validate_catalog
+from content_editor_core import JsParseError, load_catalog, merged_state, preview_image, save_catalog, upload_asset, validate_catalog
 
 
 TOOL_ROOT = Path(__file__).resolve().parent
@@ -82,13 +82,28 @@ class EditorHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802 - stdlib handler API
         path = urlparse(self.path).path
         try:
-            if path in {"/api/assets/upload", "/api/assets/replace"}:
+            if path in {"/api/assets/preview", "/api/assets/upload", "/api/assets/replace"}:
                 fields, filename, content = self._read_multipart()
                 asset_type = fields.get("assetType", "")
                 category = fields.get("category", "")
                 asset_id = fields.get("assetId", "")
                 if not filename or content is None:
                     raise ValueError("Choose a file before uploading an asset.")
+                optimize_for_game = fields.get("optimizeForGame", "true" if path == "/api/assets/preview" else "false").lower() in {"1", "true", "yes", "on"}
+                optimization_profile = fields.get("optimizationProfile") or None
+                crop_anchor = fields.get("cropAnchor") or "center"
+                if path == "/api/assets/preview":
+                    if asset_type != "image":
+                        raise ValueError("Only image uploads can be optimized or previewed.")
+                    self._json_response(preview_image(
+                        category=category,
+                        filename=filename,
+                        content=content,
+                        optimize_for_game=optimize_for_game,
+                        optimization_profile=optimization_profile,
+                        crop_anchor=crop_anchor,
+                    ))
+                    return
                 result = upload_asset(
                     self.project_root,
                     asset_type=asset_type,
@@ -99,6 +114,9 @@ class EditorHandler(BaseHTTPRequestHandler):
                     expected_hash=fields.get("sourceHash") or None,
                     replace=path.endswith("/replace"),
                     backup_dir=backup_directory(),
+                    optimize_for_game=optimize_for_game,
+                    optimization_profile=optimization_profile,
+                    crop_anchor=crop_anchor,
                 )
                 self._json_response(result)
                 return
@@ -179,8 +197,11 @@ class EditorHandler(BaseHTTPRequestHandler):
             field_name = params.get("name")
             if not field_name:
                 continue
-            if "filename" in params:
-                filename = params["filename"]
+            # Browsers normally include filename= on the binary part, but the
+            # field name is the reliable signal across Chromium/Firefox and
+            # prevents us from ever decoding image bytes as UTF-8.
+            if field_name == "file" or "filename" in params or "filename*" in params:
+                filename = params.get("filename") or params.get("filename*")
                 content = value
             else:
                 fields[field_name] = value.decode("utf-8")
