@@ -474,7 +474,7 @@ CONTENT_FILES = {
     "lootTables": ("js/loot-data.js", "LOOT_TABLE_DEFINITIONS"),
 }
 
-ASSET_IMAGE_CATEGORIES = ("location", "expedition", "encounter", "combat", "portrait", "ui")
+ASSET_IMAGE_CATEGORIES = ("location", "town", "expedition", "encounter", "combat", "portrait", "ui")
 ASSET_AUDIO_CATEGORIES = ("ambience", "sfx", "music")
 ASSET_IMAGE_EXTENSIONS = {".png", ".webp", ".jpg", ".jpeg", ".gif", ".avif"}
 ASSET_AUDIO_EXTENSIONS = {".mp3", ".ogg", ".wav", ".m4a", ".aac", ".webm"}
@@ -2184,7 +2184,7 @@ def _validate_asset_references(values: dict[str, Any], errors: list[dict[str, st
         "stingAssetId": {"sfx"},
     }
     visual_field_categories = {
-        "locations": {"location"},
+        "locations": {"location", "town"},
         "destinations": {"location"},
         "encounters": {"encounter"},
         "campEvents": {"encounter"},

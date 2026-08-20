@@ -101,6 +101,27 @@ class AssetPipelineTests(unittest.TestCase):
         with self.webp_info((project / result["assetResult"]["path"]).read_bytes()) as image:
             self.assertEqual(image.size, (1280, 720))
 
+    def test_town_profile_defaults_to_2_by_3_webp(self) -> None:
+        temp, project = self.temporary_grail()
+        self.addCleanup(temp.cleanup)
+        result = upload_asset(
+            project,
+            asset_type="image",
+            category="town",
+            asset_id="town_background",
+            filename="town.png",
+            content=self.image_bytes((1200, 1800), (50, 90, 110)),
+            optimize_for_game=True,
+            backup_dir=Path(temp.name) / "backups",
+        )
+        processing = result["assetResult"]["imageProcessing"]
+        self.assertEqual(processing["profile"], "town")
+        self.assertEqual(processing["profileLabel"], "Town Background 2:3")
+        self.assertEqual(result["assetResult"]["path"], "assets/images/town/town.webp")
+        with self.webp_info((project / result["assetResult"]["path"]).read_bytes()) as image:
+            self.assertEqual(image.format, "WEBP")
+            self.assertEqual(image.size, (832, 1248))
+
     def test_travel_panorama_profile_caps_large_3_by_1_source(self) -> None:
         temp, project = self.temporary_grail()
         self.addCleanup(temp.cleanup)

@@ -37,6 +37,13 @@ IMAGE_PROFILES: dict[str, dict[str, Any]] = {
         "size_warning": 800 * 1024,
         "size_warning_message": "Scene runtime file is larger than the roughly 800 KB guidance target.",
     },
+    "town": {
+        "label": "Town Background 2:3",
+        "target": (832, 1248),
+        "quality": 85,
+        "size_warning": 800 * 1024,
+        "size_warning_message": "Town Background runtime file is larger than the roughly 800 KB guidance target.",
+    },
     "travel_panorama": {
         "label": "Travel Panorama 3:1",
         "target": (2400, 800),
@@ -67,6 +74,7 @@ IMAGE_PROFILES: dict[str, dict[str, Any]] = {
 
 PROFILE_ALIASES = {
     "location": "scene",
+    "town": "town",
     "expedition": "scene",
     "travel_panorama": "travel_panorama",
     "travel": "travel_panorama",
@@ -231,7 +239,7 @@ def optimize_image(
 
     warnings: list[str] = []
     if source.width < settings.get("target", (0, 0))[0] or source.height < settings.get("target", (0, 0))[1]:
-        if normalized_profile in {"portrait", "scene", "travel_panorama"}:
+        if normalized_profile in {"portrait", "scene", "town", "travel_panorama"}:
             target_width, target_height = settings["target"]
             warnings.append(f"Source is smaller than the recommended {target_width}×{target_height} {normalized_profile} size; it was not upscaled.")
     size_warning = settings.get("size_warning")

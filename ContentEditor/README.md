@@ -212,8 +212,8 @@ imported directly; the selected source file is never modified or copied into
 the runtime assets folder.
 
 - Portrait assets use a 480×600, 4:5 WebP profile.
-- Location, destination, expedition, and encounter art use a 1280×720, 16:9
-  WebP profile.
+- Town backgrounds use an 832×1248, 2:3 WebP profile. Destination, expedition,
+  and encounter art use a 1280×720, 16:9 WebP profile.
 - Combat cutouts preserve aspect ratio and transparency with a 768px longest
   dimension cap.
 - UI images preserve aspect ratio with a 1024px longest dimension cap.
@@ -222,10 +222,10 @@ the runtime assets folder.
 - Smaller sources are not unnecessarily upscaled. The review shows source and
   output dimensions, format, file size, profile, and soft size warnings.
 - Turning optimization off keeps the existing raw-copy upload behavior.
-- The generic Asset Browser offers Portrait, Scene, Travel Panorama, Combat,
-  UI, and None/Original profiles. Uploading from an Expedition Travel Scene
-  row selects Travel Panorama by default, while Expedition Camp Visual keeps
-  the normal Scene profile.
+- The generic Asset Browser offers Portrait, Scene, Town Background, Travel
+  Panorama, Combat, UI, and None/Original profiles. Uploading from an Expedition
+  Travel Scene row selects Travel Panorama by default, town backgrounds select
+  Town Background, and Expedition Camp Visual keeps the normal Scene profile.
 - Replacements preserve the stable asset ID and existing WebP path. When an
   older PNG/JPG runtime path is optimized, its catalog path moves to a sibling
   WebP and the old runtime file is backed up and removed after the catalog

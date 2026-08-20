@@ -1473,7 +1473,7 @@ function assetUsages(assetId, assetType) {
 function renderAsset() {
   const asset = state.draft;
   const assetType = assetTypeForCategory(state.category);
-  const categoryValues = assetType === "image" ? ["location", "expedition", "encounter", "combat", "portrait", "ui"] : ["ambience", "sfx", "music"];
+  const categoryValues = assetType === "image" ? ["location", "town", "expedition", "encounter", "combat", "portrait", "ui"] : ["ambience", "sfx", "music"];
   const categoryLabel = categoryValues[0];
   if (!asset) {
     return `<div class="empty-state"><h2>No ${assetType} assets yet</h2><p>Upload a file to add it to the game's canonical assets folder and catalog.</p><label class="asset-upload-category">Asset category<select id="asset-browser-category">${categoryValues.map((category) => `<option value="${category}">${category}</option>`).join("")}</select></label><button type="button" class="primary" data-action="upload-asset" data-asset-browser="true" data-asset-type="${assetType}" data-asset-category="${categoryLabel}">Upload New ${assetType}</button></div>`;
@@ -1495,7 +1495,7 @@ function injectAssetEditors() {
     if (!form) return;
     const config = {
       destinations: ["Visual asset", "visualAssetId", "location"],
-      locations: ["Visual asset", "visualAssetId", "location"],
+      locations: ["Visual asset", "visualAssetId", "town"],
       enemyDefinitions: ["Combat visual", "visualAssetId", "combat"],
       campEvents: ["Event visual", "visualAssetId", "encounter"],
     }[state.category];
@@ -2644,7 +2644,7 @@ function suggestClientAssetId(filename, assetType, category, context = "") {
 }
 
 function imageProfileForCategory(category) {
-  return { portrait: "portrait", location: "scene", expedition: "scene", encounter: "scene", combat: "combat", ui: "ui" }[category] || "none";
+  return { portrait: "portrait", location: "scene", town: "town", expedition: "scene", encounter: "scene", combat: "combat", ui: "ui" }[category] || "none";
 }
 
 function formatAssetBytes(bytes) {
