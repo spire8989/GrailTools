@@ -118,17 +118,18 @@ class ContentEditorTests(unittest.TestCase):
         before = load_catalog(project)
         encounters = clone(before["encounters"])
         choice = encounters["abandoned_camp"]["stages"]["start"]["choices"][0]
-        choice["outcomes"][0]["outcomeVisual"] = {
+        choice["visualOverride"] = {
             "backgroundAssetId": "encounter_abandoned_camp",
             "encounterLayout": {"arthur": {"x": 0.62, "y": 0.68}},
             "hiddenSlots": ["companion2"],
         }
         save_catalog(project, {"encounters": encounters}, before["sourceHashes"], Path(temp.name) / "backups")
         after = load_catalog(project)
-        self.assertEqual(after["encounters"]["abandoned_camp"]["stages"]["start"]["choices"][0]["outcomes"][0]["outcomeVisual"], choice["outcomes"][0]["outcomeVisual"])
+        self.assertEqual(after["encounters"]["abandoned_camp"]["stages"]["start"]["choices"][0]["visualOverride"], choice["visualOverride"])
+        self.assertNotIn("outcomeVisual", after["encounters"]["abandoned_camp"]["stages"]["start"]["choices"][0]["outcomes"][0])
 
         invalid = clone(after["encounters"])
-        invalid["abandoned_camp"]["stages"]["start"]["choices"][0]["outcomes"][0]["outcomeVisual"]["hiddenSlots"] = ["companion9"]
+        invalid["abandoned_camp"]["stages"]["start"]["choices"][0]["visualOverride"]["hiddenSlots"] = ["companion9"]
         validation = validate_catalog({"encounters": invalid}, after["known"], after["references"])
         self.assertTrue(any("hiddenSlots must contain only" in issue["message"] for issue in validation["errors"]))
 

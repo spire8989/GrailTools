@@ -889,34 +889,34 @@ def _validate_resolution_outcomes(outcomes: Any, known: dict[str, list[str]], so
         _validate_resolution_outcome(outcome, known, source, f"{path}[{index}]", errors)
 
 
-def _validate_outcome_visual(outcome_visual: Any, known: dict[str, list[str]], source: str, path: str, errors: list[dict[str, str]]) -> None:
-    if not isinstance(outcome_visual, dict):
-        errors.append(_issue("error", "outcomeVisual must be an object.", source, path))
+def _validate_visual_override(visual_override: Any, known: dict[str, list[str]], source: str, path: str, errors: list[dict[str, str]]) -> None:
+    if not isinstance(visual_override, dict):
+        errors.append(_issue("error", "visualOverride must be an object.", source, path))
         return
-    if "backgroundAssetId" in outcome_visual:
-        asset_id = outcome_visual.get("backgroundAssetId")
+    if "backgroundAssetId" in visual_override:
+        asset_id = visual_override.get("backgroundAssetId")
         if not isinstance(asset_id, str) or asset_id not in set(known.get("imageAssets", [])):
-            errors.append(_issue("error", "outcomeVisual backgroundAssetId must reference a known image asset.", source, f"{path}.backgroundAssetId"))
-    layout = outcome_visual.get("encounterLayout")
+            errors.append(_issue("error", "visualOverride backgroundAssetId must reference a known image asset.", source, f"{path}.backgroundAssetId"))
+    layout = visual_override.get("encounterLayout")
     if layout is not None:
         if not isinstance(layout, dict):
-            errors.append(_issue("error", "outcomeVisual encounterLayout must be an object.", source, f"{path}.encounterLayout"))
+            errors.append(_issue("error", "visualOverride encounterLayout must be an object.", source, f"{path}.encounterLayout"))
         else:
             for slot_id, position in layout.items():
                 slot_path = f"{path}.encounterLayout.{slot_id}"
                 if slot_id not in {"arthur", "companion1", "companion2"}:
-                    errors.append(_issue("error", f"Unknown outcome visual party slot {slot_id!r}.", source, slot_path))
+                    errors.append(_issue("error", f"Unknown visual override party slot {slot_id!r}.", source, slot_path))
                     continue
                 if not isinstance(position, dict):
-                    errors.append(_issue("error", "Outcome visual layout positions must be objects.", source, slot_path))
+                    errors.append(_issue("error", "Visual override layout positions must be objects.", source, slot_path))
                     continue
                 for axis in ("x", "y"):
                     if axis in position and (not _is_number(position.get(axis)) or not 0 <= position[axis] <= 1):
-                        errors.append(_issue("error", f"Outcome visual {slot_id} {axis} must be a number from 0 to 1.", source, f"{slot_path}.{axis}"))
-    hidden_slots = outcome_visual.get("hiddenSlots")
+                        errors.append(_issue("error", f"Visual override {slot_id} {axis} must be a number from 0 to 1.", source, f"{slot_path}.{axis}"))
+    hidden_slots = visual_override.get("hiddenSlots")
     if hidden_slots is not None:
         if not isinstance(hidden_slots, list) or not all(slot in {"arthur", "companion1", "companion2"} for slot in hidden_slots):
-            errors.append(_issue("error", "outcomeVisual hiddenSlots must contain only arthur, companion1, or companion2.", source, f"{path}.hiddenSlots"))
+            errors.append(_issue("error", "visualOverride hiddenSlots must contain only arthur, companion1, or companion2.", source, f"{path}.hiddenSlots"))
 
 
 def _validate_resolution_outcome(outcome: Any, known: dict[str, list[str]], source: str, path: str, errors: list[dict[str, str]]) -> None:
@@ -924,9 +924,9 @@ def _validate_resolution_outcome(outcome: Any, known: dict[str, list[str]], sour
         errors.append(_issue("error", "Each outcome must be an object with a type.", source, path))
         return
     outcome_type = outcome["type"]
-    if "outcomeVisual" in outcome:
-        _validate_outcome_visual(outcome.get("outcomeVisual"), known, source, f"{path}.outcomeVisual", errors)
-
+    for legacy_field in ("outcomeVisual", "visualOverride"):
+        if legacy_field in outcome:
+            errors.append(_issue("error", "Visual overrides belong on the parent choice, result, or stage, not on mechanical effects.", source, f"{path}.{legacy_field}"))
     if outcome_type == "setCampaignFlagOnSafeReturn":
         if not isinstance(outcome.get("flag"), str) or not outcome.get("flag"):
             errors.append(_issue("error", "setCampaignFlagOnSafeReturn requires a flag.", source, f"{path}.flag"))
@@ -948,6 +948,8 @@ def _validate_resolution_outcome(outcome: Any, known: dict[str, list[str]], sour
                 continue
             if "resultText" in branch and not isinstance(branch.get("resultText"), str):
                 errors.append(_issue("error", f"startCombat {branch_name} resultText must be a string.", source, f"{branch_path}.resultText"))
+            if "visualOverride" in branch:
+                _validate_visual_override(branch.get("visualOverride"), known, source, f"{branch_path}.visualOverride", errors)
             if "outcomes" in branch:
                 _validate_resolution_outcomes(branch.get("outcomes"), known, source, f"{branch_path}.outcomes", errors)
         return
@@ -1088,6 +1090,8 @@ def _validate_encounters(encounters: Any, known: dict[str, list[str]], errors: l
                     continue
                 if not isinstance(stage.get("text"), str):
                     errors.append(_issue("error", "Stage text is required.", source, f"{stage_path}.text"))
+                if "visualOverride" in stage:
+                    _validate_visual_override(stage.get("visualOverride"), known, source, f"{stage_path}.visualOverride", errors)
                 choices = stage.get("choices")
                 if stage.get("resultStage") is True and "choices" not in stage:
                     choices = []
@@ -1109,6 +1113,8 @@ def _validate_encounters(encounters: Any, known: dict[str, list[str]], errors: l
                             choice_ids.add(choice_id)
                         if "label" in choice and not isinstance(choice.get("label"), str):
                             errors.append(_issue("error", "Choice label must be a string when present.", source, f"{choice_path}.label"))
+                        if "visualOverride" in choice:
+                            _validate_visual_override(choice.get("visualOverride"), known, source, f"{choice_path}.visualOverride", errors)
                         _validate_requirements(choice.get("requirements"), source, f"{choice_path}.requirements", errors)
                         for collection_name in ("costs", "outcomes"):
                             collection = choice.get(collection_name)
@@ -1207,6 +1213,8 @@ def _validate_staged_events(events: Any, known: dict[str, list[str]], errors: li
                 continue
             if not isinstance(stage.get("text"), str):
                 errors.append(_issue("error", "Stage text is required.", source, f"{stage_path}.text"))
+            if "visualOverride" in stage:
+                _validate_visual_override(stage.get("visualOverride"), known, source, f"{stage_path}.visualOverride", errors)
             choices = stage.get("choices", [] if stage.get("resultStage") is True else None)
             if not isinstance(choices, list):
                 errors.append(_issue("error", "Stage choices must be an array unless this is a resultStage.", source, f"{stage_path}.choices"))
@@ -1218,6 +1226,8 @@ def _validate_staged_events(events: Any, known: dict[str, list[str]], errors: li
                     continue
                 if not isinstance(choice.get("id"), str) or not choice.get("id"):
                     errors.append(_issue("error", "Choice ID is required.", source, f"{choice_path}.id"))
+                if "visualOverride" in choice:
+                    _validate_visual_override(choice.get("visualOverride"), known, source, f"{choice_path}.visualOverride", errors)
                 _validate_requirements(choice.get("requirements"), source, f"{choice_path}.requirements", errors)
                 if "outcomes" in choice:
                     _validate_resolution_outcomes(choice.get("outcomes"), known, source, f"{choice_path}.outcomes", errors)

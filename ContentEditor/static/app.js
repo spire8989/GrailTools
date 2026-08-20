@@ -433,17 +433,13 @@ function commitEncounterLayoutInput(input) {
   markDirty();
 }
 
-function isOutcomeCollectionOwner(owner) {
-  return owner === "outcomes" || owner.includes("-outcomes") || owner.includes("-effects");
-}
-
 function outcomeAtPath(outcomePath) {
-  const outcome = pathValue(state.draft, outcomePath);
-  return outcome && typeof outcome === "object" ? outcome : null;
+  const parent = pathValue(state.draft, outcomePath);
+  return parent && typeof parent === "object" ? parent : null;
 }
 
 function outcomeVisualIsCustom(outcome) {
-  const visual = outcome?.outcomeVisual;
+  const visual = outcome?.visualOverride;
   return Boolean(visual && (
     visual.backgroundAssetId
     || visual.encounterLayout
@@ -452,12 +448,12 @@ function outcomeVisualIsCustom(outcome) {
 }
 
 function cleanupOutcomeVisual(outcome) {
-  const visual = outcome?.outcomeVisual;
+  const visual = outcome?.visualOverride;
   if (!visual) return;
   if (!visual.backgroundAssetId
     && !visual.encounterLayout
     && (!Array.isArray(visual.hiddenSlots) || visual.hiddenSlots.length === 0)) {
-    delete outcome.outcomeVisual;
+    delete outcome.visualOverride;
   }
 }
 
@@ -470,7 +466,7 @@ function encounterVisualAssetOptions(current) {
 
 function outcomeLayoutPosition(outcome, slotId) {
   const fallback = encounterLayoutPosition(state.draft, slotId);
-  const authored = outcome?.outcomeVisual?.encounterLayout?.[slotId];
+  const authored = outcome?.visualOverride?.encounterLayout?.[slotId];
   return {
     x: clampTownLayoutValue(authored?.x, fallback.x),
     y: clampTownLayoutValue(authored?.y, fallback.y),
@@ -478,7 +474,7 @@ function outcomeLayoutPosition(outcome, slotId) {
 }
 
 function outcomeLayoutAsset(outcome) {
-  const assetId = outcome?.outcomeVisual?.backgroundAssetId || state.draft?.visualAssetId;
+  const assetId = outcome?.visualOverride?.backgroundAssetId || state.draft?.visualAssetId;
   return assetId ? state.catalog?.imageAssets?.[assetId] : null;
 }
 
@@ -498,17 +494,17 @@ function renderOutcomeLayoutEditor(outcome, outcomePath) {
 
 function renderOutcomeVisualEditor(outcome, outcomePath) {
   if (!outcomePath || !outcome || typeof outcome !== "object") return "";
-  const visual = outcome.outcomeVisual || {};
+  const visual = outcome.visualOverride || {};
   const backgroundCustom = Boolean(visual.backgroundAssetId);
   const layoutCustom = Boolean(visual.encounterLayout);
   const status = outcomeVisualIsCustom(outcome) ? "Custom" : "Inherit encounter";
   const hiddenSlots = new Set(Array.isArray(visual.hiddenSlots) ? visual.hiddenSlots : []);
-  return `<details class="outcome-visual-editor" data-outcome-visual-editor><summary>Visuals: ${status}</summary><div class="outcome-visual-controls"><div class="form-grid"><label>Background<select data-outcome-visual-field="backgroundMode" data-outcome-visual-path="${escapeHtml(outcomePath)}"><option value="inherit"${backgroundCustom ? "" : " selected"}>Inherit</option><option value="custom"${backgroundCustom ? " selected" : ""}>Custom</option></select></label>${backgroundCustom ? `<label class="wide">Custom background<select data-outcome-visual-field="backgroundAssetId" data-outcome-visual-path="${escapeHtml(outcomePath)}">${encounterVisualAssetOptions(visual.backgroundAssetId)}</select></label>` : ""}<label>Party Layout<select data-outcome-visual-field="layoutMode" data-outcome-visual-path="${escapeHtml(outcomePath)}"><option value="inherit"${layoutCustom ? "" : " selected"}>Inherit</option><option value="custom"${layoutCustom ? " selected" : ""}>Custom</option></select></label></div>${layoutCustom ? renderOutcomeLayoutEditor(outcome, outcomePath) : ""}<fieldset class="outcome-hidden-slots"><legend>Hidden Slots</legend>${ENCOUNTER_LAYOUT_SLOTS.map((slot) => `<label class="check-chip"><input type="checkbox" data-outcome-visual-field="hiddenSlot" data-outcome-visual-path="${escapeHtml(outcomePath)}" data-outcome-visual-slot="${slot.id}"${hiddenSlots.has(slot.id) ? " checked" : ""}>${slot.name}</label>`).join("")}</fieldset></div></details>`;
+  return `<details class="outcome-visual-editor" data-outcome-visual-editor data-outcome-visual-path="${escapeHtml(outcomePath)}"><summary>Visuals: ${status}</summary><div class="outcome-visual-controls"><div class="form-grid"><label>Background<select data-outcome-visual-field="backgroundMode" data-outcome-visual-path="${escapeHtml(outcomePath)}"><option value="inherit"${backgroundCustom ? "" : " selected"}>Inherit</option><option value="custom"${backgroundCustom ? " selected" : ""}>Custom</option></select></label>${backgroundCustom ? `<label class="wide">Custom background<select data-outcome-visual-field="backgroundAssetId" data-outcome-visual-path="${escapeHtml(outcomePath)}">${encounterVisualAssetOptions(visual.backgroundAssetId)}</select></label>` : ""}<label>Party Layout<select data-outcome-visual-field="layoutMode" data-outcome-visual-path="${escapeHtml(outcomePath)}"><option value="inherit"${layoutCustom ? "" : " selected"}>Inherit</option><option value="custom"${layoutCustom ? " selected" : ""}>Custom</option></select></label></div>${layoutCustom ? renderOutcomeLayoutEditor(outcome, outcomePath) : ""}<fieldset class="outcome-hidden-slots"><legend>Hidden Slots</legend>${ENCOUNTER_LAYOUT_SLOTS.map((slot) => `<label class="check-chip"><input type="checkbox" data-outcome-visual-field="hiddenSlot" data-outcome-visual-path="${escapeHtml(outcomePath)}" data-outcome-visual-slot="${slot.id}"${hiddenSlots.has(slot.id) ? " checked" : ""}>${slot.name}</label>`).join("")}</fieldset></div></details>`;
 }
 
 function initializeOutcomeLayout(outcome) {
-  outcome.outcomeVisual ||= {};
-  outcome.outcomeVisual.encounterLayout ||= Object.fromEntries(ENCOUNTER_LAYOUT_SLOTS.map((slot) => [slot.id, encounterLayoutPosition(state.draft, slot.id)]));
+  outcome.visualOverride ||= {};
+  outcome.visualOverride.encounterLayout ||= Object.fromEntries(ENCOUNTER_LAYOUT_SLOTS.map((slot) => [slot.id, encounterLayoutPosition(state.draft, slot.id)]));
 }
 
 function handleOutcomeVisualInput(input) {
@@ -516,11 +512,11 @@ function handleOutcomeVisualInput(input) {
   if (!outcome) return;
   const field = input.dataset.outcomeVisualField;
   if (field === "backgroundMode") {
-    outcome.outcomeVisual ||= {};
+    outcome.visualOverride ||= {};
     if (input.value === "custom") {
-      outcome.outcomeVisual.backgroundAssetId ||= state.draft.visualAssetId || Object.keys(state.catalog?.imageAssets || {}).find((id) => ["encounter", "expedition"].includes(state.catalog.imageAssets[id]?.category));
+      outcome.visualOverride.backgroundAssetId ||= state.draft.visualAssetId || Object.keys(state.catalog?.imageAssets || {}).find((id) => ["encounter", "expedition"].includes(state.catalog.imageAssets[id]?.category));
     } else {
-      delete outcome.outcomeVisual.backgroundAssetId;
+      delete outcome.visualOverride.backgroundAssetId;
     }
     cleanupOutcomeVisual(outcome);
     markDirty();
@@ -528,28 +524,28 @@ function handleOutcomeVisualInput(input) {
     return;
   }
   if (field === "backgroundAssetId") {
-    outcome.outcomeVisual ||= {};
-    if (input.value) outcome.outcomeVisual.backgroundAssetId = input.value;
-    else delete outcome.outcomeVisual.backgroundAssetId;
+    outcome.visualOverride ||= {};
+    if (input.value) outcome.visualOverride.backgroundAssetId = input.value;
+    else delete outcome.visualOverride.backgroundAssetId;
     cleanupOutcomeVisual(outcome);
     markDirty();
     return;
   }
   if (field === "layoutMode") {
     if (input.value === "custom") initializeOutcomeLayout(outcome);
-    else if (outcome.outcomeVisual) delete outcome.outcomeVisual.encounterLayout;
+    else if (outcome.visualOverride) delete outcome.visualOverride.encounterLayout;
     cleanupOutcomeVisual(outcome);
     markDirty();
     render();
     return;
   }
   if (field === "hiddenSlot") {
-    outcome.outcomeVisual ||= {};
-    const hiddenSlots = new Set(Array.isArray(outcome.outcomeVisual.hiddenSlots) ? outcome.outcomeVisual.hiddenSlots : []);
+    outcome.visualOverride ||= {};
+    const hiddenSlots = new Set(Array.isArray(outcome.visualOverride.hiddenSlots) ? outcome.visualOverride.hiddenSlots : []);
     if (input.checked) hiddenSlots.add(input.dataset.outcomeVisualSlot);
     else hiddenSlots.delete(input.dataset.outcomeVisualSlot);
-    if (hiddenSlots.size > 0) outcome.outcomeVisual.hiddenSlots = [...hiddenSlots];
-    else delete outcome.outcomeVisual.hiddenSlots;
+    if (hiddenSlots.size > 0) outcome.visualOverride.hiddenSlots = [...hiddenSlots];
+    else delete outcome.visualOverride.hiddenSlots;
     cleanupOutcomeVisual(outcome);
     markDirty();
   }
@@ -561,7 +557,7 @@ function updateOutcomeLayoutMarker(outcomePath, slotId, x, y) {
   initializeOutcomeLayout(outcome);
   const fallback = encounterLayoutPosition(state.draft, slotId);
   const position = { x: clampTownLayoutValue(x, fallback.x), y: clampTownLayoutValue(y, fallback.y) };
-  outcome.outcomeVisual.encounterLayout[slotId] = position;
+  outcome.visualOverride.encounterLayout[slotId] = position;
   const selectorPath = CSS.escape(outcomePath);
   const selectorSlot = CSS.escape(slotId);
   const marker = document.querySelector(`[data-outcome-layout-marker][data-outcome-layout-path="${selectorPath}"][data-outcome-layout-slot="${selectorSlot}"]`);
@@ -934,7 +930,7 @@ function renderResolutionNestedCollections(object, objectPath) {
 function renderCombatResolutionBranch(label, branchName, branch, objectPath) {
   if (!branch || typeof branch !== "object") return "";
   const branchPath = `${objectPath}.${branchName}`;
-  return `<section class="combat-resolution-branch"><div class="section-heading"><div><h4>${label}</h4><p>Authored result resolution after this combat branch.</p></div></div><label class="wide">Result text<textarea data-resolution-field="resultText" data-resolution-path="${escapeHtml(branchPath)}">${escapeHtml(branch.resultText || "")}</textarea></label>${renderObjectCollection(`${label} outcomes`, branch.outcomes, "resolution-outcomes", "", -1, branchPath, true)}</section>`;
+  return `<section class="combat-resolution-branch"><div class="section-heading"><div><h4>${label}</h4><p>Authored result resolution after this combat branch.</p></div></div><label class="wide">Result text<textarea data-resolution-field="resultText" data-resolution-path="${escapeHtml(branchPath)}">${escapeHtml(branch.resultText || "")}</textarea></label>${renderOutcomeVisualEditor(branch, branchPath)}${renderObjectCollection(`${label} outcomes`, branch.outcomes, "resolution-outcomes", "", -1, branchPath, true)}</section>`;
 }
 
 function renderStartCombatResolution(object, objectPath) {
@@ -973,7 +969,6 @@ function renderObjectCollection(label, collection, owner, stageId, choiceIndex, 
         <button type="button" class="small-button danger-outline" data-action="remove-object">Remove</button>
       </div>
       ${object?.type === "startCombat" ? special : `${quick ? `<div class="quick-fields">${quick}</div>` : ""}${special}`}
-      ${isOutcomeCollectionOwner(owner) ? renderOutcomeVisualEditor(object, objectPath) : ""}
       <details><summary>Advanced object JSON</summary><textarea class="object-json" data-object-json>${jsonText(object || {})}</textarea></details>
     </div>`;
   }).join("");
@@ -984,6 +979,7 @@ function renderObjectCollection(label, collection, owner, stageId, choiceIndex, 
 
 function renderChoice(stageId, choice, index) {
   const title = choice.id || `Choice ${index + 1}`;
+  const choicePath = `stages.${stageId}.choices[${index}]`;
   return `<details class="choice-card" open>
     <summary>${escapeHtml(title)}</summary>
     <div class="form-grid">
@@ -994,9 +990,10 @@ function renderChoice(stageId, choice, index) {
       <label>Delay profile<input data-choice-field="pendingAction.delayProfile" data-stage="${escapeHtml(stageId)}" data-choice-index="${index}" value="${escapeHtml(choice.pendingAction?.delayProfile || "")}"></label>
       <label class="check-chip"><input type="checkbox" data-choice-field="endEncounter" data-stage="${escapeHtml(stageId)}" data-choice-index="${index}"${checked(choice.endEncounter)}> Ends encounter</label>
     </div>
-    ${renderObjectCollection("Requirements", choice.requirements, "requirements", stageId, index, `stages.${stageId}.choices[${index}]`)}
-    ${renderObjectCollection("Costs", choice.costs, "costs", stageId, index, `stages.${stageId}.choices[${index}]`)}
-    ${renderObjectCollection("Outcomes / effects", choice.outcomes, "outcomes", stageId, index, `stages.${stageId}.choices[${index}]`)}
+    ${renderOutcomeVisualEditor(choice, choicePath)}
+    ${renderObjectCollection("Requirements", choice.requirements, "requirements", stageId, index, choicePath)}
+    ${renderObjectCollection("Costs", choice.costs, "costs", stageId, index, choicePath)}
+    ${renderObjectCollection("Outcomes / effects", choice.outcomes, "outcomes", stageId, index, choicePath)}
     <div class="button-row"><button type="button" class="small-button danger-outline" data-action="remove-choice" data-stage="${escapeHtml(stageId)}" data-choice-index="${index}">Remove choice</button></div>
   </details>`;
 }
@@ -1011,6 +1008,7 @@ function renderEncounter() {
     return `<details class="stage-card" open>
       <summary>${escapeHtml(stageId)}${stage.resultStage ? " · result stage" : ""}</summary>
       <label>Stage text<textarea data-stage-field="text" data-stage="${escapeHtml(stageId)}">${escapeHtml(stage.text || "")}</textarea></label>
+      ${renderOutcomeVisualEditor(stage, `stages.${stageId}`)}
       ${renderObjectCollection("Stage outcomes / effects", stage.outcomes, "stage-outcomes", stageId, -1, `stages.${stageId}`)}
       <div class="nested-heading"><span>Choices <span class="panel-count">${choices.length}</span></span><button type="button" class="small-button" data-action="add-choice" data-stage="${escapeHtml(stageId)}">Add choice</button></div>
       ${choices.map((choice, index) => renderChoice(stageId, choice, index)).join("") || `<p class="hint">This result stage resolves automatically and has no choices.</p>`}
@@ -3599,15 +3597,17 @@ async function loadCatalog() {
   try {
     const response = await fetch("/api/catalog", { cache: "no-store" });
     if (!response.ok) throw new Error(await response.text());
-    state.catalog = await response.json();
+    const payload = await response.json();
+    const migrated = migrateLegacyOutcomeVisuals(payload);
+    state.catalog = payload;
     state.validation = state.catalog.validation;
     const ids = Object.keys(state.catalog.encounters || {});
     state.category = "encounters";
     state.selectedId = ids[0] || null;
     state.originalSelectedId = state.selectedId;
     state.draft = state.selectedId ? clone(state.catalog.encounters[state.selectedId]) : null;
-    state.dirty = false;
-    state.draftDirty = false;
+    state.dirty = migrated;
+    state.draftDirty = migrated;
     state.searchByCategory = {};
     state.search = "";
     state.navigationHistory = [];
@@ -3650,6 +3650,42 @@ async function saveChanges() {
     state.validation = { errors: [{ severity: "error", source: "save", message: error.message }], warnings: [] };
     renderValidation();
   }
+}
+
+function migrateLegacyOutcomeVisuals(catalog) {
+  let changed = false;
+  const migrateParent = (parent) => {
+    if (!parent || typeof parent !== "object") return;
+    const collections = ["outcomes", "effects", "elseEffects"];
+    const entries = collections.flatMap((key) => Array.isArray(parent[key]) ? parent[key] : []);
+    const legacy = entries.find((entry) => entry && typeof entry === "object" && entry.outcomeVisual)?.outcomeVisual;
+    if (!parent.visualOverride && legacy && typeof legacy === "object") {
+      parent.visualOverride = clone(legacy);
+      changed = true;
+    }
+    entries.forEach((entry) => {
+      if (!entry || typeof entry !== "object") return;
+      if (entry.outcomeVisual) {
+        delete entry.outcomeVisual;
+        changed = true;
+      }
+      ["victory", "fled", "secondaryOutcome"].forEach((branchKey) => {
+        if (entry[branchKey] && typeof entry[branchKey] === "object") migrateParent(entry[branchKey]);
+      });
+    });
+  };
+  ["encounters", "campEvents"].forEach((category) => {
+    Object.values(catalog?.[category] || {}).forEach((definition) => {
+      Object.values(definition?.stages || {}).forEach((stage) => {
+        migrateParent(stage);
+        (stage.choices || []).forEach((choice) => {
+          migrateParent(choice);
+          (choice.branches || []).forEach((branch) => migrateParent(branch));
+        });
+      });
+    });
+  });
+  return changed;
 }
 
 function commitTownLayoutInput(input) {
