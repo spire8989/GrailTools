@@ -524,7 +524,7 @@ def _walk(value: Any, path: str = "") -> Iterable[tuple[str, Any, Any]]:
 
 
 def _ref_type_for_key(key: str) -> str | None:
-    if key in {"portraitAssetId", "visualAssetId", "travelVisualAssetId", "travelTransitionAssetId", "campVisualAssetId", "combatVisualAssetId"}:
+    if key in {"portraitAssetId", "visualAssetId", "backgroundAssetId", "travelVisualAssetId", "travelTransitionAssetId", "campVisualAssetId", "combatVisualAssetId"}:
         return "imageAssets"
     if key in {"travelAmbienceAssetId", "campAmbienceAssetId", "ambienceAssetId", "stingAssetId"}:
         return "audioAssets"
@@ -889,11 +889,43 @@ def _validate_resolution_outcomes(outcomes: Any, known: dict[str, list[str]], so
         _validate_resolution_outcome(outcome, known, source, f"{path}[{index}]", errors)
 
 
+def _validate_outcome_visual(outcome_visual: Any, known: dict[str, list[str]], source: str, path: str, errors: list[dict[str, str]]) -> None:
+    if not isinstance(outcome_visual, dict):
+        errors.append(_issue("error", "outcomeVisual must be an object.", source, path))
+        return
+    if "backgroundAssetId" in outcome_visual:
+        asset_id = outcome_visual.get("backgroundAssetId")
+        if not isinstance(asset_id, str) or asset_id not in set(known.get("imageAssets", [])):
+            errors.append(_issue("error", "outcomeVisual backgroundAssetId must reference a known image asset.", source, f"{path}.backgroundAssetId"))
+    layout = outcome_visual.get("encounterLayout")
+    if layout is not None:
+        if not isinstance(layout, dict):
+            errors.append(_issue("error", "outcomeVisual encounterLayout must be an object.", source, f"{path}.encounterLayout"))
+        else:
+            for slot_id, position in layout.items():
+                slot_path = f"{path}.encounterLayout.{slot_id}"
+                if slot_id not in {"arthur", "companion1", "companion2"}:
+                    errors.append(_issue("error", f"Unknown outcome visual party slot {slot_id!r}.", source, slot_path))
+                    continue
+                if not isinstance(position, dict):
+                    errors.append(_issue("error", "Outcome visual layout positions must be objects.", source, slot_path))
+                    continue
+                for axis in ("x", "y"):
+                    if axis in position and (not _is_number(position.get(axis)) or not 0 <= position[axis] <= 1):
+                        errors.append(_issue("error", f"Outcome visual {slot_id} {axis} must be a number from 0 to 1.", source, f"{slot_path}.{axis}"))
+    hidden_slots = outcome_visual.get("hiddenSlots")
+    if hidden_slots is not None:
+        if not isinstance(hidden_slots, list) or not all(slot in {"arthur", "companion1", "companion2"} for slot in hidden_slots):
+            errors.append(_issue("error", "outcomeVisual hiddenSlots must contain only arthur, companion1, or companion2.", source, f"{path}.hiddenSlots"))
+
+
 def _validate_resolution_outcome(outcome: Any, known: dict[str, list[str]], source: str, path: str, errors: list[dict[str, str]]) -> None:
     if not isinstance(outcome, dict) or not isinstance(outcome.get("type"), str) or not outcome.get("type"):
         errors.append(_issue("error", "Each outcome must be an object with a type.", source, path))
         return
     outcome_type = outcome["type"]
+    if "outcomeVisual" in outcome:
+        _validate_outcome_visual(outcome.get("outcomeVisual"), known, source, f"{path}.outcomeVisual", errors)
 
     if outcome_type == "setCampaignFlagOnSafeReturn":
         if not isinstance(outcome.get("flag"), str) or not outcome.get("flag"):

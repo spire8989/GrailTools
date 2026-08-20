@@ -601,6 +601,19 @@ class Phase6FilterBrowserTests(unittest.TestCase):
         self.browser.evaluate("updateEncounterLayoutMarker('arthur', -1, 2)")
         self.assertTrue(self.browser.evaluate("state.draft.encounterLayout.arthur.x===0 && state.draft.encounterLayout.arthur.y===1"))
 
+    def test_outcome_visual_editor_supports_inherit_custom_and_hidden_slots(self) -> None:
+        self.click_category("encounters")
+        self.browser.evaluate("document.querySelector('[data-action=select][data-id=abandoned_camp]').click()")
+        self.browser.evaluate("(() => { const outcome=state.draft.stages.start.choices[0].outcomes[0]; delete outcome.outcomeVisual; render(); })()")
+        self.assertTrue(self.browser.evaluate("document.querySelector('[data-outcome-visual-editor] summary').textContent.includes('Inherit encounter')"))
+        self.browser.evaluate("(() => { const select=document.querySelector('[data-outcome-visual-field=layoutMode]'); select.value='custom'; select.dispatchEvent(new Event('change',{bubbles:true})); })()")
+        self.assertTrue(self.browser.evaluate("Boolean(state.draft.stages.start.choices[0].outcomes[0].outcomeVisual.encounterLayout) && document.querySelectorAll('[data-outcome-layout-marker]').length===3"))
+        self.assertTrue(self.browser.evaluate("Math.abs(document.querySelector('[data-outcome-layout-stage]').getBoundingClientRect().width / document.querySelector('[data-outcome-layout-stage]').getBoundingClientRect().height - 16 / 9) < 0.02"))
+        self.browser.evaluate("(() => { const select=document.querySelector('[data-outcome-visual-field=backgroundMode]'); select.value='custom'; select.dispatchEvent(new Event('change',{bubbles:true})); })()")
+        self.assertTrue(self.browser.evaluate("Boolean(state.draft.stages.start.choices[0].outcomes[0].outcomeVisual.backgroundAssetId) && document.querySelector('[data-outcome-visual-field=backgroundAssetId]')"))
+        self.browser.evaluate("(() => { const checkbox=document.querySelector('[data-outcome-visual-field=hiddenSlot][data-outcome-visual-slot=companion2]'); checkbox.checked=true; checkbox.dispatchEvent(new Event('change',{bubbles:true})); })()")
+        self.assertTrue(self.browser.evaluate("state.draft.stages.start.choices[0].outcomes[0].outcomeVisual.hiddenSlots.includes('companion2') && document.querySelector('[data-outcome-visual-editor] summary').textContent.includes('Custom')"))
+
 
 if __name__ == "__main__":
     unittest.main()

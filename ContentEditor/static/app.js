@@ -100,6 +100,7 @@ const state = {
   assetPreview: null,
   assetPreviewRequest: 0,
   encounterLayoutDrag: null,
+  outcomeLayoutDrag: null,
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -429,6 +430,172 @@ function commitEncounterLayoutInput(input) {
     input.dataset.encounterLayoutAxis === "x" ? value : current.x,
     input.dataset.encounterLayoutAxis === "y" ? value : current.y,
   );
+  markDirty();
+}
+
+function isOutcomeCollectionOwner(owner) {
+  return owner === "outcomes" || owner.includes("-outcomes") || owner.includes("-effects");
+}
+
+function outcomeAtPath(outcomePath) {
+  const outcome = pathValue(state.draft, outcomePath);
+  return outcome && typeof outcome === "object" ? outcome : null;
+}
+
+function outcomeVisualIsCustom(outcome) {
+  const visual = outcome?.outcomeVisual;
+  return Boolean(visual && (
+    visual.backgroundAssetId
+    || visual.encounterLayout
+    || (Array.isArray(visual.hiddenSlots) && visual.hiddenSlots.length > 0)
+  ));
+}
+
+function cleanupOutcomeVisual(outcome) {
+  const visual = outcome?.outcomeVisual;
+  if (!visual) return;
+  if (!visual.backgroundAssetId
+    && !visual.encounterLayout
+    && (!Array.isArray(visual.hiddenSlots) || visual.hiddenSlots.length === 0)) {
+    delete outcome.outcomeVisual;
+  }
+}
+
+function encounterVisualAssetOptions(current) {
+  const assets = Object.entries(state.catalog?.imageAssets || {})
+    .filter(([, asset]) => ["encounter", "expedition"].includes(asset.category))
+    .sort(([left], [right]) => left.localeCompare(right));
+  return `<option value="">Select encounter image...</option>${assets.map(([id, asset]) => `<option value="${escapeHtml(id)}"${selected(id, current)}>${escapeHtml(id)} · ${escapeHtml(asset.category || "image")}</option>`).join("")}`;
+}
+
+function outcomeLayoutPosition(outcome, slotId) {
+  const fallback = encounterLayoutPosition(state.draft, slotId);
+  const authored = outcome?.outcomeVisual?.encounterLayout?.[slotId];
+  return {
+    x: clampTownLayoutValue(authored?.x, fallback.x),
+    y: clampTownLayoutValue(authored?.y, fallback.y),
+  };
+}
+
+function outcomeLayoutAsset(outcome) {
+  const assetId = outcome?.outcomeVisual?.backgroundAssetId || state.draft?.visualAssetId;
+  return assetId ? state.catalog?.imageAssets?.[assetId] : null;
+}
+
+function renderOutcomeLayoutEditor(outcome, outcomePath) {
+  const asset = outcomeLayoutAsset(outcome);
+  if (!asset) return `<p class="hint">Select an encounter background to preview the custom party layout.</p>`;
+  const markers = ENCOUNTER_LAYOUT_SLOTS.map((slot) => {
+    const position = outcomeLayoutPosition(outcome, slot.id);
+    return `<button type="button" class="outcome-layout-marker outcome-layout-marker-${slot.id}" data-outcome-layout-marker data-outcome-layout-path="${escapeHtml(outcomePath)}" data-outcome-layout-slot="${slot.id}" style="left:${position.x * 100}%;top:${position.y * 100}%" title="Drag ${slot.name}">${slot.label}</button>`;
+  }).join("");
+  const fields = ENCOUNTER_LAYOUT_SLOTS.map((slot) => {
+    const position = outcomeLayoutPosition(outcome, slot.id);
+    return `<div class="encounter-layout-coordinate-row"><strong>${slot.label} · ${slot.name}</strong><label>X<input type="number" min="0" max="1" step="0.001" data-outcome-layout-input data-outcome-layout-path="${escapeHtml(outcomePath)}" data-outcome-layout-slot="${slot.id}" data-outcome-layout-axis="x" value="${position.x.toFixed(3)}"></label><label>Y<input type="number" min="0" max="1" step="0.001" data-outcome-layout-input data-outcome-layout-path="${escapeHtml(outcomePath)}" data-outcome-layout-slot="${slot.id}" data-outcome-layout-axis="y" value="${position.y.toFixed(3)}"></label></div>`;
+  }).join("");
+  return `<div class="outcome-layout-editor" data-outcome-layout-editor><div class="outcome-layout-stage" data-outcome-layout-stage data-outcome-layout-path="${escapeHtml(outcomePath)}"><img class="encounter-layout-image" src="${assetPreviewUrl(asset.path)}" alt="${escapeHtml(asset.id || "Encounter background")}" draggable="false"><div class="encounter-layout-marker-layer">${markers}</div></div><details class="outcome-layout-advanced"><summary>Advanced coordinates</summary><div class="encounter-layout-coordinate-list">${fields}</div></details></div>`;
+}
+
+function renderOutcomeVisualEditor(outcome, outcomePath) {
+  if (!outcomePath || !outcome || typeof outcome !== "object") return "";
+  const visual = outcome.outcomeVisual || {};
+  const backgroundCustom = Boolean(visual.backgroundAssetId);
+  const layoutCustom = Boolean(visual.encounterLayout);
+  const status = outcomeVisualIsCustom(outcome) ? "Custom" : "Inherit encounter";
+  const hiddenSlots = new Set(Array.isArray(visual.hiddenSlots) ? visual.hiddenSlots : []);
+  return `<details class="outcome-visual-editor" data-outcome-visual-editor><summary>Visuals: ${status}</summary><div class="outcome-visual-controls"><div class="form-grid"><label>Background<select data-outcome-visual-field="backgroundMode" data-outcome-visual-path="${escapeHtml(outcomePath)}"><option value="inherit"${backgroundCustom ? "" : " selected"}>Inherit</option><option value="custom"${backgroundCustom ? " selected" : ""}>Custom</option></select></label>${backgroundCustom ? `<label class="wide">Custom background<select data-outcome-visual-field="backgroundAssetId" data-outcome-visual-path="${escapeHtml(outcomePath)}">${encounterVisualAssetOptions(visual.backgroundAssetId)}</select></label>` : ""}<label>Party Layout<select data-outcome-visual-field="layoutMode" data-outcome-visual-path="${escapeHtml(outcomePath)}"><option value="inherit"${layoutCustom ? "" : " selected"}>Inherit</option><option value="custom"${layoutCustom ? " selected" : ""}>Custom</option></select></label></div>${layoutCustom ? renderOutcomeLayoutEditor(outcome, outcomePath) : ""}<fieldset class="outcome-hidden-slots"><legend>Hidden Slots</legend>${ENCOUNTER_LAYOUT_SLOTS.map((slot) => `<label class="check-chip"><input type="checkbox" data-outcome-visual-field="hiddenSlot" data-outcome-visual-path="${escapeHtml(outcomePath)}" data-outcome-visual-slot="${slot.id}"${hiddenSlots.has(slot.id) ? " checked" : ""}>${slot.name}</label>`).join("")}</fieldset></div></details>`;
+}
+
+function initializeOutcomeLayout(outcome) {
+  outcome.outcomeVisual ||= {};
+  outcome.outcomeVisual.encounterLayout ||= Object.fromEntries(ENCOUNTER_LAYOUT_SLOTS.map((slot) => [slot.id, encounterLayoutPosition(state.draft, slot.id)]));
+}
+
+function handleOutcomeVisualInput(input) {
+  const outcome = outcomeAtPath(input.dataset.outcomeVisualPath);
+  if (!outcome) return;
+  const field = input.dataset.outcomeVisualField;
+  if (field === "backgroundMode") {
+    outcome.outcomeVisual ||= {};
+    if (input.value === "custom") {
+      outcome.outcomeVisual.backgroundAssetId ||= state.draft.visualAssetId || Object.keys(state.catalog?.imageAssets || {}).find((id) => ["encounter", "expedition"].includes(state.catalog.imageAssets[id]?.category));
+    } else {
+      delete outcome.outcomeVisual.backgroundAssetId;
+    }
+    cleanupOutcomeVisual(outcome);
+    markDirty();
+    render();
+    return;
+  }
+  if (field === "backgroundAssetId") {
+    outcome.outcomeVisual ||= {};
+    if (input.value) outcome.outcomeVisual.backgroundAssetId = input.value;
+    else delete outcome.outcomeVisual.backgroundAssetId;
+    cleanupOutcomeVisual(outcome);
+    markDirty();
+    return;
+  }
+  if (field === "layoutMode") {
+    if (input.value === "custom") initializeOutcomeLayout(outcome);
+    else if (outcome.outcomeVisual) delete outcome.outcomeVisual.encounterLayout;
+    cleanupOutcomeVisual(outcome);
+    markDirty();
+    render();
+    return;
+  }
+  if (field === "hiddenSlot") {
+    outcome.outcomeVisual ||= {};
+    const hiddenSlots = new Set(Array.isArray(outcome.outcomeVisual.hiddenSlots) ? outcome.outcomeVisual.hiddenSlots : []);
+    if (input.checked) hiddenSlots.add(input.dataset.outcomeVisualSlot);
+    else hiddenSlots.delete(input.dataset.outcomeVisualSlot);
+    if (hiddenSlots.size > 0) outcome.outcomeVisual.hiddenSlots = [...hiddenSlots];
+    else delete outcome.outcomeVisual.hiddenSlots;
+    cleanupOutcomeVisual(outcome);
+    markDirty();
+  }
+}
+
+function updateOutcomeLayoutMarker(outcomePath, slotId, x, y) {
+  const outcome = outcomeAtPath(outcomePath);
+  if (!outcome || !ENCOUNTER_LAYOUT_FALLBACKS[slotId]) return false;
+  initializeOutcomeLayout(outcome);
+  const fallback = encounterLayoutPosition(state.draft, slotId);
+  const position = { x: clampTownLayoutValue(x, fallback.x), y: clampTownLayoutValue(y, fallback.y) };
+  outcome.outcomeVisual.encounterLayout[slotId] = position;
+  const selectorPath = CSS.escape(outcomePath);
+  const selectorSlot = CSS.escape(slotId);
+  const marker = document.querySelector(`[data-outcome-layout-marker][data-outcome-layout-path="${selectorPath}"][data-outcome-layout-slot="${selectorSlot}"]`);
+  if (marker) {
+    marker.style.left = `${position.x * 100}%`;
+    marker.style.top = `${position.y * 100}%`;
+  }
+  document.querySelectorAll(`[data-outcome-layout-input][data-outcome-layout-path="${selectorPath}"][data-outcome-layout-slot="${selectorSlot}"]`).forEach((input) => {
+    input.value = position[input.dataset.outcomeLayoutAxis].toFixed(3);
+  });
+  return true;
+}
+
+function outcomeLayoutPositionFromPointer(stage, event) {
+  const bounds = stage.getBoundingClientRect();
+  return {
+    x: clampTownLayoutValue((event.clientX - bounds.left) / bounds.width),
+    y: clampTownLayoutValue((event.clientY - bounds.top) / bounds.height),
+  };
+}
+
+function finishOutcomeLayoutDrag() {
+  if (!state.outcomeLayoutDrag) return;
+  state.outcomeLayoutDrag.marker?.releasePointerCapture?.(state.outcomeLayoutDrag.pointerId);
+  state.outcomeLayoutDrag = null;
+  markDirty();
+}
+
+function commitOutcomeLayoutInput(input) {
+  const outcome = outcomeAtPath(input.dataset.outcomeLayoutPath);
+  if (!outcome) return;
+  const current = outcomeLayoutPosition(outcome, input.dataset.outcomeLayoutSlot);
+  const value = clampTownLayoutValue(input.value, current[input.dataset.outcomeLayoutAxis]);
+  updateOutcomeLayoutMarker(input.dataset.outcomeLayoutPath, input.dataset.outcomeLayoutSlot, input.dataset.outcomeLayoutAxis === "x" ? value : current.x, input.dataset.outcomeLayoutAxis === "y" ? value : current.y);
   markDirty();
 }
 
@@ -806,6 +973,7 @@ function renderObjectCollection(label, collection, owner, stageId, choiceIndex, 
         <button type="button" class="small-button danger-outline" data-action="remove-object">Remove</button>
       </div>
       ${object?.type === "startCombat" ? special : `${quick ? `<div class="quick-fields">${quick}</div>` : ""}${special}`}
+      ${isOutcomeCollectionOwner(owner) ? renderOutcomeVisualEditor(object, objectPath) : ""}
       <details><summary>Advanced object JSON</summary><textarea class="object-json" data-object-json>${jsonText(object || {})}</textarea></details>
     </div>`;
   }).join("");
@@ -1005,7 +1173,7 @@ function renderExpedition() {
 
 function collectClientReferences(value, source, references) {
   const scalarTypes = {
-    portraitAssetId: "imageAssets", visualAssetId: "imageAssets", travelVisualAssetId: "imageAssets", travelTransitionAssetId: "imageAssets", campVisualAssetId: "imageAssets", combatVisualAssetId: "imageAssets", travelAmbienceAssetId: "audioAssets", campAmbienceAssetId: "audioAssets", ambienceAssetId: "audioAssets", stingAssetId: "audioAssets",
+    portraitAssetId: "imageAssets", visualAssetId: "imageAssets", backgroundAssetId: "imageAssets", travelVisualAssetId: "imageAssets", travelTransitionAssetId: "imageAssets", campVisualAssetId: "imageAssets", combatVisualAssetId: "imageAssets", travelAmbienceAssetId: "audioAssets", campAmbienceAssetId: "audioAssets", ambienceAssetId: "audioAssets", stingAssetId: "audioAssets",
     itemId: "items", treatmentItemId: "items", combatId: "combats", abilityId: "abilities", statusId: "combatStatuses", injuryId: "injuries",
     tableId: "lootTables", lootTableId: "lootTables", pathId: "paths", expeditionId: "expeditions",
     nextExpeditionId: "expeditions", materialId: "materials", recipeId: "recipes",
@@ -2676,6 +2844,10 @@ function handleInput(input) {
     markDirty();
     return;
   }
+  if (input.dataset.outcomeVisualField) {
+    handleOutcomeVisualInput(input);
+    return;
+  }
   if (input.dataset.field) {
     if (input.dataset.field === "ingredientType" && state.category === "recipes") {
       const type = input.value === "item" ? "item" : "material";
@@ -3494,6 +3666,32 @@ document.addEventListener("click", (event) => {
   if (button) handleAction(button);
 });
 document.addEventListener("pointerdown", (event) => {
+  const marker = event.target.closest?.("[data-outcome-layout-marker]");
+  if (!marker) return;
+  const stage = marker.closest("[data-outcome-layout-stage]");
+  const outcomePath = marker.dataset.outcomeLayoutPath;
+  const slotId = marker.dataset.outcomeLayoutSlot;
+  if (!stage || !outcomePath || !ENCOUNTER_LAYOUT_FALLBACKS[slotId]) return;
+  event.preventDefault();
+  state.outcomeLayoutDrag = { marker, stage, outcomePath, slotId, pointerId: event.pointerId };
+  marker.setPointerCapture?.(event.pointerId);
+  const position = outcomeLayoutPositionFromPointer(stage, event);
+  updateOutcomeLayoutMarker(outcomePath, slotId, position.x, position.y);
+});
+document.addEventListener("pointermove", (event) => {
+  const drag = state.outcomeLayoutDrag;
+  if (!drag || event.pointerId !== drag.pointerId) return;
+  event.preventDefault();
+  const position = outcomeLayoutPositionFromPointer(drag.stage, event);
+  updateOutcomeLayoutMarker(drag.outcomePath, drag.slotId, position.x, position.y);
+});
+document.addEventListener("pointerup", (event) => {
+  if (state.outcomeLayoutDrag?.pointerId === event.pointerId) finishOutcomeLayoutDrag();
+});
+document.addEventListener("pointercancel", (event) => {
+  if (state.outcomeLayoutDrag?.pointerId === event.pointerId) finishOutcomeLayoutDrag();
+});
+document.addEventListener("pointerdown", (event) => {
   const marker = event.target.closest?.("[data-encounter-layout-marker]");
   if (!marker) return;
   const stage = marker.closest("[data-encounter-layout-stage]");
@@ -3549,6 +3747,7 @@ document.addEventListener("input", (event) => {
 document.addEventListener("change", (event) => {
   if (event.target.matches("#asset-upload-input")) uploadSelectedAsset(event.target.files?.[0]);
   else if (event.target.matches("#asset-optimize-toggle, #asset-optimization-profile, #asset-crop-anchor")) refreshImageImportPreview();
+  else if (event.target.matches("[data-outcome-layout-input]")) commitOutcomeLayoutInput(event.target);
   else if (event.target.matches("[data-encounter-layout-input]")) commitEncounterLayoutInput(event.target);
   else if (event.target.matches("[data-town-hotspot-input]")) commitTownLayoutInput(event.target);
   else if (event.target.matches("textarea[data-object-json]")) handleObjectJson(event.target);
