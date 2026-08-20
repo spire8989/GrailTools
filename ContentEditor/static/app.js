@@ -99,6 +99,7 @@ const state = {
   pendingAssetUpload: null,
   assetPreview: null,
   assetPreviewRequest: 0,
+  encounterLayoutDrag: null,
 };
 
 const $ = (selector) => document.querySelector(selector);
@@ -341,6 +342,93 @@ function finishTownLayoutDrag() {
   if (!state.townLayoutDrag) return;
   state.townLayoutDrag.marker?.releasePointerCapture?.(state.townLayoutDrag.pointerId);
   state.townLayoutDrag = null;
+  markDirty();
+}
+
+const ENCOUNTER_LAYOUT_FALLBACKS = Object.freeze({
+  arthur: Object.freeze({ x: 0.42, y: 0.66 }),
+  companion1: Object.freeze({ x: 0.58, y: 0.68 }),
+  companion2: Object.freeze({ x: 0.70, y: 0.64 }),
+});
+
+const ENCOUNTER_LAYOUT_SLOTS = Object.freeze([
+  { id: "arthur", label: "A", name: "Arthur" },
+  { id: "companion1", label: "1", name: "Companion 1" },
+  { id: "companion2", label: "2", name: "Companion 2" },
+]);
+
+function encounterLayoutPosition(encounter, slotId) {
+  const fallback = ENCOUNTER_LAYOUT_FALLBACKS[slotId] || ENCOUNTER_LAYOUT_FALLBACKS.arthur;
+  const authored = encounter?.encounterLayout?.[slotId];
+  const x = Number(authored?.x);
+  const y = Number(authored?.y);
+  return {
+    x: clampTownLayoutValue(Number.isFinite(x) ? x : fallback.x, fallback.x),
+    y: clampTownLayoutValue(Number.isFinite(y) ? y : fallback.y, fallback.y),
+  };
+}
+
+function renderEncounterLayoutEditor(encounter) {
+  const asset = encounter?.visualAssetId ? state.catalog?.imageAssets?.[encounter.visualAssetId] : null;
+  if (!asset || asset.category !== "encounter") {
+    return `<section class="section encounter-layout-editor" data-encounter-layout-editor><div class="section-heading"><div><h3>Encounter Layout</h3><p>Select an encounter background above to place Arthur and the active companions.</p></div></div><p class="hint">No encounter background is selected for this definition yet.</p></section>`;
+  }
+  const markers = ENCOUNTER_LAYOUT_SLOTS.map((slot) => {
+    const position = encounterLayoutPosition(encounter, slot.id);
+    return `<button type="button" class="encounter-layout-marker encounter-layout-marker-${slot.id}" data-encounter-layout-marker data-encounter-layout-slot="${slot.id}" style="left:${position.x * 100}%;top:${position.y * 100}%" title="Drag ${slot.name}"><strong>${slot.label}</strong><span>${slot.name}</span></button>`;
+  }).join("");
+  const fields = ENCOUNTER_LAYOUT_SLOTS.map((slot) => {
+    const position = encounterLayoutPosition(encounter, slot.id);
+    return `<div class="encounter-layout-coordinate-row" data-encounter-layout-slot="${slot.id}"><strong>${slot.label} · ${slot.name}</strong><label>X<input type="number" min="0" max="1" step="0.001" data-encounter-layout-input data-encounter-layout-slot="${slot.id}" data-encounter-layout-axis="x" value="${position.x.toFixed(3)}"></label><label>Y<input type="number" min="0" max="1" step="0.001" data-encounter-layout-slot="${slot.id}" data-encounter-layout-axis="y" value="${position.y.toFixed(3)}"></label></div>`;
+  }).join("");
+  return `<section class="section encounter-layout-editor" data-encounter-layout-editor><div class="section-heading"><div><h3>Encounter Layout</h3><p>Drag Arthur and the companion markers over the encounter artwork. Coordinates are normalized to the 16:9 visual frame.</p></div></div><div class="encounter-layout-stage" data-encounter-layout-stage><img class="encounter-layout-image" src="${assetPreviewUrl(asset.path)}" alt="${escapeHtml(encounter.title || "Encounter background")}" draggable="false"><div class="encounter-layout-marker-layer">${markers}</div></div><div class="encounter-layout-coordinate-list">${fields}</div></section>`;
+}
+
+function updateEncounterLayoutMarker(slotId, x, y) {
+  if (!state.draft || !ENCOUNTER_LAYOUT_FALLBACKS[slotId]) return false;
+  const fallback = ENCOUNTER_LAYOUT_FALLBACKS[slotId];
+  const position = {
+    x: clampTownLayoutValue(x, fallback.x),
+    y: clampTownLayoutValue(y, fallback.y),
+  };
+  state.draft.encounterLayout ||= {};
+  state.draft.encounterLayout[slotId] = position;
+  const marker = document.querySelector(`[data-encounter-layout-marker][data-encounter-layout-slot="${CSS.escape(slotId)}"]`);
+  if (marker) {
+    marker.style.left = `${position.x * 100}%`;
+    marker.style.top = `${position.y * 100}%`;
+  }
+  document.querySelectorAll(`[data-encounter-layout-input][data-encounter-layout-slot="${CSS.escape(slotId)}"]`).forEach((input) => {
+    input.value = position[input.dataset.encounterLayoutAxis].toFixed(3);
+  });
+  return true;
+}
+
+function encounterLayoutPositionFromPointer(stage, event) {
+  const bounds = stage.getBoundingClientRect();
+  return {
+    x: clampTownLayoutValue((event.clientX - bounds.left) / bounds.width),
+    y: clampTownLayoutValue((event.clientY - bounds.top) / bounds.height),
+  };
+}
+
+function finishEncounterLayoutDrag() {
+  if (!state.encounterLayoutDrag) return;
+  state.encounterLayoutDrag.marker?.releasePointerCapture?.(state.encounterLayoutDrag.pointerId);
+  state.encounterLayoutDrag = null;
+  markDirty();
+}
+
+function commitEncounterLayoutInput(input) {
+  const slotId = input.dataset.encounterLayoutSlot;
+  if (!ENCOUNTER_LAYOUT_FALLBACKS[slotId]) return;
+  const current = encounterLayoutPosition(state.draft, slotId);
+  const value = clampTownLayoutValue(input.value, current[input.dataset.encounterLayoutAxis]);
+  updateEncounterLayoutMarker(
+    slotId,
+    input.dataset.encounterLayoutAxis === "x" ? value : current.x,
+    input.dataset.encounterLayoutAxis === "y" ? value : current.y,
+  );
   markDirty();
 }
 
@@ -784,6 +872,7 @@ function renderEncounter() {
       <div class="check-grid">${["outbound", "returning"].map((direction) => `<label class="check-chip"><input type="checkbox" data-array-toggle="directions" data-array-value="${direction}"${checked((encounter.directions || []).includes(direction))}>${direction}</label>`).join("")}</div>
       ${renderObjectCollection("Encounter requirements", encounter.requirements, "encounter-requirements", "", -1, "")}
     </section>
+    ${renderEncounterLayoutEditor(encounter)}
     <section class="section"><div class="section-heading"><div><h3>Stages and choices</h3><p>Common nested fields are editable above; advanced JSON remains available for every authored object.</p></div><button type="button" class="small-button" data-action="add-stage">Add stage</button></div>
       ${stageMarkup || `<div class="empty-state">Add a stage to begin authoring this encounter.</div>`}
     </section>
@@ -2604,7 +2693,9 @@ function handleInput(input) {
     const value = parseInputValue(input, input.dataset.field);
     setNested(state.draft, input.dataset.field, value);
     markDirty();
-    if (["category"].includes(input.dataset.field) || (state.category === "locations" && ["visualAssetId", "markerStyle"].includes(input.dataset.field))) render();
+    if (["category"].includes(input.dataset.field)
+      || (state.category === "locations" && ["visualAssetId", "markerStyle"].includes(input.dataset.field))
+      || (state.category === "encounters" && input.dataset.field === "visualAssetId")) render();
     return;
   }
   if (input.dataset.arrayField) {
@@ -3403,6 +3494,31 @@ document.addEventListener("click", (event) => {
   if (button) handleAction(button);
 });
 document.addEventListener("pointerdown", (event) => {
+  const marker = event.target.closest?.("[data-encounter-layout-marker]");
+  if (!marker) return;
+  const stage = marker.closest("[data-encounter-layout-stage]");
+  const slotId = marker.dataset.encounterLayoutSlot;
+  if (!stage || !ENCOUNTER_LAYOUT_FALLBACKS[slotId]) return;
+  event.preventDefault();
+  state.encounterLayoutDrag = { marker, stage, slotId, pointerId: event.pointerId };
+  marker.setPointerCapture?.(event.pointerId);
+  const position = encounterLayoutPositionFromPointer(stage, event);
+  updateEncounterLayoutMarker(slotId, position.x, position.y);
+});
+document.addEventListener("pointermove", (event) => {
+  const drag = state.encounterLayoutDrag;
+  if (!drag || event.pointerId !== drag.pointerId) return;
+  event.preventDefault();
+  const position = encounterLayoutPositionFromPointer(drag.stage, event);
+  updateEncounterLayoutMarker(drag.slotId, position.x, position.y);
+});
+document.addEventListener("pointerup", (event) => {
+  if (state.encounterLayoutDrag?.pointerId === event.pointerId) finishEncounterLayoutDrag();
+});
+document.addEventListener("pointercancel", (event) => {
+  if (state.encounterLayoutDrag?.pointerId === event.pointerId) finishEncounterLayoutDrag();
+});
+document.addEventListener("pointerdown", (event) => {
   const marker = event.target.closest?.("[data-town-layout-marker]");
   if (!marker) return;
   const stage = marker.closest("[data-town-layout-stage]");
@@ -3433,6 +3549,7 @@ document.addEventListener("input", (event) => {
 document.addEventListener("change", (event) => {
   if (event.target.matches("#asset-upload-input")) uploadSelectedAsset(event.target.files?.[0]);
   else if (event.target.matches("#asset-optimize-toggle, #asset-optimization-profile, #asset-crop-anchor")) refreshImageImportPreview();
+  else if (event.target.matches("[data-encounter-layout-input]")) commitEncounterLayoutInput(event.target);
   else if (event.target.matches("[data-town-hotspot-input]")) commitTownLayoutInput(event.target);
   else if (event.target.matches("textarea[data-object-json]")) handleObjectJson(event.target);
   else if (event.target.matches("textarea[data-dialogue-choice-json]")) {

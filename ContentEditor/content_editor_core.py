@@ -1019,6 +1019,23 @@ def _validate_encounters(encounters: Any, known: dict[str, list[str]], errors: l
             errors.append(_issue("error", "pathIds must be an array of path IDs.", source, "pathIds"))
         if not isinstance(encounter.get("directions"), list) or not all(isinstance(item, str) for item in encounter.get("directions", [])):
             errors.append(_issue("error", "directions must be an array of strings.", source, "directions"))
+        if "encounterLayout" in encounter:
+            encounter_layout = encounter.get("encounterLayout")
+            if not isinstance(encounter_layout, dict):
+                errors.append(_issue("error", "encounterLayout must be an object.", source, "encounterLayout"))
+            else:
+                for slot_id in ("arthur", "companion1", "companion2"):
+                    if slot_id not in encounter_layout:
+                        continue
+                    position = encounter_layout.get(slot_id)
+                    position_path = f"encounterLayout.{slot_id}"
+                    if not isinstance(position, dict):
+                        errors.append(_issue("error", "Encounter layout positions must be objects.", source, position_path))
+                        continue
+                    for axis in ("x", "y"):
+                        value = position.get(axis)
+                        if not _is_number(value) or not 0 <= value <= 1:
+                            errors.append(_issue("error", f"Encounter layout {slot_id} {axis} must be a number from 0 to 1.", source, f"{position_path}.{axis}"))
         minimum = encounter.get("minimumDistance")
         maximum = encounter.get("maximumDistance")
         if minimum is not None and not isinstance(minimum, (int, float)):

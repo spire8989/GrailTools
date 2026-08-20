@@ -104,18 +104,29 @@ h2, h3, h4 { margin: 0; }
 .town-layout-marker-layer { position: absolute; inset: 0; }
 .town-layout-style-selector { display: grid; width: min(100%, 26rem); gap: 5px; margin: 10px 0; color: var(--muted); font-size: 11px; }
 .town-layout-marker { position: absolute; z-index: 1; display: inline-flex; min-width: 0; max-width: 8rem; align-items: center; justify-content: center; gap: 3px; padding: 2px 4px; border: 1px solid transparent; border-radius: 3px; background: transparent; color: #fff1c5; font-size: 10px; line-height: 1.1; cursor: grab; transform: translate(-50%, -50%); touch-action: none; }
-.town-layout-marker.town-hotspot-style-tag { padding-right: 5px; padding-left: 5px; border-color: rgb(244 221 160 / 34%); background: rgb(17 25 18 / 82%); box-shadow: 0 1px 3px rgb(0 0 0 / 28%); font-size: 11px; }
+.town-layout-marker.town-hotspot-style-tag { padding-right: 7px; padding-left: 7px; border-color: rgb(244 221 160 / 34%); background: rgb(17 25 18 / 82%); box-shadow: 0 1px 3px rgb(0 0 0 / 28%); font-size: 13px; }
 .town-layout-marker.town-hotspot-style-ribbon { padding: 2px 7px; border-color: rgb(244 221 160 / 42%); border-radius: 2px; background: rgb(28 32 22 / 86%); box-shadow: 0 1px 3px rgb(0 0 0 / 25%); clip-path: polygon(5px 0, calc(100% - 5px) 0, 100% 50%, calc(100% - 5px) 100%, 5px 100%, 0 50%); }
 .town-layout-marker.town-hotspot-style-ink { position: relative; isolation: isolate; padding: 2px 5px; color: #f7e9bb; text-shadow: 0 1px 3px #101319, 0 0 3px rgb(8 16 8 / 85%); }
 .town-layout-marker.town-hotspot-style-ink::before { position: absolute; z-index: -1; inset: -3px -5px; border-radius: 48% 54% 43% 57% / 55% 43% 58% 46%; background: radial-gradient(ellipse at 40% 44%, rgb(17 25 18 / 88%), rgb(17 25 18 / 62%) 68%, transparent 100%); content: ""; filter: blur(.4px); transform: rotate(-2deg); }
 .town-layout-marker-icon { flex: 0 0 auto; color: #e2c27d; font-size: 10px; line-height: 1; }
-.town-layout-marker.town-hotspot-style-tag .town-layout-marker-icon { font-size: 11px; }
+.town-layout-marker.town-hotspot-style-tag .town-layout-marker-icon { font-size: 13px; }
 .town-layout-marker:active { cursor: grabbing; }
 .town-layout-coordinate-list { display: grid; gap: 6px; max-width: 26rem; margin-top: 10px; }
 .town-layout-coordinate-row { display: grid; grid-template-columns: minmax(0, 1fr) 82px 82px; gap: 8px; align-items: end; padding: 7px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--panel-2); }
 .town-layout-coordinate-row strong { padding-bottom: 7px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #dce3ed; font-size: 11px; }
 .town-layout-coordinate-row label { display: grid; gap: 3px; color: var(--muted); font-size: 10px; }
 .town-layout-coordinate-row input { min-width: 0; padding: 5px 6px; }
+.encounter-layout-stage { position: relative; width: min(100%, 32rem); aspect-ratio: 16 / 9; overflow: hidden; border: 1px solid #6b5434; border-radius: 5px; background: #101319; touch-action: none; }
+.encounter-layout-image { display: block; width: 100%; height: 100%; object-fit: cover; user-select: none; }
+.encounter-layout-marker-layer { position: absolute; inset: 0; }
+.encounter-layout-marker { position: absolute; z-index: 1; display: inline-flex; min-width: 2rem; align-items: center; justify-content: center; gap: 4px; padding: 4px 6px; border: 1px solid #e2c27d; border-radius: 4px; background: rgb(16 23 17 / 86%); color: #fff1c5; font-size: 11px; line-height: 1; cursor: grab; transform: translate(-50%, -50%); touch-action: none; }
+.encounter-layout-marker strong { color: #e2c27d; font-size: 13px; }
+.encounter-layout-marker:active { cursor: grabbing; }
+.encounter-layout-coordinate-list { display: grid; gap: 6px; max-width: 32rem; margin-top: 10px; }
+.encounter-layout-coordinate-row { display: grid; grid-template-columns: minmax(0, 1fr) 82px 82px; gap: 8px; align-items: end; padding: 7px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--panel-2); }
+.encounter-layout-coordinate-row strong { padding-bottom: 7px; color: #dce3ed; font-size: 11px; }
+.encounter-layout-coordinate-row label { display: grid; gap: 3px; color: var(--muted); font-size: 10px; }
+.encounter-layout-coordinate-row input { min-width: 0; padding: 5px 6px; }
 .asset-browser-card { display: grid; grid-template-columns: minmax(180px, 260px) minmax(0, 1fr); gap: 16px; align-items: center; padding: 14px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 5px; }
 .asset-browser-card > div { display: grid; gap: 8px; align-content: start; }
 .asset-browser-card audio { width: 100%; }

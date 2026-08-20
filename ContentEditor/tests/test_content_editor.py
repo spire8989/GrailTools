@@ -81,6 +81,32 @@ class ContentEditorTests(unittest.TestCase):
         validation = validate_catalog({"locations": invalid_locations}, after["known"], after["references"])
         self.assertTrue(any("Location markerStyle must be one of" in issue["message"] for issue in validation["errors"]))
 
+    def test_encounter_layout_round_trip_and_editor_surface(self) -> None:
+        catalog = load_catalog(GRAIL)
+        layout = catalog["encounters"]["abandoned_camp"]["encounterLayout"]
+        self.assertEqual(layout["arthur"], {"x": 0.42, "y": 0.66})
+        app = (CONTENT_EDITOR / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("data-encounter-layout-editor", app)
+        self.assertIn("data-encounter-layout-marker", app)
+        self.assertIn("data-encounter-layout-input", app)
+
+        temp, project = self.temporary_grail()
+        self.addCleanup(temp.cleanup)
+        before = load_catalog(project)
+        encounters = clone(before["encounters"])
+        encounters["abandoned_camp"]["encounterLayout"] = {
+            "arthur": {"x": 0.123, "y": 0.987},
+            "companion1": {"x": 0.5, "y": 0.25},
+        }
+        save_catalog(project, {"encounters": encounters}, before["sourceHashes"], Path(temp.name) / "backups")
+        after = load_catalog(project)
+        self.assertEqual(after["encounters"]["abandoned_camp"]["encounterLayout"], encounters["abandoned_camp"]["encounterLayout"])
+
+        invalid = clone(after["encounters"])
+        invalid["abandoned_camp"]["encounterLayout"]["arthur"]["x"] = 1.2
+        validation = validate_catalog({"encounters": invalid}, after["known"], after["references"])
+        self.assertTrue(any("Encounter layout arthur x must be a number from 0 to 1" in issue["message"] for issue in validation["errors"]))
+
     def test_unchanged_values_round_trip_semantically(self) -> None:
         encounter_path = GRAIL / "js" / "encounter-data.js"
         shop_path = GRAIL / "js" / "location-data.js"

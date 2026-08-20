@@ -588,6 +588,19 @@ class Phase6FilterBrowserTests(unittest.TestCase):
         self.assertEqual(self.browser.evaluate("state.catalog.destinations.inn.hotspot.x"), 0.333)
         self.assertIn("33.3", self.browser.evaluate("document.querySelector('[data-town-layout-marker][data-town-destination-id=inn]').style.left"))
 
+    def test_encounter_layout_editor_renders_and_updates_normalized_party_slots(self) -> None:
+        self.click_category("encounters")
+        self.browser.evaluate("document.querySelector('[data-action=select][data-id=abandoned_camp]').click()")
+        self.assertTrue(self.browser.evaluate("Boolean(document.querySelector('[data-encounter-layout-editor] img.encounter-layout-image'))"))
+        self.assertEqual(self.browser.evaluate("document.querySelectorAll('[data-encounter-layout-marker]').length"), 3)
+        self.assertTrue(self.browser.evaluate("document.querySelector('[data-encounter-layout-marker][data-encounter-layout-slot=arthur]').style.left==='42%'"))
+        self.assertTrue(self.browser.evaluate("Math.abs(document.querySelector('[data-encounter-layout-stage]').getBoundingClientRect().width / document.querySelector('[data-encounter-layout-stage]').getBoundingClientRect().height - 16 / 9) < 0.02"))
+        self.browser.evaluate("(() => { const input=document.querySelector('[data-encounter-layout-input][data-encounter-layout-slot=arthur][data-encounter-layout-axis=x]'); input.value='0.333'; input.dispatchEvent(new Event('change',{bubbles:true})); })()")
+        self.assertEqual(self.browser.evaluate("state.draft.encounterLayout.arthur.x"), 0.333)
+        self.assertIn("33.3", self.browser.evaluate("document.querySelector('[data-encounter-layout-marker][data-encounter-layout-slot=arthur]').style.left"))
+        self.browser.evaluate("updateEncounterLayoutMarker('arthur', -1, 2)")
+        self.assertTrue(self.browser.evaluate("state.draft.encounterLayout.arthur.x===0 && state.draft.encounterLayout.arthur.y===1"))
+
 
 if __name__ == "__main__":
     unittest.main()
