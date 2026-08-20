@@ -2128,6 +2128,8 @@ def _validate_locations(locations: Any, known: dict[str, list[str]], errors: lis
         for field_name in ("name", "type", "description"):
             if field_name in location and not isinstance(location[field_name], str):
                 errors.append(_issue("error", f"Location {field_name} must be a string.", source, field_name))
+        if "markerStyle" in location and location["markerStyle"] not in {"tag", "ribbon", "ink"}:
+            errors.append(_issue("error", "Location markerStyle must be one of: tag, ribbon, ink.", source, "markerStyle"))
         for field_name in ("destinations", "npcs", "shops", "availableExpeditions", "availableQuests", "requirements"):
             if field_name in location and not isinstance(location[field_name], list):
                 errors.append(_issue("error", f"Location {field_name} must be an array.", source, field_name))

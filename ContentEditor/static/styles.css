@@ -103,13 +103,12 @@ h2, h3, h4 { margin: 0; }
 .town-layout-image { display: block; width: 100%; height: 100%; object-fit: contain; user-select: none; }
 .town-layout-marker-layer { position: absolute; inset: 0; }
 .town-layout-style-selector { display: grid; width: min(100%, 26rem); gap: 5px; margin: 10px 0; color: var(--muted); font-size: 11px; }
-.town-layout-marker { position: absolute; z-index: 1; display: grid; place-items: center; max-width: 8rem; padding: 4px 6px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: #fff1c5; font-size: 10px; line-height: 1.1; cursor: grab; transform: translate(-50%, -50%); touch-action: none; }
-.town-layout-marker.town-hotspot-style-plaque { border-color: #f0d38f; background: rgb(34 54 39 / 92%); box-shadow: 0 2px 5px rgb(0 0 0 / 35%); }
-.town-layout-marker.town-hotspot-style-label { padding: 2px 4px; color: #f7e9bb; text-shadow: 0 1px 3px #101319; }
-.town-layout-marker.town-hotspot-style-seal { width: 74px; padding: 2px; color: #fff0bd; text-shadow: 0 1px 3px #101319; }
-.town-layout-marker.town-hotspot-style-seal .town-layout-marker-icon { display: grid; width: 28px; height: 28px; place-items: center; border: 1px solid #f0d38f; border-radius: 50%; background: rgb(35 46 28 / 92%); box-shadow: 0 0 0 2px rgb(27 35 22 / 72%); }
-.town-layout-marker-icon { color: #e2c27d; font-size: 11px; line-height: 1; }
-.town-layout-marker.town-hotspot-style-label .town-layout-marker-icon { font-size: 9px; }
+.town-layout-marker { position: absolute; z-index: 1; display: inline-flex; min-width: 0; max-width: 8rem; align-items: center; justify-content: center; gap: 3px; padding: 2px 4px; border: 1px solid transparent; border-radius: 3px; background: transparent; color: #fff1c5; font-size: 10px; line-height: 1.1; cursor: grab; transform: translate(-50%, -50%); touch-action: none; }
+.town-layout-marker.town-hotspot-style-tag { border-color: rgb(244 221 160 / 30%); background: rgb(17 25 18 / 82%); box-shadow: 0 1px 3px rgb(0 0 0 / 28%); }
+.town-layout-marker.town-hotspot-style-ribbon { padding: 2px 7px; border-color: rgb(244 221 160 / 42%); border-radius: 2px; background: rgb(28 32 22 / 86%); box-shadow: 0 1px 3px rgb(0 0 0 / 25%); clip-path: polygon(5px 0, calc(100% - 5px) 0, 100% 50%, calc(100% - 5px) 100%, 5px 100%, 0 50%); }
+.town-layout-marker.town-hotspot-style-ink { position: relative; isolation: isolate; padding: 2px 5px; color: #f7e9bb; text-shadow: 0 1px 3px #101319, 0 0 3px rgb(8 16 8 / 85%); }
+.town-layout-marker.town-hotspot-style-ink::before { position: absolute; z-index: -1; inset: -3px -5px; border-radius: 48% 54% 43% 57% / 55% 43% 58% 46%; background: radial-gradient(ellipse at 40% 44%, rgb(17 25 18 / 88%), rgb(17 25 18 / 62%) 68%, transparent 100%); content: ""; filter: blur(.4px); transform: rotate(-2deg); }
+.town-layout-marker-icon { flex: 0 0 auto; color: #e2c27d; font-size: 10px; line-height: 1; }
 .town-layout-marker:active { cursor: grabbing; }
 .town-layout-coordinate-list { display: grid; gap: 6px; max-width: 26rem; margin-top: 10px; }
 .town-layout-coordinate-row { display: grid; grid-template-columns: minmax(0, 1fr) 82px 82px; gap: 8px; align-items: end; padding: 7px 8px; border: 1px solid var(--border); border-radius: 4px; background: var(--panel-2); }

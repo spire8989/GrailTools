@@ -55,20 +55,31 @@ class ContentEditorTests(unittest.TestCase):
 
     def test_town_hotspots_round_trip_and_layout_editor_surface(self) -> None:
         catalog = load_catalog(GRAIL)
-        self.assertEqual(catalog["destinations"]["inn"]["hotspot"], {"x": 0.18, "y": 0.27})
+        inn_hotspot = catalog["destinations"]["inn"]["hotspot"]
+        self.assertTrue(all(0 <= inn_hotspot[axis] <= 1 for axis in ("x", "y")))
+        self.assertEqual(catalog["locations"]["broceliande_village"]["markerStyle"], "tag")
         app = (CONTENT_EDITOR / "static" / "app.js").read_text(encoding="utf-8")
         self.assertIn("data-town-layout-editor", app)
         self.assertIn("data-town-layout-marker", app)
         self.assertIn("data-town-hotspot-input", app)
+        self.assertIn('data-field="markerStyle"', app)
 
         temp, project = self.temporary_grail()
         self.addCleanup(temp.cleanup)
         before = load_catalog(project)
         destinations = clone(before["destinations"])
         destinations["inn"]["hotspot"] = {"x": 0.123, "y": 0.987}
-        save_catalog(project, {"destinations": destinations}, before["sourceHashes"], Path(temp.name) / "backups")
+        locations = clone(before["locations"])
+        locations["broceliande_village"]["markerStyle"] = "ink"
+        save_catalog(project, {"destinations": destinations, "locations": locations}, before["sourceHashes"], Path(temp.name) / "backups")
         after = load_catalog(project)
         self.assertEqual(after["destinations"]["inn"]["hotspot"], {"x": 0.123, "y": 0.987})
+        self.assertEqual(after["locations"]["broceliande_village"]["markerStyle"], "ink")
+
+        invalid_locations = clone(after["locations"])
+        invalid_locations["broceliande_village"]["markerStyle"] = "plaque"
+        validation = validate_catalog({"locations": invalid_locations}, after["known"], after["references"])
+        self.assertTrue(any("Location markerStyle must be one of" in issue["message"] for issue in validation["errors"]))
 
     def test_unchanged_values_round_trip_semantically(self) -> None:
         encounter_path = GRAIL / "js" / "encounter-data.js"

@@ -55,7 +55,6 @@ const state = {
   draftDirty: false,
   searchByCategory: {},
   filterOpen: false,
-  townLayoutStyle: "plaque",
   filters: {
     items: {
       category: "",
@@ -272,10 +271,10 @@ const TOWN_LAYOUT_FALLBACKS = Object.freeze({
   center: Object.freeze({ x: 0.50, y: 0.35 }),
 });
 
-const TOWN_LAYOUT_STYLES = Object.freeze(["plaque", "label", "seal"]);
+const TOWN_MARKER_STYLES = Object.freeze(["tag", "ribbon", "ink"]);
 
-function townLayoutPreviewStyle() {
-  return TOWN_LAYOUT_STYLES.includes(state.townLayoutStyle) ? state.townLayoutStyle : "plaque";
+function townLayoutMarkerStyle(location) {
+  return TOWN_MARKER_STYLES.includes(location?.markerStyle) ? location.markerStyle : "tag";
 }
 
 function clampTownLayoutValue(value, fallback = 0.5) {
@@ -300,7 +299,7 @@ function townLayoutDestinations(location) {
 function renderTownLayoutEditor(location) {
   const asset = location?.visualAssetId ? state.catalog?.imageAssets?.[location.visualAssetId] : null;
   const destinations = townLayoutDestinations(location);
-  const style = townLayoutPreviewStyle();
+  const style = townLayoutMarkerStyle(location);
   if (!asset || asset.category !== "town") {
     return `<section class="section town-layout-editor" data-town-layout-editor><div class="section-heading"><div><h3>Town Layout</h3><p>Select a Town Background 2:3 image above to place destination hotspots.</p></div></div><p class="hint">No town background is selected for this location yet.</p></section>`;
   }
@@ -312,21 +311,7 @@ function renderTownLayoutEditor(location) {
     const hotspot = townLayoutHotspot(destination);
     return `<div class="town-layout-coordinate-row" data-town-destination-id="${escapeHtml(destination.id)}"><strong>${escapeHtml(destination.name || destination.id)}</strong><label>X<input type="number" min="0" max="1" step="0.001" data-town-hotspot-input data-town-destination-id="${escapeHtml(destination.id)}" data-town-hotspot-axis="x" value="${hotspot.x.toFixed(3)}"></label><label>Y<input type="number" min="0" max="1" step="0.001" data-town-hotspot-input data-town-destination-id="${escapeHtml(destination.id)}" data-town-hotspot-axis="y" value="${hotspot.y.toFixed(3)}"></label></div>`;
   }).join("");
-  return `<section class="section town-layout-editor" data-town-layout-editor><div class="section-heading"><div><h3>Town Layout</h3><p>Drag each destination marker onto the matching building. Coordinates are normalized to the 2:3 artwork.</p></div></div><label class="town-layout-style-selector">Marker preview style<select data-town-layout-style aria-label="Town marker preview style"><option value="plaque"${style === "plaque" ? " selected" : ""}>Plaque</option><option value="label"${style === "label" ? " selected" : ""}>Label</option><option value="seal"${style === "seal" ? " selected" : ""}>Seal</option></select></label><div class="town-layout-stage town-hotspot-style-${style}" data-town-layout-stage data-town-layout-style="${style}"><img class="town-layout-image" src="${assetPreviewUrl(asset.path)}" alt="${escapeHtml(location.name || "Town background")}" draggable="false"><div class="town-layout-marker-layer">${markers}</div></div><div class="town-layout-coordinate-list">${fields || `<p class="hint">This town has no destination references yet.</p>`}</div></section>`;
-}
-
-function updateTownLayoutPreviewStyle(value) {
-  state.townLayoutStyle = TOWN_LAYOUT_STYLES.includes(value) ? value : "plaque";
-  const stage = document.querySelector("[data-town-layout-stage]");
-  if (stage) {
-    stage.classList.remove(...TOWN_LAYOUT_STYLES.map((style) => `town-hotspot-style-${style}`));
-    stage.classList.add(`town-hotspot-style-${state.townLayoutStyle}`);
-    stage.dataset.townLayoutStyle = state.townLayoutStyle;
-  }
-  document.querySelectorAll("[data-town-layout-marker]").forEach((marker) => {
-    marker.classList.remove(...TOWN_LAYOUT_STYLES.map((style) => `town-hotspot-style-${style}`));
-    marker.classList.add(`town-hotspot-style-${state.townLayoutStyle}`);
-  });
+  return `<section class="section town-layout-editor" data-town-layout-editor><div class="section-heading"><div><h3>Town Layout</h3><p>Drag each destination marker onto the matching building. Coordinates are normalized to the 2:3 artwork.</p></div></div><label class="town-layout-style-selector">Marker style<select data-field="markerStyle" aria-label="Town marker style"><option value="tag"${style === "tag" ? " selected" : ""}>Tag</option><option value="ribbon"${style === "ribbon" ? " selected" : ""}>Ribbon</option><option value="ink"${style === "ink" ? " selected" : ""}>Ink</option></select></label><div class="town-layout-stage town-hotspot-style-${style}" data-town-layout-stage data-town-layout-style="${style}"><img class="town-layout-image" src="${assetPreviewUrl(asset.path)}" alt="${escapeHtml(location.name || "Town background")}" draggable="false"><div class="town-layout-marker-layer">${markers}</div></div><div class="town-layout-coordinate-list">${fields || `<p class="hint">This town has no destination references yet.</p>`}</div></section>`;
 }
 
 function updateTownLayoutMarker(destinationId, x, y) {
@@ -2619,7 +2604,7 @@ function handleInput(input) {
     const value = parseInputValue(input, input.dataset.field);
     setNested(state.draft, input.dataset.field, value);
     markDirty();
-    if (["category"].includes(input.dataset.field) || (state.category === "locations" && input.dataset.field === "visualAssetId")) render();
+    if (["category"].includes(input.dataset.field) || (state.category === "locations" && ["visualAssetId", "markerStyle"].includes(input.dataset.field))) render();
     return;
   }
   if (input.dataset.arrayField) {
@@ -3448,7 +3433,6 @@ document.addEventListener("input", (event) => {
 document.addEventListener("change", (event) => {
   if (event.target.matches("#asset-upload-input")) uploadSelectedAsset(event.target.files?.[0]);
   else if (event.target.matches("#asset-optimize-toggle, #asset-optimization-profile, #asset-crop-anchor")) refreshImageImportPreview();
-  else if (event.target.matches("[data-town-layout-style]")) updateTownLayoutPreviewStyle(event.target.value);
   else if (event.target.matches("[data-town-hotspot-input]")) commitTownLayoutInput(event.target);
   else if (event.target.matches("textarea[data-object-json]")) handleObjectJson(event.target);
   else if (event.target.matches("textarea[data-dialogue-choice-json]")) {
