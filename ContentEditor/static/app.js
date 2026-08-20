@@ -239,7 +239,9 @@ function renderAssetSelector(label, field, current, assetType = "image", categor
   const displayLabel = field === "campVisualAssetId" ? `${label} · Scene 16:9` : label;
   const helper = field === "travelTransitionAssetId"
     ? `<span class="hint">Optional foreground artwork used to hide Travel Scene changes. Falls back to crossfade.</span>`
-    : "";
+    : field === "travelSeamForegroundAssetId"
+      ? `<span class="hint">Optional transparent PNG/WebP repeated at each travel panorama seam.</span>`
+      : "";
   const preview = asset && assetType === "image"
     ? `<img class="asset-field-preview" src="${assetPreviewUrl(asset.path)}" alt="Preview of ${escapeHtml(current)}">`
     : asset && assetType === "audio"
@@ -1163,6 +1165,7 @@ function renderExpedition() {
   return `<div class="editor-title"><div><h2>${escapeHtml(expedition.name || expedition.id || "New expedition")}</h2><p>${escapeHtml(expedition.id || "Unsaved ID")}</p></div><span class="schema-badge">Expedition schema</span></div>
      <section class="section"><div class="section-heading"><div><h3>Expedition metadata</h3><p>These fields are authored in <code>js/expedition-data.js</code> and remain the canonical expedition definition.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(expedition.id || "")}"></label><label>Name<input data-field="name" value="${escapeHtml(expedition.name || "")}"></label><label class="wide">Description<textarea data-field="description">${escapeHtml(expedition.description || "")}</textarea></label><label>Danger<input type="number" min="0" step="any" data-field="danger" value="${escapeHtml(expedition.danger ?? "")}"></label><label>Minimum objective distance<input type="number" min="0" step="any" data-field="minimumObjectiveDistance" value="${escapeHtml(expedition.minimumObjectiveDistance ?? "")}"></label><label>Region<select data-field="regionId"><option value="">Select region...</option>${selectOptions(known.regions || [], expedition.regionId)}</select></label><label>Kind<select data-field="kind"><option value="">Select kind...</option>${selectOptions(kinds, expedition.kind)}</select></label><label class="wide">Path${referenceInput("pathId", expedition.pathId, true)}</label></div>${renderAssetSelector("Travel visual", "travelVisualAssetId", expedition.travelVisualAssetId, "image", "expedition", expedition.name || expedition.id)}${renderAssetSelector("Travel Transition", "travelTransitionAssetId", expedition.travelTransitionAssetId, "image", "expedition", expedition.name || expedition.id)}${renderAssetSelector("Camp visual", "campVisualAssetId", expedition.campVisualAssetId, "image", "expedition", expedition.name || expedition.id)}${renderAssetSelector("Travel ambience", "travelAmbienceAssetId", expedition.travelAmbienceAssetId, "audio", "ambience", expedition.name || expedition.id)}${renderAssetSelector("Camp ambience", "campAmbienceAssetId", expedition.campAmbienceAssetId, "audio", "ambience", expedition.name || expedition.id)}</section>
     ${renderTravelScenes(expedition)}
+    ${renderAssetSelector("Travel Seam Foreground", "travelSeamForegroundAssetId", expedition.travelSeamForegroundAssetId, "image", "expedition", expedition.name || expedition.id, "none")}
     <section class="section"><div class="section-heading"><div><h3>Camp event tables</h3><p>Choose reusable table IDs from <code>CAMP_EVENT_TABLE_DEFINITIONS</code>.</p></div></div>${renderReferenceChecks("campEventTableIds", expedition.campEventTableIds || [], known.campEventTables || [])}<div class="button-row">${campEventLinks || `<span class="hint">Selected tables have no editable camp-event entries.</span>`}</div></section>
     <section class="section"><div class="section-heading"><div><h3>Prerequisites</h3><p>These are item IDs required by the existing expedition runtime.</p></div></div>${renderReferenceChecks("prerequisites", expedition.prerequisites || [], known.items || [], Object.fromEntries((known.items || []).map((id) => [id, itemLabel(id)])))}</section>
     <section class="section"><div class="section-heading"><div><h3>Used by</h3><p>Known encounter and location references are shown before an expedition is deleted.</p></div></div><div class="reference-list">${renderReferenceRows(references, "No known current references to this expedition.")}</div></section>
@@ -1171,7 +1174,7 @@ function renderExpedition() {
 
 function collectClientReferences(value, source, references) {
   const scalarTypes = {
-    portraitAssetId: "imageAssets", visualAssetId: "imageAssets", backgroundAssetId: "imageAssets", travelVisualAssetId: "imageAssets", travelTransitionAssetId: "imageAssets", campVisualAssetId: "imageAssets", combatVisualAssetId: "imageAssets", travelAmbienceAssetId: "audioAssets", campAmbienceAssetId: "audioAssets", ambienceAssetId: "audioAssets", stingAssetId: "audioAssets",
+    portraitAssetId: "imageAssets", visualAssetId: "imageAssets", backgroundAssetId: "imageAssets", travelVisualAssetId: "imageAssets", travelTransitionAssetId: "imageAssets", travelSeamForegroundAssetId: "imageAssets", campVisualAssetId: "imageAssets", combatVisualAssetId: "imageAssets", travelAmbienceAssetId: "audioAssets", campAmbienceAssetId: "audioAssets", ambienceAssetId: "audioAssets", stingAssetId: "audioAssets",
     itemId: "items", treatmentItemId: "items", combatId: "combats", abilityId: "abilities", statusId: "combatStatuses", injuryId: "injuries",
     tableId: "lootTables", lootTableId: "lootTables", pathId: "paths", expeditionId: "expeditions",
     nextExpeditionId: "expeditions", materialId: "materials", recipeId: "recipes",
@@ -1773,7 +1776,7 @@ function renderLootTable() {
 
 function assetUsages(assetId, assetType) {
   const fields = assetType === "image"
-    ? new Set(["portraitAssetId", "visualAssetId", "travelVisualAssetId", "travelTransitionAssetId", "campVisualAssetId", "combatVisualAssetId"])
+    ? new Set(["portraitAssetId", "visualAssetId", "travelVisualAssetId", "travelTransitionAssetId", "travelSeamForegroundAssetId", "campVisualAssetId", "combatVisualAssetId"])
     : new Set(["travelAmbienceAssetId", "campAmbienceAssetId", "ambienceAssetId", "stingAssetId"]);
   const usages = [];
   const visit = (value, source, path) => {

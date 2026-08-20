@@ -524,7 +524,7 @@ def _walk(value: Any, path: str = "") -> Iterable[tuple[str, Any, Any]]:
 
 
 def _ref_type_for_key(key: str) -> str | None:
-    if key in {"portraitAssetId", "visualAssetId", "backgroundAssetId", "travelVisualAssetId", "travelTransitionAssetId", "campVisualAssetId", "combatVisualAssetId"}:
+    if key in {"portraitAssetId", "visualAssetId", "backgroundAssetId", "travelVisualAssetId", "travelTransitionAssetId", "travelSeamForegroundAssetId", "campVisualAssetId", "combatVisualAssetId"}:
         return "imageAssets"
     if key in {"travelAmbienceAssetId", "campAmbienceAssetId", "ambienceAssetId", "stingAssetId"}:
         return "audioAssets"
@@ -2244,6 +2244,7 @@ def _validate_asset_references(values: dict[str, Any], errors: list[dict[str, st
         "portraitAssetId": {"portrait"},
         "travelVisualAssetId": {"expedition"},
         "travelTransitionAssetId": {"expedition"},
+        "travelSeamForegroundAssetId": {"expedition"},
         "campVisualAssetId": {"expedition"},
         "combatVisualAssetId": {"combat"},
     }
