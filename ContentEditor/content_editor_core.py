@@ -2100,6 +2100,15 @@ def _validate_destinations(destinations: Any, known: dict[str, list[str]], error
         for field_name in ("name", "type", "description"):
             if field_name in destination and not isinstance(destination[field_name], str):
                 errors.append(_issue("error", f"Destination {field_name} must be a string.", source, field_name))
+        if "hotspot" in destination:
+            hotspot = destination["hotspot"]
+            if not isinstance(hotspot, dict):
+                errors.append(_issue("error", "Destination hotspot must be an object.", source, "hotspot"))
+            else:
+                for axis in ("x", "y"):
+                    value = hotspot.get(axis)
+                    if not _is_number(value) or not 0 <= value <= 1:
+                        errors.append(_issue("error", f"Destination hotspot {axis} must be a number from 0 to 1.", source, f"hotspot.{axis}"))
         for field_name in ("npcIds", "actions"):
             if field_name in destination and not isinstance(destination[field_name], list):
                 errors.append(_issue("error", f"Destination {field_name} must be an array.", source, field_name))

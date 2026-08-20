@@ -574,6 +574,16 @@ class Phase6FilterBrowserTests(unittest.TestCase):
             && Boolean(document.querySelector('#editor-root [data-action=add-object][data-owner=location-requirements]'))
         """))
 
+    def test_town_layout_editor_renders_and_updates_normalized_hotspot(self) -> None:
+        self.click_category("locations")
+        self.browser.evaluate("document.querySelector('[data-action=select][data-id=broceliande_village]').click()")
+        self.assertTrue(self.browser.evaluate("Boolean(document.querySelector('[data-town-layout-editor] img.town-layout-image'))"))
+        self.assertEqual(self.browser.evaluate("document.querySelectorAll('[data-town-layout-marker]').length"), 5)
+        self.assertTrue(self.browser.evaluate("Math.abs(document.querySelector('[data-town-layout-stage]').getBoundingClientRect().width / document.querySelector('[data-town-layout-stage]').getBoundingClientRect().height - 2 / 3) < 0.02"))
+        self.browser.evaluate("(() => { const input=document.querySelector('[data-town-hotspot-input][data-town-destination-id=inn][data-town-hotspot-axis=x]'); input.value='0.333'; input.dispatchEvent(new Event('change',{bubbles:true})); })()")
+        self.assertEqual(self.browser.evaluate("state.catalog.destinations.inn.hotspot.x"), 0.333)
+        self.assertIn("33.3", self.browser.evaluate("document.querySelector('[data-town-layout-marker][data-town-destination-id=inn]').style.left"))
+
 
 if __name__ == "__main__":
     unittest.main()

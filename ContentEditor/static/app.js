@@ -263,6 +263,80 @@ function renderTravelScenes(expedition) {
   return `<section class="section travel-scenes-editor"><div class="section-heading"><div><h3>Travel Scenes</h3><p>Recommended: 3:1 panoramic artwork. Optional distance-based artwork is selected by current distance and must stay sorted from nearest to farthest.</p></div><button type="button" class="small-button" data-action="add-travel-scene">Add Scene</button></div><div class="travel-scene-editor-list">${rows || `<p class="hint">No distance-based scenes. The legacy Travel visual is used for the whole route.</p>`}</div></section>`;
 }
 
+const TOWN_LAYOUT_FALLBACKS = Object.freeze({
+  northwest: Object.freeze({ x: 0.18, y: 0.27 }),
+  northeast: Object.freeze({ x: 0.82, y: 0.27 }),
+  southwest: Object.freeze({ x: 0.22, y: 0.56 }),
+  southeast: Object.freeze({ x: 0.78, y: 0.56 }),
+  center: Object.freeze({ x: 0.50, y: 0.35 }),
+});
+
+function clampTownLayoutValue(value, fallback = 0.5) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? Math.min(1, Math.max(0, numeric)) : fallback;
+}
+
+function townLayoutHotspot(destination) {
+  const fallback = TOWN_LAYOUT_FALLBACKS[destination?.scenePosition] || TOWN_LAYOUT_FALLBACKS.center;
+  return {
+    x: clampTownLayoutValue(destination?.hotspot?.x, fallback.x),
+    y: clampTownLayoutValue(destination?.hotspot?.y, fallback.y),
+  };
+}
+
+function townLayoutDestinations(location) {
+  return (Array.isArray(location?.destinations) ? location.destinations : [])
+    .map((id) => state.catalog?.destinations?.[id])
+    .filter(Boolean);
+}
+
+function renderTownLayoutEditor(location) {
+  const asset = location?.visualAssetId ? state.catalog?.imageAssets?.[location.visualAssetId] : null;
+  const destinations = townLayoutDestinations(location);
+  if (!asset || asset.category !== "town") {
+    return `<section class="section town-layout-editor" data-town-layout-editor><div class="section-heading"><div><h3>Town Layout</h3><p>Select a Town Background 2:3 image above to place destination hotspots.</p></div></div><p class="hint">No town background is selected for this location yet.</p></section>`;
+  }
+  const markers = destinations.map((destination) => {
+    const hotspot = townLayoutHotspot(destination);
+    return `<button type="button" class="town-layout-marker" data-town-layout-marker data-town-destination-id="${escapeHtml(destination.id)}" style="left:${hotspot.x * 100}%;top:${hotspot.y * 100}%" title="Drag ${escapeHtml(destination.name || destination.id)}"><span>${escapeHtml(destination.name || destination.id)}</span></button>`;
+  }).join("");
+  const fields = destinations.map((destination) => {
+    const hotspot = townLayoutHotspot(destination);
+    return `<div class="town-layout-coordinate-row" data-town-destination-id="${escapeHtml(destination.id)}"><strong>${escapeHtml(destination.name || destination.id)}</strong><label>X<input type="number" min="0" max="1" step="0.001" data-town-hotspot-input data-town-destination-id="${escapeHtml(destination.id)}" data-town-hotspot-axis="x" value="${hotspot.x.toFixed(3)}"></label><label>Y<input type="number" min="0" max="1" step="0.001" data-town-hotspot-input data-town-destination-id="${escapeHtml(destination.id)}" data-town-hotspot-axis="y" value="${hotspot.y.toFixed(3)}"></label></div>`;
+  }).join("");
+  return `<section class="section town-layout-editor" data-town-layout-editor><div class="section-heading"><div><h3>Town Layout</h3><p>Drag each destination marker onto the matching building. Coordinates are normalized to the 2:3 artwork.</p></div></div><div class="town-layout-stage" data-town-layout-stage><img class="town-layout-image" src="${assetPreviewUrl(asset.path)}" alt="${escapeHtml(location.name || "Town background")}" draggable="false"><div class="town-layout-marker-layer">${markers}</div></div><div class="town-layout-coordinate-list">${fields || `<p class="hint">This town has no destination references yet.</p>`}</div></section>`;
+}
+
+function updateTownLayoutMarker(destinationId, x, y) {
+  const destination = state.catalog?.destinations?.[destinationId];
+  if (!destination) return false;
+  destination.hotspot = { x: clampTownLayoutValue(x), y: clampTownLayoutValue(y) };
+  const marker = document.querySelector(`[data-town-layout-marker][data-town-destination-id="${CSS.escape(destinationId)}"]`);
+  if (marker) {
+    marker.style.left = `${destination.hotspot.x * 100}%`;
+    marker.style.top = `${destination.hotspot.y * 100}%`;
+  }
+  document.querySelectorAll(`[data-town-hotspot-input][data-town-destination-id="${CSS.escape(destinationId)}"]`).forEach((input) => {
+    input.value = destination.hotspot[input.dataset.townHotspotAxis].toFixed(3);
+  });
+  return true;
+}
+
+function townLayoutPosition(stage, event) {
+  const bounds = stage.getBoundingClientRect();
+  return {
+    x: clampTownLayoutValue((event.clientX - bounds.left) / bounds.width),
+    y: clampTownLayoutValue((event.clientY - bounds.top) / bounds.height),
+  };
+}
+
+function finishTownLayoutDrag() {
+  if (!state.townLayoutDrag) return;
+  state.townLayoutDrag.marker?.releasePointerCapture?.(state.townLayoutDrag.pointerId);
+  state.townLayoutDrag = null;
+  markDirty();
+}
+
 const ITEM_FILTER_FLAGS = ["carriable", "consumable", "questItem", "campaignItem", "unique", "sellable", "protected"];
 
 function filterState(category) {
@@ -1500,6 +1574,9 @@ function injectAssetEditors() {
       campEvents: ["Event visual", "visualAssetId", "encounter"],
     }[state.category];
     form.insertAdjacentHTML("beforeend", renderAssetSelector(config[0], config[1], state.draft[config[1]], "image", config[2], state.draft.name || state.draft.id));
+    if (state.category === "locations") {
+      form.closest(".section")?.insertAdjacentHTML("afterend", renderTownLayoutEditor(state.draft));
+    }
     if (state.category === "campEvents") {
       form.insertAdjacentHTML("beforeend", renderAssetSelector("Event ambience", "ambienceAssetId", state.draft.ambienceAssetId, "audio", "ambience", state.draft.title || state.draft.id));
       form.insertAdjacentHTML("beforeend", renderAssetSelector("Event sting", "stingAssetId", state.draft.stingAssetId, "audio", "sfx", state.draft.title || state.draft.id));
@@ -2148,6 +2225,7 @@ function handleInput(input) {
     }
     return;
   }
+  if (input.dataset.townHotspotInput) return;
   if (!state.draft) return;
   if (input.dataset.abilityTags !== undefined) {
     state.draft.tags = splitList(input.value);
@@ -2519,7 +2597,7 @@ function handleInput(input) {
     const value = parseInputValue(input, input.dataset.field);
     setNested(state.draft, input.dataset.field, value);
     markDirty();
-    if (["category"].includes(input.dataset.field)) render();
+    if (["category"].includes(input.dataset.field) || (state.category === "locations" && input.dataset.field === "visualAssetId")) render();
     return;
   }
   if (input.dataset.arrayField) {
@@ -3304,14 +3382,51 @@ async function saveChanges() {
   }
 }
 
+function commitTownLayoutInput(input) {
+  const destination = state.catalog?.destinations?.[input.dataset.townDestinationId];
+  if (!destination) return;
+  const hotspot = townLayoutHotspot(destination);
+  hotspot[input.dataset.townHotspotAxis] = clampTownLayoutValue(input.value, hotspot[input.dataset.townHotspotAxis]);
+  updateTownLayoutMarker(destination.id, hotspot.x, hotspot.y);
+  markDirty();
+}
+
 document.addEventListener("click", (event) => {
   const button = event.target.closest("button[data-action]");
   if (button) handleAction(button);
 });
-document.addEventListener("input", (event) => handleInput(event.target));
+document.addEventListener("pointerdown", (event) => {
+  const marker = event.target.closest?.("[data-town-layout-marker]");
+  if (!marker) return;
+  const stage = marker.closest("[data-town-layout-stage]");
+  const destinationId = marker.dataset.townDestinationId;
+  if (!stage || !destinationId) return;
+  event.preventDefault();
+  state.townLayoutDrag = { marker, stage, destinationId, pointerId: event.pointerId };
+  marker.setPointerCapture?.(event.pointerId);
+  const position = townLayoutPosition(stage, event);
+  updateTownLayoutMarker(destinationId, position.x, position.y);
+});
+document.addEventListener("pointermove", (event) => {
+  const drag = state.townLayoutDrag;
+  if (!drag || event.pointerId !== drag.pointerId) return;
+  event.preventDefault();
+  const position = townLayoutPosition(drag.stage, event);
+  updateTownLayoutMarker(drag.destinationId, position.x, position.y);
+});
+document.addEventListener("pointerup", (event) => {
+  if (state.townLayoutDrag?.pointerId === event.pointerId) finishTownLayoutDrag();
+});
+document.addEventListener("pointercancel", (event) => {
+  if (state.townLayoutDrag?.pointerId === event.pointerId) finishTownLayoutDrag();
+});
+document.addEventListener("input", (event) => {
+  if (!event.target.matches("[data-town-hotspot-input]")) handleInput(event.target);
+});
 document.addEventListener("change", (event) => {
   if (event.target.matches("#asset-upload-input")) uploadSelectedAsset(event.target.files?.[0]);
   else if (event.target.matches("#asset-optimize-toggle, #asset-optimization-profile, #asset-crop-anchor")) refreshImageImportPreview();
+  else if (event.target.matches("[data-town-hotspot-input]")) commitTownLayoutInput(event.target);
   else if (event.target.matches("textarea[data-object-json]")) handleObjectJson(event.target);
   else if (event.target.matches("textarea[data-dialogue-choice-json]")) {
     try {

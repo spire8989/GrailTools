@@ -53,6 +53,23 @@ class ContentEditorTests(unittest.TestCase):
         self.assertIn("Recommended: 3:1 panoramic artwork", app)
         self.assertIn('renderAssetSelector("Camp visual"', app)
 
+    def test_town_hotspots_round_trip_and_layout_editor_surface(self) -> None:
+        catalog = load_catalog(GRAIL)
+        self.assertEqual(catalog["destinations"]["inn"]["hotspot"], {"x": 0.18, "y": 0.27})
+        app = (CONTENT_EDITOR / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("data-town-layout-editor", app)
+        self.assertIn("data-town-layout-marker", app)
+        self.assertIn("data-town-hotspot-input", app)
+
+        temp, project = self.temporary_grail()
+        self.addCleanup(temp.cleanup)
+        before = load_catalog(project)
+        destinations = clone(before["destinations"])
+        destinations["inn"]["hotspot"] = {"x": 0.123, "y": 0.987}
+        save_catalog(project, {"destinations": destinations}, before["sourceHashes"], Path(temp.name) / "backups")
+        after = load_catalog(project)
+        self.assertEqual(after["destinations"]["inn"]["hotspot"], {"x": 0.123, "y": 0.987})
+
     def test_unchanged_values_round_trip_semantically(self) -> None:
         encounter_path = GRAIL / "js" / "encounter-data.js"
         shop_path = GRAIL / "js" / "location-data.js"
