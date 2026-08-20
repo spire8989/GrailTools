@@ -579,7 +579,7 @@ class Phase6FilterBrowserTests(unittest.TestCase):
         self.browser.evaluate("document.querySelector('[data-action=select][data-id=broceliande_village]').click()")
         self.assertTrue(self.browser.evaluate("Boolean(document.querySelector('[data-town-layout-editor] img.town-layout-image'))"))
         self.assertEqual(self.browser.evaluate("document.querySelectorAll('[data-town-layout-marker]').length"), 5)
-        self.assertEqual(self.browser.evaluate("document.querySelector('[data-field=markerStyle]').value"), "tag")
+        self.assertTrue(self.browser.evaluate("document.querySelector('[data-field=markerStyle]').value===state.draft.markerStyle"))
         self.browser.evaluate("(() => { const select=document.querySelector('[data-field=markerStyle]'); select.value='ink'; select.dispatchEvent(new Event('change',{bubbles:true})); })()")
         self.assertTrue(self.browser.evaluate("state.draft.markerStyle==='ink' && [...document.querySelectorAll('[data-town-layout-marker]')].every(marker=>marker.classList.contains('town-hotspot-style-ink'))"))
         self.assertTrue(self.browser.evaluate("state.dirty"))

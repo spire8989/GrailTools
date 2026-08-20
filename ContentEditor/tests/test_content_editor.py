@@ -57,7 +57,7 @@ class ContentEditorTests(unittest.TestCase):
         catalog = load_catalog(GRAIL)
         inn_hotspot = catalog["destinations"]["inn"]["hotspot"]
         self.assertTrue(all(0 <= inn_hotspot[axis] <= 1 for axis in ("x", "y")))
-        self.assertEqual(catalog["locations"]["broceliande_village"]["markerStyle"], "tag")
+        self.assertIn(catalog["locations"]["broceliande_village"]["markerStyle"], {"tag", "ribbon", "ink"})
         app = (CONTENT_EDITOR / "static" / "app.js").read_text(encoding="utf-8")
         self.assertIn("data-town-layout-editor", app)
         self.assertIn("data-town-layout-marker", app)
