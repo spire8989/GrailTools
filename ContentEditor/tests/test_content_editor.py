@@ -50,6 +50,7 @@ class ContentEditorTests(unittest.TestCase):
         self.assertIn('motion: "loop"', app)
         self.assertIn('travelTransitionAssetId', app)
         self.assertIn('travelSeamForegroundAssetId', app)
+        self.assertIn('showSeamForegroundBetweenLoops', app)
         self.assertIn('Optional transparent PNG/WebP repeated at each travel panorama seam', app)
         self.assertIn("Optional foreground artwork used to hide Travel Scene changes", app)
         self.assertIn("Recommended: 3:1 panoramic artwork", app)
@@ -921,7 +922,7 @@ class ContentEditorTests(unittest.TestCase):
         expedition_id = "fountain_of_barenton"
         incoming = {"expeditions": clone(catalog["expeditions"]), "imageAssets": clone(catalog["imageAssets"])}
         incoming["expeditions"][expedition_id]["travelScenes"] = [
-            {"minDistance": 0, "visualAssetId": expedition_assets[0], "motion": "loop"},
+            {"minDistance": 0, "visualAssetId": expedition_assets[0], "motion": "loop", "showSeamForegroundBetweenLoops": False},
             {"minDistance": 40, "visualAssetId": expedition_assets[-1], "motion": "pan"},
         ]
         incoming["expeditions"][expedition_id]["travelTransitionAssetId"] = expedition_assets[0]
@@ -941,6 +942,7 @@ class ContentEditorTests(unittest.TestCase):
             load_catalog(project)["expeditions"][expedition_id]["travelSeamForegroundAssetId"],
             expedition_assets[0],
         )
+        self.assertFalse(load_catalog(project)["expeditions"][expedition_id]["travelScenes"][0]["showSeamForegroundBetweenLoops"])
 
         invalid = clone(incoming)
         invalid["expeditions"][expedition_id]["travelScenes"] = [

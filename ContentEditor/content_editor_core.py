@@ -1901,6 +1901,8 @@ def _validate_expeditions(expeditions: Any, known: dict[str, list[str]], errors:
                     motion = scene.get("motion", "loop")
                     if motion not in {"loop", "pan"}:
                         errors.append(_issue("error", "Travel scene motion must be 'loop' or 'pan'.", source, f"{scene_path}.motion"))
+                    if "showSeamForegroundBetweenLoops" in scene and not isinstance(scene.get("showSeamForegroundBetweenLoops"), bool):
+                        errors.append(_issue("error", "Travel scene showSeamForegroundBetweenLoops must be true or false.", source, f"{scene_path}.showSeamForegroundBetweenLoops"))
         if isinstance(expedition.get("kind"), str) and not expedition["kind"]:
             errors.append(_issue("error", "Expedition kind cannot be empty.", source, "kind"))
 

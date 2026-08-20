@@ -99,6 +99,8 @@ h2, h3, h4 { margin: 0; }
 .travel-scene-editor-row { display: grid; grid-template-columns: minmax(120px, 0.45fr) minmax(260px, 1fr) auto; gap: 9px; align-items: start; padding: 9px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 5px; }
 .travel-scene-editor-row .asset-field-preview-wrap { grid-column: 2; }
 .travel-scene-editor-row .danger-outline { align-self: end; }
+.travel-seam-loop-toggle { display: flex; align-items: center; gap: 5px; margin-top: 7px; font-size: 0.78rem; }
+.travel-seam-loop-toggle input { width: auto; }
 .town-layout-stage { position: relative; width: min(100%, 26rem); aspect-ratio: 2 / 3; overflow: hidden; border: 1px solid #6b5434; border-radius: 5px; background: #101319; touch-action: none; }
 .town-layout-image { display: block; width: 100%; height: 100%; object-fit: contain; user-select: none; }
 .town-layout-marker-layer { position: absolute; inset: 0; }

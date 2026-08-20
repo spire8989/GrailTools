@@ -260,7 +260,7 @@ function renderTravelScenes(expedition) {
     return `<div class="travel-scene-editor-row" data-travel-scene-index="${index}">
       <label>Minimum distance<input type="number" min="0" step="any" data-travel-scene-field="minDistance" data-travel-scene-index="${index}" value="${escapeHtml(scene?.minDistance ?? "")}"></label>
       <label class="asset-selector"><span>Travel panorama</span><span class="asset-selector-controls"><select data-travel-scene-field="visualAssetId" data-travel-scene-index="${index}">${assetOptions("image", scene?.visualAssetId, "expedition")}</select><button type="button" class="small-button" data-action="upload-asset" data-asset-type="image" data-asset-category="expedition" data-asset-field="visualAssetId" data-asset-scene-index="${index}" data-asset-context="${escapeHtml(expedition.name || expedition.id || "travel scene")}" data-asset-profile="travel_panorama">Upload New</button></span><span class="asset-field-preview-wrap">${preview}</span></label>
-      <label class="travel-motion-selector"><span>Motion</span><select data-travel-scene-field="motion" data-travel-scene-index="${index}"><option value="loop"${scene?.motion === "pan" ? "" : " selected"}>Loop</option><option value="pan"${scene?.motion === "pan" ? " selected" : ""}>Pan</option></select></label>
+      <label class="travel-motion-selector"><span>Motion</span><select data-travel-scene-field="motion" data-travel-scene-index="${index}"><option value="loop"${scene?.motion === "pan" ? "" : " selected"}>Loop</option><option value="pan"${scene?.motion === "pan" ? " selected" : ""}>Pan</option></select>${scene?.motion === "pan" ? "" : `<span class="travel-seam-loop-toggle"><input type="checkbox" data-travel-scene-field="showSeamForegroundBetweenLoops" data-travel-scene-index="${index}"${checked(scene?.showSeamForegroundBetweenLoops !== false)}>Show seam between loops</span>`}</label>
       <button type="button" class="small-button danger-outline" data-action="remove-travel-scene" data-travel-scene-index="${index}">Remove</button>
     </div>`;
   }).join("");
@@ -2843,6 +2843,7 @@ function handleInput(input) {
     if (value === undefined || value === "") delete scene[input.dataset.travelSceneField];
     else scene[input.dataset.travelSceneField] = value;
     markDirty();
+    if (input.dataset.travelSceneField === "motion") render();
     return;
   }
   if (input.dataset.outcomeVisualField) {
