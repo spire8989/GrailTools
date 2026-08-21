@@ -108,6 +108,8 @@ class ProcessedImage:
     profile_label: str
     crop_anchor: str
     warnings: tuple[str, ...]
+    foreground_offset: tuple[int, int] | None = None
+    foreground_canvas: tuple[int, int] | None = None
 
     @property
     def preview_data_url(self) -> str:
@@ -393,6 +395,16 @@ def optimize_image(
             elif "max_dimension" in settings:
                 image = _resize_to_fit(image, settings["max_dimension"], settings["max_dimension"])
 
+            foreground_offset = None
+            foreground_canvas = None
+            if mask_json is not None:
+                foreground_canvas = image.size
+                foreground_box = image.getchannel("A").getbbox()
+                if not foreground_box:
+                    raise ValueError("SAM mask does not contain any foreground pixels after image processing.")
+                foreground_offset = (foreground_box[0], foreground_box[1])
+                image = image.crop(foreground_box)
+
             output_buffer = BytesIO()
             image.save(output_buffer, format="WEBP", quality=settings.get("quality", 85), method=4)
             output_content = output_buffer.getvalue()
@@ -412,4 +424,14 @@ def optimize_image(
     size_warning = settings.get("size_warning")
     if size_warning and len(output_content) > size_warning:
         warnings.append(settings["size_warning_message"])
-    return ProcessedImage(output_content, source, output, normalized_profile, settings["label"], anchor, tuple(warnings))
+    return ProcessedImage(
+        output_content,
+        source,
+        output,
+        normalized_profile,
+        settings["label"],
+        anchor,
+        tuple(warnings),
+        foreground_offset,
+        foreground_canvas,
+    )

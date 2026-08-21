@@ -2686,7 +2686,7 @@ def _safe_runtime_stem(filename: str, asset_id: str) -> str:
 
 
 def _image_processing_result(processed: ProcessedImage) -> dict[str, Any]:
-    return {
+    result = {
         "profile": processed.profile,
         "profileLabel": processed.profile_label,
         "cropAnchor": processed.crop_anchor,
@@ -2708,6 +2708,22 @@ def _image_processing_result(processed: ProcessedImage) -> dict[str, Any]:
         },
         "warnings": list(processed.warnings),
     }
+    if processed.foreground_offset and processed.foreground_canvas:
+        result["foregroundAlignment"] = {
+            "offset": {
+                "x": processed.foreground_offset[0],
+                "y": processed.foreground_offset[1],
+            },
+            "canvas": {
+                "width": processed.foreground_canvas[0],
+                "height": processed.foreground_canvas[1],
+            },
+            "size": {
+                "width": processed.output.width,
+                "height": processed.output.height,
+            },
+        }
+    return result
 
 
 def _parallax_asset_id(asset_id: str) -> str:
@@ -2905,13 +2921,29 @@ def upload_asset(
         definition.setdefault("loop", category == "ambience")
     target_map[asset_id] = definition
     if parallax_processed is not None and parallax_asset_id and parallax_relative_path:
-        image_assets[parallax_asset_id] = {
+        parallax_definition = {
             **(parallax_existing or {}),
             "id": parallax_asset_id,
             "path": parallax_relative_path,
             "category": "expedition",
             "generatedFromAssetId": asset_id,
         }
+        if parallax_processed.foreground_offset and parallax_processed.foreground_canvas:
+            parallax_definition["foregroundAlignment"] = {
+                "offset": {
+                    "x": parallax_processed.foreground_offset[0],
+                    "y": parallax_processed.foreground_offset[1],
+                },
+                "canvas": {
+                    "width": parallax_processed.foreground_canvas[0],
+                    "height": parallax_processed.foreground_canvas[1],
+                },
+                "size": {
+                    "width": parallax_processed.output.width,
+                    "height": parallax_processed.output.height,
+                },
+            }
+        image_assets[parallax_asset_id] = parallax_definition
     source_written = False
     try:
         for write_id, write_destination, _old_write_destination, write_content in destinations:

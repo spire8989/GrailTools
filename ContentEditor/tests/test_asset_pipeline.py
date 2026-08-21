@@ -112,12 +112,19 @@ class AssetPipelineTests(unittest.TestCase):
         foreground_path = project / result["assetResult"]["parallaxPath"]
         with self.webp_info(foreground_path.read_bytes()) as image:
             self.assertEqual(image.mode, "RGBA")
+            self.assertEqual(image.size, (2, 2))
+            self.assertEqual(image.getpixel((0, 0))[3], 0)
+            self.assertGreater(image.getpixel((1, 0))[3], 200)
+            self.assertGreater(image.getpixel((0, 1))[3], 200)
             self.assertEqual(image.getpixel((1, 1))[3], 0)
-            self.assertGreater(image.getpixel((2, 1))[3], 200)
-            self.assertGreater(image.getpixel((1, 2))[3], 200)
-            self.assertEqual(image.getpixel((2, 2))[3], 0)
+        alignment = result["assetResult"]["parallaxImageProcessing"]["foregroundAlignment"]
+        self.assertEqual(alignment["offset"], {"x": 1, "y": 1})
+        self.assertEqual(alignment["canvas"], {"width": 4, "height": 4})
+        self.assertEqual(alignment["size"], {"width": 2, "height": 2})
         catalog = load_catalog(project)
-        self.assertEqual(catalog["imageAssets"]["forest_background_parallax"]["generatedFromAssetId"], "forest_background")
+        generated = catalog["imageAssets"]["forest_background_parallax"]
+        self.assertEqual(generated["generatedFromAssetId"], "forest_background")
+        self.assertEqual(generated["foregroundAlignment"], alignment)
 
     def test_scene_profile_resizes_large_source_to_16_by_9(self) -> None:
         temp, project = self.temporary_grail()
