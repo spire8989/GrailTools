@@ -83,7 +83,8 @@ class EditorHandler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         try:
             if path in {"/api/assets/preview", "/api/assets/upload", "/api/assets/replace"}:
-                fields, filename, content = self._read_multipart()
+                fields, filename, content, sam_mask_json = self._read_multipart()
+                sam_mask_json = sam_mask_json or fields.get("samMaskJson")
                 asset_type = fields.get("assetType", "")
                 category = fields.get("category", "")
                 asset_id = fields.get("assetId", "")
@@ -102,6 +103,7 @@ class EditorHandler(BaseHTTPRequestHandler):
                         optimize_for_game=optimize_for_game,
                         optimization_profile=optimization_profile,
                         crop_anchor=crop_anchor,
+                        sam_mask_json=sam_mask_json,
                     ))
                     return
                 result = upload_asset(
@@ -117,6 +119,7 @@ class EditorHandler(BaseHTTPRequestHandler):
                     optimize_for_game=optimize_for_game,
                     optimization_profile=optimization_profile,
                     crop_anchor=crop_anchor,
+                    sam_mask_json=sam_mask_json,
                 )
                 self._json_response(result)
                 return
@@ -163,7 +166,7 @@ class EditorHandler(BaseHTTPRequestHandler):
             raise ValueError("Request body must be a JSON object")
         return payload
 
-    def _read_multipart(self) -> tuple[dict[str, str], str | None, bytes | None]:
+    def _read_multipart(self) -> tuple[dict[str, str], str | None, bytes | None, str | None]:
         content_length = int(self.headers.get("Content-Length", "0"))
         if content_length <= 0 or content_length > 64 * 1024 * 1024:
             raise ValueError("Upload is empty or exceeds the 64 MB editor limit.")
@@ -177,6 +180,7 @@ class EditorHandler(BaseHTTPRequestHandler):
         fields: dict[str, str] = {}
         filename: str | None = None
         content: bytes | None = None
+        sam_mask_json: str | None = None
         for part in body.split(delimiter)[1:]:
             if part.startswith(b"--"):
                 break
@@ -200,12 +204,14 @@ class EditorHandler(BaseHTTPRequestHandler):
             # Browsers normally include filename= on the binary part, but the
             # field name is the reliable signal across Chromium/Firefox and
             # prevents us from ever decoding image bytes as UTF-8.
-            if field_name == "file" or "filename" in params or "filename*" in params:
+            if field_name == "file":
                 filename = params.get("filename") or params.get("filename*")
                 content = value
+            elif field_name in {"samMaskFile", "samMask"} or ("filename" in params and Path(params.get("filename", "")).suffix.lower() == ".json"):
+                sam_mask_json = value.decode("utf-8")
             else:
                 fields[field_name] = value.decode("utf-8")
-        return fields, filename, content
+        return fields, filename, content, sam_mask_json
 
     def _json_response(self, payload: object, status: int = 200) -> None:
         raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import json
 import shutil
 import sys
 import tempfile
@@ -84,6 +85,39 @@ class AssetPipelineTests(unittest.TestCase):
             self.assertEqual(image.size, (480, 600))
             self.assertGreater(image.getpixel((20, 300))[0], 200)
             self.assertLess(image.getpixel((20, 300))[2], 100)
+
+    def test_sam_mask_import_creates_transparent_foreground_asset(self) -> None:
+        temp, project = self.temporary_grail()
+        self.addCleanup(temp.cleanup)
+        source = self.image_bytes((4, 4), (160, 100, 60))
+        mask = json.dumps({
+            "masks": {"data": [[0, 1], [1, 0]], "shape": [2, 2]},
+            "offset": [1, 1],
+        })
+        result = upload_asset(
+            project,
+            asset_type="image",
+            category="expedition",
+            asset_id="forest_background",
+            filename="forest.png",
+            content=source,
+            optimize_for_game=True,
+            optimization_profile="none",
+            sam_mask_json=mask,
+            backup_dir=Path(temp.name) / "backups",
+        )
+        self.assertEqual(result["assetResult"]["assetId"], "forest_background")
+        self.assertEqual(result["assetResult"]["parallaxAssetId"], "forest_background_parallax")
+        self.assertEqual((project / result["assetResult"]["path"]).read_bytes(), source)
+        foreground_path = project / result["assetResult"]["parallaxPath"]
+        with self.webp_info(foreground_path.read_bytes()) as image:
+            self.assertEqual(image.mode, "RGBA")
+            self.assertEqual(image.getpixel((1, 1))[3], 0)
+            self.assertGreater(image.getpixel((2, 1))[3], 200)
+            self.assertGreater(image.getpixel((1, 2))[3], 200)
+            self.assertEqual(image.getpixel((2, 2))[3], 0)
+        catalog = load_catalog(project)
+        self.assertEqual(catalog["imageAssets"]["forest_background_parallax"]["generatedFromAssetId"], "forest_background")
 
     def test_scene_profile_resizes_large_source_to_16_by_9(self) -> None:
         temp, project = self.temporary_grail()

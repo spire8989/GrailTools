@@ -67,6 +67,7 @@
         <div class="asset-import-grid">
           <div>
             <img id="asset-import-preview" class="asset-import-preview" alt="Optimized image preview">
+            <img id="asset-import-parallax-preview" class="asset-import-preview" alt="Generated transparent foreground preview" hidden>
             <p id="asset-import-status" class="hint">Preparing preview…</p>
           </div>
           <div class="asset-import-controls">
@@ -87,6 +88,7 @@
               <option value="left">Left</option>
               <option value="right">Right</option>
             </select></label>
+            <label id="asset-sam-mask-control" hidden>SAM foreground mask JSON<input id="asset-sam-mask-input" type="file" accept=".json,application/json"><span class="hint">Optional travel-only mask. GrailTools converts it to a transparent foreground image during import.</span></label>
             <div id="asset-import-summary" class="asset-import-summary"></div>
             <div class="button-row"><button type="button" data-action="confirm-asset-upload" class="primary" disabled>Import Image</button><button type="button" data-action="cancel-asset-upload">Cancel</button></div>
           </div>

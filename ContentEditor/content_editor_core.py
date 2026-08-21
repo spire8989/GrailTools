@@ -524,7 +524,7 @@ def _walk(value: Any, path: str = "") -> Iterable[tuple[str, Any, Any]]:
 
 
 def _ref_type_for_key(key: str) -> str | None:
-    if key in {"portraitAssetId", "visualAssetId", "backgroundAssetId", "travelVisualAssetId", "travelTransitionAssetId", "travelSeamForegroundAssetId", "campVisualAssetId", "combatVisualAssetId"}:
+    if key in {"portraitAssetId", "visualAssetId", "backgroundAssetId", "travelVisualAssetId", "travelParallaxAssetId", "travelTransitionAssetId", "travelSeamForegroundAssetId", "campVisualAssetId", "combatVisualAssetId"}:
         return "imageAssets"
     if key in {"travelAmbienceAssetId", "campAmbienceAssetId", "ambienceAssetId", "stingAssetId"}:
         return "audioAssets"
@@ -2245,6 +2245,7 @@ def _validate_asset_references(values: dict[str, Any], errors: list[dict[str, st
     image_fields = {
         "portraitAssetId": {"portrait"},
         "travelVisualAssetId": {"expedition"},
+        "travelParallaxAssetId": {"expedition"},
         "travelTransitionAssetId": {"expedition"},
         "travelSeamForegroundAssetId": {"expedition"},
         "campVisualAssetId": {"expedition"},
@@ -2605,10 +2606,10 @@ def suggest_asset_id(filename: str, asset_type: str, category: str, context: str
 
 
 def _validate_upload_metadata(asset_type: str, category: str, asset_id: str, filename: str, content: bytes) -> str:
-    categories = ASSET_IMAGE_CATEGORIES if asset_type == "image" else ASSET_AUDIO_CATEGORIES
-    extensions = ASSET_IMAGE_EXTENSIONS if asset_type == "image" else ASSET_AUDIO_EXTENSIONS
     if asset_type not in {"image", "audio"}:
         raise ValueError("Asset type must be image or audio.")
+    categories = ASSET_IMAGE_CATEGORIES if asset_type == "image" else ASSET_AUDIO_CATEGORIES
+    extensions = ASSET_IMAGE_EXTENSIONS if asset_type == "image" else ASSET_AUDIO_EXTENSIONS
     if category not in categories:
         raise ValueError(f"Unsupported {asset_type} asset category {category!r}.")
     if not ASSET_ID_PATTERN.fullmatch(asset_id or ""):
@@ -2632,9 +2633,12 @@ def preview_image(
     optimize_for_game: bool = True,
     optimization_profile: str | None = None,
     crop_anchor: str = "center",
+    sam_mask_json: str | bytes | dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Prepare an image for the import dialog without writing project files."""
     _validate_upload_metadata("image", category, "preview_asset", filename, content)
+    if sam_mask_json is not None and category != "expedition":
+        raise ValueError("SAM foreground masks are currently supported only for expedition travel images.")
     selected_profile = profile_for_category(category, optimization_profile) if optimize_for_game else "none"
     processed = optimize_image(
         content,
@@ -2643,11 +2647,23 @@ def preview_image(
         crop_anchor=crop_anchor,
         filename=filename,
     )
-    return {
+    result = {
         "imageProcessing": _image_processing_result(processed),
         "previewDataUrl": processed.preview_data_url,
         "optimized": bool(optimize_for_game and selected_profile != "none"),
     }
+    if sam_mask_json is not None:
+        parallax = optimize_image(
+            content,
+            category=category,
+            profile=selected_profile,
+            crop_anchor=crop_anchor,
+            filename=filename,
+            mask_json=sam_mask_json,
+        )
+        result["parallaxImageProcessing"] = _image_processing_result(parallax)
+        result["parallaxPreviewDataUrl"] = parallax.preview_data_url
+    return result
 
 
 def _atomic_write_bytes(path: Path, content: bytes) -> None:
@@ -2694,6 +2710,16 @@ def _image_processing_result(processed: ProcessedImage) -> dict[str, Any]:
     }
 
 
+def _parallax_asset_id(asset_id: str) -> str:
+    suffix = "_parallax"
+    return f"{asset_id[:64 - len(suffix)].rstrip('_-')}{suffix}"
+
+
+def _parallax_relative_path(relative_path: str) -> str:
+    path = Path(relative_path)
+    return (path.parent / f"{path.stem}-parallax.webp").as_posix()
+
+
 def upload_asset(
     project_root: Path,
     *,
@@ -2708,6 +2734,7 @@ def upload_asset(
     optimize_for_game: bool = False,
     optimization_profile: str | None = None,
     crop_anchor: str = "center",
+    sam_mask_json: str | bytes | dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Safely add or explicitly replace a binary asset and its catalog entry.
 
@@ -2716,7 +2743,12 @@ def upload_asset(
     """
     project_root = project_root.resolve()
     input_suffix = _validate_upload_metadata(asset_type, category, asset_id, filename, content)
+    if sam_mask_json is not None and asset_type != "image":
+        raise ValueError("SAM foreground masks can only be attached to image uploads.")
+    if sam_mask_json is not None and category != "expedition":
+        raise ValueError("SAM foreground masks are currently supported only for expedition travel images.")
     processed: ProcessedImage | None = None
+    parallax_processed: ProcessedImage | None = None
     selected_profile = None
     if asset_type == "image" and optimize_for_game:
         selected_profile = profile_for_category(category, optimization_profile)
@@ -2726,6 +2758,16 @@ def upload_asset(
             profile=selected_profile,
             crop_anchor=crop_anchor,
             filename=filename,
+        )
+    if sam_mask_json is not None:
+        selected_profile = selected_profile or "none"
+        parallax_processed = optimize_image(
+            content,
+            category=category,
+            profile=selected_profile,
+            crop_anchor=crop_anchor,
+            filename=filename,
+            mask_json=sam_mask_json,
         )
     output_content = processed.content if processed is not None else content
     optimized_webp = bool(processed is not None and processed.profile != "none")
@@ -2746,6 +2788,15 @@ def upload_asset(
         raise ValueError(f"Asset ID {asset_id!r} already exists. Use Replace File explicitly.")
     if replace and not existing:
         raise ValueError(f"Cannot replace missing asset ID {asset_id!r}.")
+
+    parallax_asset_id = _parallax_asset_id(asset_id) if parallax_processed is not None else None
+    parallax_existing = image_assets.get(parallax_asset_id) if parallax_asset_id else None
+    if parallax_asset_id and parallax_asset_id in audio_assets:
+        raise ValueError(f"Generated parallax ID {parallax_asset_id!r} already belongs to an audio asset.")
+    if parallax_existing and parallax_existing.get("category") != "expedition":
+        raise ValueError("An existing generated parallax asset must keep the expedition category.")
+    if parallax_existing and not replace and existing is None:
+        raise ValueError(f"Generated parallax asset ID {parallax_asset_id!r} already exists; replace the source explicitly.")
 
     if existing:
         if existing.get("category") != category:
@@ -2790,17 +2841,59 @@ def upload_asset(
     if relative_path in catalog_paths:
         raise ValueError(f"Asset path {relative_path!r} is already assigned to another asset.")
 
+    parallax_destination = None
+    parallax_old_destination = None
+    parallax_relative_path = None
+    if parallax_processed is not None and parallax_asset_id:
+        if parallax_existing:
+            parallax_relative_path = parallax_existing.get("path")
+            if not isinstance(parallax_relative_path, str) or not parallax_relative_path.startswith("assets/images/") or ".." in Path(parallax_relative_path).parts:
+                raise ValueError(f"Existing asset {parallax_asset_id!r} has an unsafe catalog path.")
+            if Path(parallax_relative_path).suffix.lower() != ".webp":
+                parallax_relative_path = _parallax_relative_path(relative_path)
+        else:
+            parallax_relative_path = _parallax_relative_path(relative_path)
+        parallax_destination = (project_root / parallax_relative_path).resolve()
+        if assets_root not in parallax_destination.parents or parallax_destination == destination:
+            raise ValueError("Generated parallax destination must remain separate inside the game assets directory.")
+        if parallax_existing:
+            parallax_old_destination = (project_root / parallax_existing["path"]).resolve()
+            if assets_root not in parallax_old_destination.parents:
+                raise ValueError("Existing parallax asset path must remain inside the game assets directory.")
+            if parallax_old_destination != parallax_destination and parallax_destination.exists():
+                raise ValueError(f"Generated parallax destination {parallax_relative_path!r} already exists.")
+        elif parallax_destination.exists():
+            raise ValueError(f"Generated parallax file {parallax_relative_path!r} already exists; replace the source explicitly.")
+        image_paths = {
+            asset.get("path")
+            for key, asset in image_assets.items()
+            if key not in {asset_id, parallax_asset_id} and isinstance(asset, dict) and isinstance(asset.get("path"), str)
+        }
+        if parallax_relative_path in image_paths:
+            raise ValueError(f"Generated parallax path {parallax_relative_path!r} is already assigned to another asset.")
+
     backup_dir = backup_dir or (Path(__file__).resolve().parent / ".backups")
     backup_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    previous_bytes = destination.read_bytes() if destination.is_file() else None
-    old_bytes = old_destination.read_bytes() if old_destination and old_destination.is_file() else None
-    binary_backup = None
-    backup_bytes = old_bytes if old_bytes is not None else previous_bytes
-    if backup_bytes is not None:
-        binary_backup_path = backup_dir / f"asset-{asset_id}.{stamp}.bak"
-        binary_backup_path.write_bytes(backup_bytes)
-        binary_backup = str(binary_backup_path)
+    write_records: list[dict[str, Any]] = []
+    binary_backups: dict[str, str] = {}
+    destinations = [(asset_id, destination, old_destination, output_content)]
+    if parallax_processed is not None and parallax_asset_id and parallax_destination is not None:
+        destinations.append((parallax_asset_id, parallax_destination, parallax_old_destination, parallax_processed.content))
+    for write_id, write_destination, old_write_destination, _write_content in destinations:
+        previous_write_bytes = write_destination.read_bytes() if write_destination.is_file() else None
+        old_write_bytes = old_write_destination.read_bytes() if old_write_destination and old_write_destination.is_file() else None
+        backup_bytes = old_write_bytes if old_write_bytes is not None else previous_write_bytes
+        if backup_bytes is not None:
+            binary_backup_path = backup_dir / f"asset-{write_id}.{stamp}.bak"
+            binary_backup_path.write_bytes(backup_bytes)
+            binary_backups[write_id] = str(binary_backup_path)
+        write_records.append({
+            "destination": write_destination,
+            "previous": previous_write_bytes,
+            "old_destination": old_write_destination,
+            "old": old_write_bytes,
+        })
 
     definition = {
         **(existing or {}),
@@ -2811,9 +2904,18 @@ def upload_asset(
     if asset_type == "audio":
         definition.setdefault("loop", category == "ambience")
     target_map[asset_id] = definition
+    if parallax_processed is not None and parallax_asset_id and parallax_relative_path:
+        image_assets[parallax_asset_id] = {
+            **(parallax_existing or {}),
+            "id": parallax_asset_id,
+            "path": parallax_relative_path,
+            "category": "expedition",
+            "generatedFromAssetId": asset_id,
+        }
     source_written = False
     try:
-        _atomic_write_bytes(destination, output_content)
+        for write_id, write_destination, _old_write_destination, write_content in destinations:
+            _atomic_write_bytes(write_destination, write_content)
         _write_source_constants(
             project_root,
             source_relative,
@@ -2822,17 +2924,28 @@ def upload_asset(
             actual_hash,
         )
         source_written = True
-        if old_destination and old_destination != destination:
-            old_destination.unlink(missing_ok=True)
+        written_destinations = {record["destination"] for record in write_records}
+        for record in write_records:
+            old_write_destination = record["old_destination"]
+            if old_write_destination and old_write_destination != record["destination"] and old_write_destination not in written_destinations:
+                old_write_destination.unlink(missing_ok=True)
     except Exception:
-        if old_destination and old_destination != destination:
-            destination.unlink(missing_ok=True)
-            if old_bytes is not None:
-                _atomic_write_bytes(old_destination, old_bytes)
-        elif previous_bytes is None:
-            destination.unlink(missing_ok=True)
-        else:
-            _atomic_write_bytes(destination, previous_bytes)
+        for record in reversed(write_records):
+            write_destination = record["destination"]
+            old_write_destination = record["old_destination"]
+            if old_write_destination and old_write_destination != write_destination:
+                if record["previous"] is None:
+                    write_destination.unlink(missing_ok=True)
+                else:
+                    _atomic_write_bytes(write_destination, record["previous"])
+                if record["old"] is None:
+                    old_write_destination.unlink(missing_ok=True)
+                else:
+                    _atomic_write_bytes(old_write_destination, record["old"])
+            elif record["previous"] is None:
+                write_destination.unlink(missing_ok=True)
+            else:
+                _atomic_write_bytes(write_destination, record["previous"])
         raise
 
     result = load_catalog(project_root)
@@ -2841,9 +2954,15 @@ def upload_asset(
         "type": asset_type,
         "path": relative_path.replace("\\", "/"),
         "replaced": bool(existing),
-        "binaryBackup": binary_backup,
+        "binaryBackup": binary_backups.get(asset_id),
         "sourceWritten": source_written,
     }
     if processed is not None:
         result["assetResult"]["imageProcessing"] = _image_processing_result(processed)
+    if parallax_processed is not None and parallax_asset_id and parallax_relative_path:
+        result["assetResult"]["parallaxAssetId"] = parallax_asset_id
+        result["assetResult"]["parallaxPath"] = parallax_relative_path
+        result["assetResult"]["parallaxReplaced"] = bool(parallax_existing)
+        result["assetResult"]["parallaxBinaryBackup"] = binary_backups.get(parallax_asset_id)
+        result["assetResult"]["parallaxImageProcessing"] = _image_processing_result(parallax_processed)
     return result

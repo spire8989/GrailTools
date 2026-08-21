@@ -47,6 +47,8 @@ class ContentEditorTests(unittest.TestCase):
         self.assertIn('data-asset-profile="travel_panorama"', app)
         self.assertIn('locations: ["Visual asset", "visualAssetId", "town"]', app)
         self.assertIn('data-travel-scene-field="motion"', app)
+        self.assertIn('data-travel-scene-field="travelParallaxAssetId"', app)
+        self.assertIn("SAM foreground mask JSON", (CONTENT_EDITOR / "static" / "index.html").read_text(encoding="utf-8"))
         self.assertIn('motion: "loop"', app)
         self.assertIn('travelTransitionAssetId', app)
         self.assertIn('travelSeamForegroundAssetId', app)

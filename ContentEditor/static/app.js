@@ -241,7 +241,9 @@ function renderAssetSelector(label, field, current, assetType = "image", categor
     ? `<span class="hint">Optional foreground artwork used to hide Travel Scene changes. Falls back to crossfade.</span>`
     : field === "travelSeamForegroundAssetId"
       ? `<span class="hint">Optional transparent PNG/WebP repeated at each travel panorama seam.</span>`
-      : "";
+      : field === "travelParallaxAssetId"
+        ? `<span class="hint">Optional transparent foreground cutout imported from a SAM JSON mask; scrolls at 1.1×.</span>`
+        : "";
   const preview = asset && assetType === "image"
     ? `<img class="asset-field-preview" src="${assetPreviewUrl(asset.path)}" alt="Preview of ${escapeHtml(current)}">`
     : asset && assetType === "audio"
@@ -254,12 +256,14 @@ function renderTravelScenes(expedition) {
   const scenes = Array.isArray(expedition.travelScenes) ? expedition.travelScenes : [];
   const rows = scenes.map((scene, index) => {
     const asset = scene?.visualAssetId ? state.catalog?.imageAssets?.[scene.visualAssetId] : null;
+    const parallaxAsset = scene?.travelParallaxAssetId ? state.catalog?.imageAssets?.[scene.travelParallaxAssetId] : null;
     const preview = asset
       ? `<img class="asset-field-preview" src="${assetPreviewUrl(asset.path)}" alt="Preview of ${escapeHtml(scene.visualAssetId)}">`
       : `<span class="asset-field-placeholder">Choose or upload an expedition image</span>`;
     return `<div class="travel-scene-editor-row" data-travel-scene-index="${index}">
       <label>Minimum distance<input type="number" min="0" step="any" data-travel-scene-field="minDistance" data-travel-scene-index="${index}" value="${escapeHtml(scene?.minDistance ?? "")}"></label>
-      <label class="asset-selector"><span>Travel panorama</span><span class="asset-selector-controls"><select data-travel-scene-field="visualAssetId" data-travel-scene-index="${index}">${assetOptions("image", scene?.visualAssetId, "expedition")}</select><button type="button" class="small-button" data-action="upload-asset" data-asset-type="image" data-asset-category="expedition" data-asset-field="visualAssetId" data-asset-scene-index="${index}" data-asset-context="${escapeHtml(expedition.name || expedition.id || "travel scene")}" data-asset-profile="travel_panorama">Upload New</button></span><span class="asset-field-preview-wrap">${preview}</span></label>
+       <label class="asset-selector"><span>Travel panorama</span><span class="asset-selector-controls"><select data-travel-scene-field="visualAssetId" data-travel-scene-index="${index}">${assetOptions("image", scene?.visualAssetId, "expedition")}</select><button type="button" class="small-button" data-action="upload-asset" data-asset-type="image" data-asset-category="expedition" data-asset-field="visualAssetId" data-asset-scene-index="${index}" data-asset-context="${escapeHtml(expedition.name || expedition.id || "travel scene")}" data-asset-profile="travel_panorama">Upload New</button></span><span class="asset-field-preview-wrap">${preview}</span></label>
+       <label class="asset-selector"><span>Travel foreground (1.1×)</span><span class="asset-selector-controls"><select data-travel-scene-field="travelParallaxAssetId" data-travel-scene-index="${index}">${assetOptions("image", scene?.travelParallaxAssetId, "expedition")}</select><button type="button" class="small-button" data-action="upload-asset" data-asset-type="image" data-asset-category="expedition" data-asset-field="travelParallaxAssetId" data-asset-scene-index="${index}" data-asset-context="${escapeHtml(expedition.name || expedition.id || "travel foreground")}" data-asset-profile="travel_panorama">Upload New</button></span><span class="asset-field-preview-wrap">${parallaxAsset ? `<img class="asset-field-preview" src="${assetPreviewUrl(parallaxAsset.path)}" alt="Preview of ${escapeHtml(scene.travelParallaxAssetId)}">` : `<span class="asset-field-placeholder">Optional SAM foreground cutout</span>`}</span></label>
       <label class="travel-motion-selector"><span>Motion</span><select data-travel-scene-field="motion" data-travel-scene-index="${index}"><option value="loop"${scene?.motion === "pan" ? "" : " selected"}>Loop</option><option value="pan"${scene?.motion === "pan" ? " selected" : ""}>Pan</option></select>${scene?.motion === "pan" ? "" : `<span class="travel-seam-loop-toggle"><input type="checkbox" data-travel-scene-field="showSeamForegroundBetweenLoops" data-travel-scene-index="${index}"${checked(scene?.showSeamForegroundBetweenLoops !== false)}>Show seam between loops</span>`}</label>
       <button type="button" class="small-button danger-outline" data-action="remove-travel-scene" data-travel-scene-index="${index}">Remove</button>
     </div>`;
@@ -1163,7 +1167,7 @@ function renderExpedition() {
   const references = (liveReferences().expeditions || []).filter((reference) => reference.id === expedition.id);
   const campEventLinks = [...new Set((expedition.campEventTableIds || []).flatMap((tableId) => (state.catalog.campEventTables?.[tableId]?.entries || []).map((entry) => entry.eventId)).filter((eventId) => state.catalog.campEvents?.[eventId]))].map((eventId) => `<button type="button" class="small-button inline-open" data-action="open-reference" data-reference-category="campEvents" data-reference-id="${escapeHtml(eventId)}">Open ${escapeHtml(campEventLabel(eventId))}</button>`).join(" ");
   return `<div class="editor-title"><div><h2>${escapeHtml(expedition.name || expedition.id || "New expedition")}</h2><p>${escapeHtml(expedition.id || "Unsaved ID")}</p></div><span class="schema-badge">Expedition schema</span></div>
-     <section class="section"><div class="section-heading"><div><h3>Expedition metadata</h3><p>These fields are authored in <code>js/expedition-data.js</code> and remain the canonical expedition definition.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(expedition.id || "")}"></label><label>Name<input data-field="name" value="${escapeHtml(expedition.name || "")}"></label><label class="wide">Description<textarea data-field="description">${escapeHtml(expedition.description || "")}</textarea></label><label>Danger<input type="number" min="0" step="any" data-field="danger" value="${escapeHtml(expedition.danger ?? "")}"></label><label>Minimum objective distance<input type="number" min="0" step="any" data-field="minimumObjectiveDistance" value="${escapeHtml(expedition.minimumObjectiveDistance ?? "")}"></label><label>Region<select data-field="regionId"><option value="">Select region...</option>${selectOptions(known.regions || [], expedition.regionId)}</select></label><label>Kind<select data-field="kind"><option value="">Select kind...</option>${selectOptions(kinds, expedition.kind)}</select></label><label class="wide">Path${referenceInput("pathId", expedition.pathId, true)}</label></div>${renderAssetSelector("Travel visual", "travelVisualAssetId", expedition.travelVisualAssetId, "image", "expedition", expedition.name || expedition.id)}${renderAssetSelector("Travel Transition", "travelTransitionAssetId", expedition.travelTransitionAssetId, "image", "expedition", expedition.name || expedition.id)}${renderAssetSelector("Camp visual", "campVisualAssetId", expedition.campVisualAssetId, "image", "expedition", expedition.name || expedition.id)}${renderAssetSelector("Travel ambience", "travelAmbienceAssetId", expedition.travelAmbienceAssetId, "audio", "ambience", expedition.name || expedition.id)}${renderAssetSelector("Camp ambience", "campAmbienceAssetId", expedition.campAmbienceAssetId, "audio", "ambience", expedition.name || expedition.id)}</section>
+     <section class="section"><div class="section-heading"><div><h3>Expedition metadata</h3><p>These fields are authored in <code>js/expedition-data.js</code> and remain the canonical expedition definition.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(expedition.id || "")}"></label><label>Name<input data-field="name" value="${escapeHtml(expedition.name || "")}"></label><label class="wide">Description<textarea data-field="description">${escapeHtml(expedition.description || "")}</textarea></label><label>Danger<input type="number" min="0" step="any" data-field="danger" value="${escapeHtml(expedition.danger ?? "")}"></label><label>Minimum objective distance<input type="number" min="0" step="any" data-field="minimumObjectiveDistance" value="${escapeHtml(expedition.minimumObjectiveDistance ?? "")}"></label><label>Region<select data-field="regionId"><option value="">Select region...</option>${selectOptions(known.regions || [], expedition.regionId)}</select></label><label>Kind<select data-field="kind"><option value="">Select kind...</option>${selectOptions(kinds, expedition.kind)}</select></label><label class="wide">Path${referenceInput("pathId", expedition.pathId, true)}</label></div>${renderAssetSelector("Travel visual", "travelVisualAssetId", expedition.travelVisualAssetId, "image", "expedition", expedition.name || expedition.id, "travel_panorama")}${renderAssetSelector("Travel foreground (1.1×)", "travelParallaxAssetId", expedition.travelParallaxAssetId, "image", "expedition", expedition.name || expedition.id, "travel_panorama")}${renderAssetSelector("Travel Transition", "travelTransitionAssetId", expedition.travelTransitionAssetId, "image", "expedition", expedition.name || expedition.id)}${renderAssetSelector("Camp visual", "campVisualAssetId", expedition.campVisualAssetId, "image", "expedition", expedition.name || expedition.id)}${renderAssetSelector("Travel ambience", "travelAmbienceAssetId", expedition.travelAmbienceAssetId, "audio", "ambience", expedition.name || expedition.id)}${renderAssetSelector("Camp ambience", "campAmbienceAssetId", expedition.campAmbienceAssetId, "audio", "ambience", expedition.name || expedition.id)}</section>
     ${renderTravelScenes(expedition)}
     ${renderAssetSelector("Travel Seam Foreground", "travelSeamForegroundAssetId", expedition.travelSeamForegroundAssetId, "image", "expedition", expedition.name || expedition.id, "none")}
     <section class="section"><div class="section-heading"><div><h3>Camp event tables</h3><p>Choose reusable table IDs from <code>CAMP_EVENT_TABLE_DEFINITIONS</code>.</p></div></div>${renderReferenceChecks("campEventTableIds", expedition.campEventTableIds || [], known.campEventTables || [])}<div class="button-row">${campEventLinks || `<span class="hint">Selected tables have no editable camp-event entries.</span>`}</div></section>
@@ -1174,7 +1178,7 @@ function renderExpedition() {
 
 function collectClientReferences(value, source, references) {
   const scalarTypes = {
-    portraitAssetId: "imageAssets", visualAssetId: "imageAssets", backgroundAssetId: "imageAssets", travelVisualAssetId: "imageAssets", travelTransitionAssetId: "imageAssets", travelSeamForegroundAssetId: "imageAssets", campVisualAssetId: "imageAssets", combatVisualAssetId: "imageAssets", travelAmbienceAssetId: "audioAssets", campAmbienceAssetId: "audioAssets", ambienceAssetId: "audioAssets", stingAssetId: "audioAssets",
+    portraitAssetId: "imageAssets", visualAssetId: "imageAssets", backgroundAssetId: "imageAssets", travelVisualAssetId: "imageAssets", travelParallaxAssetId: "imageAssets", travelTransitionAssetId: "imageAssets", travelSeamForegroundAssetId: "imageAssets", campVisualAssetId: "imageAssets", combatVisualAssetId: "imageAssets", travelAmbienceAssetId: "audioAssets", campAmbienceAssetId: "audioAssets", ambienceAssetId: "audioAssets", stingAssetId: "audioAssets",
     itemId: "items", treatmentItemId: "items", combatId: "combats", abilityId: "abilities", statusId: "combatStatuses", injuryId: "injuries",
     tableId: "lootTables", lootTableId: "lootTables", pathId: "paths", expeditionId: "expeditions",
     nextExpeditionId: "expeditions", materialId: "materials", recipeId: "recipes",
@@ -1776,7 +1780,7 @@ function renderLootTable() {
 
 function assetUsages(assetId, assetType) {
   const fields = assetType === "image"
-    ? new Set(["portraitAssetId", "visualAssetId", "travelVisualAssetId", "travelTransitionAssetId", "travelSeamForegroundAssetId", "campVisualAssetId", "combatVisualAssetId"])
+    ? new Set(["portraitAssetId", "visualAssetId", "travelVisualAssetId", "travelParallaxAssetId", "travelTransitionAssetId", "travelSeamForegroundAssetId", "campVisualAssetId", "combatVisualAssetId"])
     : new Set(["travelAmbienceAssetId", "campAmbienceAssetId", "ambienceAssetId", "stingAssetId"]);
   const usages = [];
   const visit = (value, source, path) => {
@@ -3035,6 +3039,7 @@ async function refreshImageImportPreview() {
   const status = $("#asset-import-status");
   const summary = $("#asset-import-summary");
   const preview = $("#asset-import-preview");
+  const parallaxPreview = $("#asset-import-parallax-preview");
   const confirm = $("[data-action='confirm-asset-upload']");
   const profile = $("#asset-optimization-profile");
   const anchor = $("#asset-crop-anchor");
@@ -3052,14 +3057,19 @@ async function refreshImageImportPreview() {
   form.append("optimizeForGame", String(options.optimize));
   form.append("optimizationProfile", options.profile);
   form.append("cropAnchor", options.cropAnchor);
+  if (pending.samMaskFile) form.append("samMaskFile", pending.samMaskFile, pending.samMaskFile.name);
   form.append("file", pending.file, pending.file.name);
   try {
     const response = await fetch("/api/assets/preview", { method: "POST", body: form });
     const payload = await response.json();
     if (requestId !== state.assetPreviewRequest || !state.pendingAssetUpload) return;
     if (!response.ok) throw new Error(payload.error || payload.errors?.[0]?.message || "Image preview failed.");
-    state.assetPreview = { ...payload, options };
+    state.assetPreview = { ...payload, options: { ...options, samMaskFile: pending.samMaskFile } };
     if (preview) preview.src = payload.previewDataUrl;
+    if (parallaxPreview) {
+      parallaxPreview.hidden = !payload.parallaxPreviewDataUrl;
+      if (payload.parallaxPreviewDataUrl) parallaxPreview.src = payload.parallaxPreviewDataUrl;
+    }
     if (summary) summary.innerHTML = formatAssetImageSummary(payload.imageProcessing);
     if (status) status.textContent = "Ready to import. The source file remains untouched.";
     if (confirm) confirm.disabled = false;
@@ -3072,22 +3082,26 @@ async function refreshImageImportPreview() {
 }
 
 function openImageImportDialog(file, target, assetId) {
-  state.pendingAssetUpload = { file, target, assetId };
+  state.pendingAssetUpload = { file, target, assetId, samMaskFile: null };
   state.assetPreview = null;
   const dialog = $("#asset-import-dialog");
   const filename = $("#asset-import-filename");
   const profile = $("#asset-optimization-profile");
   const anchor = $("#asset-crop-anchor");
   const optimize = $("#asset-optimize-toggle");
+  const samMaskControl = $("#asset-sam-mask-control");
+  const samMaskInput = $("#asset-sam-mask-input");
   if (filename) filename.textContent = `${target.replace ? "Replace" : "Upload"} · ${assetId} · ${file.name}`;
   if (profile) profile.value = target.optimizationProfile || imageProfileForCategory(target.category);
   if (anchor) anchor.value = "center";
   if (optimize) optimize.checked = true;
+  if (samMaskControl) samMaskControl.hidden = target.category !== "expedition";
+  if (samMaskInput) samMaskInput.value = "";
   if (dialog) dialog.hidden = false;
   refreshImageImportPreview();
 }
 
-async function submitAssetUpload(file, target, assetId, options = {}) {
+async function submitAssetUpload(file, target, assetId, options = {}, samMaskFile = null) {
   const form = new FormData();
   form.append("assetType", target.assetType);
   form.append("category", target.category);
@@ -3098,6 +3112,7 @@ async function submitAssetUpload(file, target, assetId, options = {}) {
     form.append("optimizationProfile", options.profile || "none");
     form.append("cropAnchor", options.cropAnchor || "center");
   }
+  if (samMaskFile) form.append("samMaskFile", samMaskFile, samMaskFile.name);
   form.append("file", file, file.name);
   const response = await fetch(target.replace ? "/api/assets/replace" : "/api/assets/upload", { method: "POST", body: form });
   const payload = await response.json();
@@ -3106,9 +3121,14 @@ async function submitAssetUpload(file, target, assetId, options = {}) {
   if (target.field && state.draft) {
     if (target.sceneIndex !== null && target.sceneIndex !== undefined) {
       state.draft.travelScenes ||= [];
-      state.draft.travelScenes[Number(target.sceneIndex)][target.field] = payload.assetResult.assetId;
+      const scene = state.draft.travelScenes[Number(target.sceneIndex)];
+      scene[target.field] = payload.assetResult.assetId;
+      if (payload.assetResult.parallaxAssetId) scene.travelParallaxAssetId = payload.assetResult.parallaxAssetId;
     } else if (target.nodeId) state.draft.nodes[target.nodeId][target.field] = payload.assetResult.assetId;
-    else state.draft[target.field] = payload.assetResult.assetId;
+    else {
+      state.draft[target.field] = payload.assetResult.assetId;
+      if (payload.assetResult.parallaxAssetId) state.draft.travelParallaxAssetId = payload.assetResult.parallaxAssetId;
+    }
     markDirty();
   } else {
     state.category = target.assetType === "audio" ? "audioAssets" : "imageAssets";
@@ -3148,7 +3168,7 @@ function handleAction(button) {
     const preview = state.assetPreview;
     if (!pending || !preview) return;
     button.disabled = true;
-    submitAssetUpload(pending.file, pending.target, pending.assetId, preview.options)
+    submitAssetUpload(pending.file, pending.target, pending.assetId, preview.options, pending.samMaskFile)
       .then(() => closeAssetImportDialog())
       .catch((error) => {
         button.disabled = false;
@@ -3786,6 +3806,10 @@ document.addEventListener("input", (event) => {
 });
 document.addEventListener("change", (event) => {
   if (event.target.matches("#asset-upload-input")) uploadSelectedAsset(event.target.files?.[0]);
+  else if (event.target.matches("#asset-sam-mask-input")) {
+    if (state.pendingAssetUpload) state.pendingAssetUpload.samMaskFile = event.target.files?.[0] || null;
+    refreshImageImportPreview();
+  }
   else if (event.target.matches("#asset-optimize-toggle, #asset-optimization-profile, #asset-crop-anchor")) refreshImageImportPreview();
   else if (event.target.matches("[data-outcome-layout-input]")) commitOutcomeLayoutInput(event.target);
   else if (event.target.matches("[data-encounter-layout-input]")) commitEncounterLayoutInput(event.target);
