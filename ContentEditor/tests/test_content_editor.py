@@ -58,6 +58,31 @@ class ContentEditorTests(unittest.TestCase):
         self.assertIn("Recommended: 3:1 panoramic artwork", app)
         self.assertIn('renderAssetSelector("Camp visual"', app)
 
+    def test_combat_background_selectors_use_static_scene_assets(self) -> None:
+        app = (CONTENT_EDITOR / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertIn('renderAssetSelector("Default Combat Background", "combatVisualAssetId"', app)
+        self.assertIn('renderAssetSelector("Combat Background Override", "combatVisualAssetId"', app)
+        self.assertIn('"combat_scene", expedition.name || expedition.id, "scene"', app)
+        self.assertIn('"combat_scene", encounter.title || encounter.id, "scene"', app)
+        self.assertIn("never processed as a transparent combat cutout", app)
+
+        catalog = load_catalog(GRAIL)
+        incoming = {"expeditions": clone(catalog["expeditions"]), "encounters": clone(catalog["encounters"]), "imageAssets": clone(catalog["imageAssets"])}
+        incoming["expeditions"]["old_forest_road"]["combatVisualAssetId"] = None
+        incoming["encounters"]["wild_boar"]["combatVisualAssetId"] = None
+        self.assertEqual(validate_catalog(incoming, catalog["known"], catalog["references"])["errors"], [])
+
+        combat_scene_id = next(
+            asset_id for asset_id, asset in catalog["imageAssets"].items()
+            if asset.get("category") == "combat_scene"
+        )
+        incoming["expeditions"]["old_forest_road"]["combatVisualAssetId"] = combat_scene_id
+        self.assertEqual(validate_catalog(incoming, catalog["known"], catalog["references"])["errors"], [])
+
+        incoming["expeditions"]["old_forest_road"]["combatVisualAssetId"] = "expedition_old_forest_road_bg"
+        invalid = validate_catalog(incoming, catalog["known"], catalog["references"])
+        self.assertTrue(any("incompatible with combatVisualAssetId" in issue["message"] for issue in invalid["errors"]))
+
     def test_town_hotspots_round_trip_and_layout_editor_surface(self) -> None:
         catalog = load_catalog(GRAIL)
         inn_hotspot = catalog["destinations"]["inn"]["hotspot"]

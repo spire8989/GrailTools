@@ -236,14 +236,18 @@ function assetOptions(assetType, current, category = "") {
 function renderAssetSelector(label, field, current, assetType = "image", category = "", context = "", optimizationProfile = "") {
   const sourceCategory = assetType === "audio" ? "audioAssets" : "imageAssets";
   const asset = current ? state.catalog?.[sourceCategory]?.[current] : null;
-  const displayLabel = field === "campVisualAssetId" ? `${label} · Scene 16:9` : label;
+  const displayLabel = field === "campVisualAssetId" || field === "combatVisualAssetId"
+    ? `${label} · Scene 16:9`
+    : label;
   const helper = field === "travelTransitionAssetId"
     ? `<span class="hint">Optional foreground artwork used to hide Travel Scene changes. Falls back to crossfade.</span>`
     : field === "travelSeamForegroundAssetId"
       ? `<span class="hint">Optional transparent PNG/WebP repeated at each travel panorama seam.</span>`
       : field === "travelParallaxAssetId"
         ? `<span class="hint">Optional transparent foreground cutout imported from a SAM JSON mask; stays aligned at 1.0×.</span>`
-        : "";
+        : field === "combatVisualAssetId"
+          ? `<span class="hint">Static 16:9 battlefield artwork. This is separate from the normal encounter scene and is never processed as a transparent combat cutout.</span>`
+          : "";
   const preview = asset && assetType === "image"
     ? `<img class="asset-field-preview" src="${assetPreviewUrl(asset.path)}" alt="Preview of ${escapeHtml(current)}">`
     : asset && assetType === "audio"
@@ -1028,6 +1032,7 @@ function renderEncounter() {
         <label>Title<input data-field="title" value="${escapeHtml(encounter.title || "")}"></label>
         <label class="wide">Description<textarea data-field="description">${escapeHtml(encounter.description || "")}</textarea></label>
         ${renderAssetSelector("Encounter visual", "visualAssetId", encounter.visualAssetId, "image", "encounter", encounter.title || encounter.id)}
+        ${renderAssetSelector("Combat Background Override", "combatVisualAssetId", encounter.combatVisualAssetId, "image", "combat_scene", encounter.title || encounter.id, "scene")}
         ${renderAssetSelector("Encounter ambience", "ambienceAssetId", encounter.ambienceAssetId, "audio", "ambience", encounter.title || encounter.id)}
         ${renderAssetSelector("Encounter sting", "stingAssetId", encounter.stingAssetId, "audio", "sfx", encounter.title || encounter.id)}
         <label>Region<select data-field="regionId"><option value="">Select region…</option>${selectOptions(known.regions || [], encounter.regionId)}</select></label>
@@ -1167,7 +1172,7 @@ function renderExpedition() {
   const references = (liveReferences().expeditions || []).filter((reference) => reference.id === expedition.id);
   const campEventLinks = [...new Set((expedition.campEventTableIds || []).flatMap((tableId) => (state.catalog.campEventTables?.[tableId]?.entries || []).map((entry) => entry.eventId)).filter((eventId) => state.catalog.campEvents?.[eventId]))].map((eventId) => `<button type="button" class="small-button inline-open" data-action="open-reference" data-reference-category="campEvents" data-reference-id="${escapeHtml(eventId)}">Open ${escapeHtml(campEventLabel(eventId))}</button>`).join(" ");
   return `<div class="editor-title"><div><h2>${escapeHtml(expedition.name || expedition.id || "New expedition")}</h2><p>${escapeHtml(expedition.id || "Unsaved ID")}</p></div><span class="schema-badge">Expedition schema</span></div>
-     <section class="section"><div class="section-heading"><div><h3>Expedition metadata</h3><p>These fields are authored in <code>js/expedition-data.js</code> and remain the canonical expedition definition.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(expedition.id || "")}"></label><label>Name<input data-field="name" value="${escapeHtml(expedition.name || "")}"></label><label class="wide">Description<textarea data-field="description">${escapeHtml(expedition.description || "")}</textarea></label><label>Danger<input type="number" min="0" step="any" data-field="danger" value="${escapeHtml(expedition.danger ?? "")}"></label><label>Minimum objective distance<input type="number" min="0" step="any" data-field="minimumObjectiveDistance" value="${escapeHtml(expedition.minimumObjectiveDistance ?? "")}"></label><label>Region<select data-field="regionId"><option value="">Select region...</option>${selectOptions(known.regions || [], expedition.regionId)}</select></label><label>Kind<select data-field="kind"><option value="">Select kind...</option>${selectOptions(kinds, expedition.kind)}</select></label><label class="wide">Path${referenceInput("pathId", expedition.pathId, true)}</label></div>${renderAssetSelector("Travel visual", "travelVisualAssetId", expedition.travelVisualAssetId, "image", "expedition", expedition.name || expedition.id, "travel_panorama")}${renderAssetSelector("Travel foreground (aligned)", "travelParallaxAssetId", expedition.travelParallaxAssetId, "image", "expedition", expedition.name || expedition.id, "travel_panorama")}${renderAssetSelector("Travel Transition", "travelTransitionAssetId", expedition.travelTransitionAssetId, "image", "expedition", expedition.name || expedition.id)}${renderAssetSelector("Camp visual", "campVisualAssetId", expedition.campVisualAssetId, "image", "expedition", expedition.name || expedition.id)}${renderAssetSelector("Travel ambience", "travelAmbienceAssetId", expedition.travelAmbienceAssetId, "audio", "ambience", expedition.name || expedition.id)}${renderAssetSelector("Camp ambience", "campAmbienceAssetId", expedition.campAmbienceAssetId, "audio", "ambience", expedition.name || expedition.id)}</section>
+     <section class="section"><div class="section-heading"><div><h3>Expedition metadata</h3><p>These fields are authored in <code>js/expedition-data.js</code> and remain the canonical expedition definition.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(expedition.id || "")}"></label><label>Name<input data-field="name" value="${escapeHtml(expedition.name || "")}"></label><label class="wide">Description<textarea data-field="description">${escapeHtml(expedition.description || "")}</textarea></label><label>Danger<input type="number" min="0" step="any" data-field="danger" value="${escapeHtml(expedition.danger ?? "")}"></label><label>Minimum objective distance<input type="number" min="0" step="any" data-field="minimumObjectiveDistance" value="${escapeHtml(expedition.minimumObjectiveDistance ?? "")}"></label><label>Region<select data-field="regionId"><option value="">Select region...</option>${selectOptions(known.regions || [], expedition.regionId)}</select></label><label>Kind<select data-field="kind"><option value="">Select kind...</option>${selectOptions(kinds, expedition.kind)}</select></label><label class="wide">Path${referenceInput("pathId", expedition.pathId, true)}</label></div>${renderAssetSelector("Travel visual", "travelVisualAssetId", expedition.travelVisualAssetId, "image", "expedition", expedition.name || expedition.id, "travel_panorama")}${renderAssetSelector("Travel foreground (aligned)", "travelParallaxAssetId", expedition.travelParallaxAssetId, "image", "expedition", expedition.name || expedition.id, "travel_panorama")}${renderAssetSelector("Travel Transition", "travelTransitionAssetId", expedition.travelTransitionAssetId, "image", "expedition", expedition.name || expedition.id)}${renderAssetSelector("Camp visual", "campVisualAssetId", expedition.campVisualAssetId, "image", "expedition", expedition.name || expedition.id)}${renderAssetSelector("Default Combat Background", "combatVisualAssetId", expedition.combatVisualAssetId, "image", "combat_scene", expedition.name || expedition.id, "scene")}${renderAssetSelector("Travel ambience", "travelAmbienceAssetId", expedition.travelAmbienceAssetId, "audio", "ambience", expedition.name || expedition.id)}${renderAssetSelector("Camp ambience", "campAmbienceAssetId", expedition.campAmbienceAssetId, "audio", "ambience", expedition.name || expedition.id)}</section>
     ${renderTravelScenes(expedition)}
     ${renderAssetSelector("Travel Seam Foreground", "travelSeamForegroundAssetId", expedition.travelSeamForegroundAssetId, "image", "expedition", expedition.name || expedition.id, "none")}
     <section class="section"><div class="section-heading"><div><h3>Camp event tables</h3><p>Choose reusable table IDs from <code>CAMP_EVENT_TABLE_DEFINITIONS</code>.</p></div></div>${renderReferenceChecks("campEventTableIds", expedition.campEventTableIds || [], known.campEventTables || [])}<div class="button-row">${campEventLinks || `<span class="hint">Selected tables have no editable camp-event entries.</span>`}</div></section>
@@ -1816,7 +1821,7 @@ function assetUsages(assetId, assetType) {
 function renderAsset() {
   const asset = state.draft;
   const assetType = assetTypeForCategory(state.category);
-  const categoryValues = assetType === "image" ? ["location", "town", "expedition", "encounter", "combat", "portrait", "ui"] : ["ambience", "sfx", "music"];
+  const categoryValues = assetType === "image" ? ["location", "town", "expedition", "encounter", "combat", "combat_scene", "portrait", "ui"] : ["ambience", "sfx", "music"];
   const categoryLabel = categoryValues[0];
   if (!asset) {
     return `<div class="empty-state"><h2>No ${assetType} assets yet</h2><p>Upload a file to add it to the game's canonical assets folder and catalog.</p><label class="asset-upload-category">Asset category<select id="asset-browser-category">${categoryValues.map((category) => `<option value="${category}">${category}</option>`).join("")}</select></label><button type="button" class="primary" data-action="upload-asset" data-asset-browser="true" data-asset-type="${assetType}" data-asset-category="${categoryLabel}">Upload New ${assetType}</button></div>`;
@@ -2868,7 +2873,9 @@ function handleInput(input) {
       render();
       return;
     }
-    const value = parseInputValue(input, input.dataset.field);
+    const value = input.dataset.field === "combatVisualAssetId" && input.value === ""
+      ? null
+      : parseInputValue(input, input.dataset.field);
     setNested(state.draft, input.dataset.field, value);
     markDirty();
     if (["category"].includes(input.dataset.field)
@@ -2998,7 +3005,7 @@ function suggestClientAssetId(filename, assetType, category, context = "") {
 }
 
 function imageProfileForCategory(category) {
-  return { portrait: "portrait", location: "scene", town: "town", expedition: "scene", encounter: "scene", combat: "combat", ui: "ui" }[category] || "none";
+  return { portrait: "portrait", location: "scene", town: "town", expedition: "scene", encounter: "scene", combat: "combat", combat_scene: "scene", ui: "ui" }[category] || "none";
 }
 
 function formatAssetBytes(bytes) {

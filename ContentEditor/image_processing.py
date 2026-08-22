@@ -84,6 +84,7 @@ PROFILE_ALIASES = {
     "encounter": "scene",
     "portrait": "portrait",
     "combat": "combat",
+    "combat_scene": "scene",
     "ui": "ui",
 }
 CROP_ANCHORS = ("center", "top", "bottom", "left", "right")

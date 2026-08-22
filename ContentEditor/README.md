@@ -191,11 +191,13 @@ atomic and retain the normal `.backups` source-file backup behavior.
 
 The editor exposes asset selectors for locations, destinations, expeditions,
 encounters, NPC portraits, dialogue-node portrait overrides, and combat
-visuals. Validation checks that referenced files exist, paths stay within the
-asset roots, IDs are unique across image/audio catalogs, and field/category
-pairs are compatible (for example, a portrait cannot point at a location
-asset). The game-side catalog is still authoritative; the editor stores no
-separate asset database.
+visuals. Combat battlefield backgrounds use the separate `combat_scene`
+category and the normal Scene 16:9 profile; they are distinct from transparent
+`combat` cutouts. Validation checks that referenced files exist, paths stay
+within the asset roots, IDs are unique across image/audio catalogs, and
+field/category pairs are compatible (for example, a portrait cannot point at a
+location asset). The game-side catalog is still authoritative; the editor
+stores no separate asset database.
 
 ### Image optimization
 
@@ -216,6 +218,8 @@ the runtime assets folder.
   and encounter art use a 1280×720, 16:9 WebP profile.
 - Combat cutouts preserve aspect ratio and transparency with a 768px longest
   dimension cap.
+- Combat battlefield scenes use the normal 1280×720, 16:9 Scene profile and
+  remain static behind the combat HUD.
 - UI images preserve aspect ratio with a 1024px longest dimension cap.
 - Fixed-aspect profiles use a center crop by default. The import dialog also
   offers top, bottom, left, and right anchors.
@@ -225,7 +229,9 @@ the runtime assets folder.
 - The generic Asset Browser offers Portrait, Scene, Town Background, Travel
   Panorama, Combat, UI, and None/Original profiles. Uploading from an Expedition
   Travel Scene row selects Travel Panorama by default, town backgrounds select
-  Town Background, and Expedition Camp Visual keeps the normal Scene profile.
+  Town Background, Expedition Camp Visual keeps the normal Scene profile, and
+  combat battlefield selectors use the Scene profile in the `combat_scene`
+  category.
 - Replacements preserve the stable asset ID and existing WebP path. When an
   older PNG/JPG runtime path is optimized, its catalog path moves to a sibling
   WebP and the old runtime file is backed up and removed after the catalog
