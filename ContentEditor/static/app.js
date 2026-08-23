@@ -1585,6 +1585,8 @@ function renderEnemyTraitRows(enemy) {
 
 const characterPreviewInstances = new Set();
 const characterPreviewMetadataCache = new Map();
+const characterPreviewMetadataPromises = new Map();
+const characterPreviewNormalizationCache = new Map();
 let characterPreviewAnimationFrame = null;
 
 function characterPreviewFallback(root, visible = true) {
@@ -1599,8 +1601,12 @@ function scheduleCharacterPreviewAnimation() {
   if (characterPreviewAnimationFrame === null) characterPreviewAnimationFrame = window.requestAnimationFrame(tickCharacterPreviews);
 }
 
+function characterPreviewMetadataKey(instance, assetId = instance.root.dataset.previewAssetId, frameCount = instance.root.dataset.previewFrameCount, columns = instance.root.dataset.previewColumns) {
+  return `${instance.root.dataset.previewCharacterId || state.draft?.id || "character"}|${assetId}|${frameCount}|${columns}`;
+}
+
 function characterPreviewMetadata(image, instance) {
-  const key = `${instance.root.dataset.previewAssetId}|${instance.root.dataset.previewFrameCount}|${instance.root.dataset.previewColumns}`;
+  const key = characterPreviewMetadataKey(instance);
   const cached = characterPreviewMetadataCache.get(key);
   if (cached && cached.width === image.naturalWidth && cached.height === image.naturalHeight) return cached;
   const frameCount = Math.max(1, Number(instance.root.dataset.previewFrameCount) || 1);
@@ -1617,12 +1623,12 @@ function characterPreviewMetadata(image, instance) {
     scanContext.drawImage(image, 0, 0);
     const pixels = scanContext.getImageData(0, 0, image.naturalWidth, image.naturalHeight).data;
     for (let frame = 0; frame < frameCount; frame += 1) {
-      const cellX = Math.floor(frame % columns) * frameWidth;
-      const cellY = Math.floor(frame / columns) * frameHeight;
-      const startX = Math.floor(cellX);
-      const startY = Math.floor(cellY);
-      const endX = Math.min(image.naturalWidth, Math.ceil(cellX + frameWidth));
-      const endY = Math.min(image.naturalHeight, Math.ceil(cellY + frameHeight));
+      const column = frame % columns;
+      const row = Math.floor(frame / columns);
+      const startX = Math.floor(column * image.naturalWidth / columns);
+      const startY = Math.floor(row * image.naturalHeight / rows);
+      const endX = Math.floor((column + 1) * image.naturalWidth / columns);
+      const endY = Math.floor((row + 1) * image.naturalHeight / rows);
       let minX = endX;
       let minY = endY;
       let maxX = startX - 1;
@@ -1638,11 +1644,17 @@ function characterPreviewMetadata(image, instance) {
       }
       frameBounds.push(maxX >= minX
         ? { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 }
-        : { x: startX, y: startY, width: Math.max(1, Math.round(frameWidth)), height: Math.max(1, Math.round(frameHeight)) });
+        : { x: startX, y: startY, width: Math.max(1, endX - startX), height: Math.max(1, endY - startY) });
     }
   } else {
     for (let frame = 0; frame < frameCount; frame += 1) {
-      frameBounds.push({ x: (frame % columns) * frameWidth, y: Math.floor(frame / columns) * frameHeight, width: frameWidth, height: frameHeight });
+      const column = frame % columns;
+      const row = Math.floor(frame / columns);
+      const startX = Math.floor(column * image.naturalWidth / columns);
+      const startY = Math.floor(row * image.naturalHeight / rows);
+      const endX = Math.floor((column + 1) * image.naturalWidth / columns);
+      const endY = Math.floor((row + 1) * image.naturalHeight / rows);
+      frameBounds.push({ x: startX, y: startY, width: Math.max(1, endX - startX), height: Math.max(1, endY - startY) });
     }
   }
   const maximumVisibleHeight = Math.max(1, ...frameBounds.map((bounds) => bounds.height));
@@ -1660,6 +1672,58 @@ function characterPreviewMetadata(image, instance) {
   };
   characterPreviewMetadataCache.set(key, metadata);
   return metadata;
+}
+
+function characterPreviewConfig(visual = {}) {
+  const frameCount = Number(visual.frameCount) > 0 ? Number(visual.frameCount) : 1;
+  const columns = Number(visual.columns) > 0 ? Math.min(frameCount, Number(visual.columns)) : frameCount;
+  return { frameCount, columns };
+}
+
+function loadCharacterPreviewMetadata(root, assetId, frameCount, columns, image = null) {
+  const key = characterPreviewMetadataKey({ root }, assetId, frameCount, columns);
+  const cached = characterPreviewMetadataCache.get(key);
+  if (cached) return Promise.resolve(cached);
+  if (image?.naturalWidth && image?.naturalHeight) {
+    return Promise.resolve(characterPreviewMetadata(image, { root: { dataset: { ...root.dataset, previewAssetId: assetId, previewFrameCount: String(frameCount), previewColumns: String(columns), previewCharacterId: root.dataset.previewCharacterId } } }));
+  }
+  if (characterPreviewMetadataPromises.has(key)) return characterPreviewMetadataPromises.get(key);
+  const promise = new Promise((resolve) => {
+    const source = new Image();
+    source.onload = () => {
+      try {
+        resolve(characterPreviewMetadata(source, { root: { dataset: { ...root.dataset, previewAssetId: assetId, previewFrameCount: String(frameCount), previewColumns: String(columns), previewCharacterId: root.dataset.previewCharacterId } } }));
+      } catch (error) {
+        resolve(null);
+      }
+    };
+    source.onerror = () => resolve(null);
+    source.src = assetPreviewUrl(state.catalog.imageAssets?.[assetId]?.path || "");
+  }).finally(() => characterPreviewMetadataPromises.delete(key));
+  characterPreviewMetadataPromises.set(key, promise);
+  return promise;
+}
+
+function characterPreviewReferenceSlot() {
+  const visuals = state.draft?.visuals || {};
+  return ["walk", "idle", "attack"].find((slot) => visuals[slot]?.assetId && state.catalog.imageAssets?.[visuals[slot].assetId])
+    || Object.keys(visuals).find((slot) => visuals[slot]?.assetId && state.catalog.imageAssets?.[visuals[slot].assetId])
+    || "idle";
+}
+
+function characterPreviewNormalization(root, instance, metadata) {
+  const referenceSlot = characterPreviewReferenceSlot();
+  const referenceVisual = state.draft?.visuals?.[referenceSlot] || {};
+  const referenceConfig = characterPreviewConfig(referenceVisual);
+  const referenceAssetId = referenceVisual.assetId || "";
+  const key = `${characterPreviewMetadataKey(instance)}|reference:${characterPreviewMetadataKey(instance, referenceAssetId, referenceConfig.frameCount, referenceConfig.columns)}`;
+  if (characterPreviewNormalizationCache.has(key)) return characterPreviewNormalizationCache.get(key);
+  const promise = loadCharacterPreviewMetadata(root, referenceAssetId, referenceConfig.frameCount, referenceConfig.columns).then((referenceMetadata) => {
+    if (!referenceMetadata || !metadata?.normalizedHeight) return 1;
+    return Math.max(0.5, Math.min(2, referenceMetadata.normalizedHeight / metadata.normalizedHeight));
+  });
+  characterPreviewNormalizationCache.set(key, promise);
+  return promise;
 }
 
 function drawCharacterPreview(instance, frameIndex = instance.frameIndex) {
@@ -1687,21 +1751,36 @@ function drawCharacterPreview(instance, frameIndex = instance.frameIndex) {
 
 function initializeCharacterVisualPreview(root) {
   if (!root) return;
-  stopCharacterPreview(root);
   const image = root.querySelector(".character-preview-source");
   const canvas = root.querySelector(".character-preview-canvas");
   const assetId = root.dataset.previewAssetId;
   const asset = state.catalog?.imageAssets?.[assetId];
   if (!image || !canvas || !assetId || !asset) {
+    stopCharacterPreview(root);
     root.classList.remove("is-ready");
     characterPreviewFallback(root, true);
     return;
   }
+  const stateKey = `${assetId}|${root.dataset.previewFrameCount}|${root.dataset.previewColumns}|${root.dataset.previewScale}|${root.dataset.previewSlot}`;
+  if (root._characterPreviewInstance?.stateKey === stateKey && root._characterPreviewInstance.image === image) return;
+  if (root._characterPreviewPendingKey === stateKey) return;
+  stopCharacterPreview(root);
+  root.classList.remove("is-ready");
   root.style.setProperty("--preview-scale", String(Math.min(3, Math.max(0.25, Number(root.dataset.previewScale) || 1))));
-  const instance = { root, image, canvas, frameIndex: 0, metadata: null, startedAt: performance.now(), paused: root.dataset.previewPlaying === "false" || window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches };
-  characterPreviewInstances.add(instance);
-  if (image.complete && image.naturalWidth) drawCharacterPreview(instance, 0);
-  if (Number(root.dataset.previewFrameCount) > 1 && !instance.paused) scheduleCharacterPreviewAnimation();
+  root._characterPreviewPendingKey = stateKey;
+  const instance = { root, image, canvas, frameIndex: 0, metadata: null, stateKey, startedAt: performance.now(), paused: root.dataset.previewPlaying === "false" || window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches };
+  const metadata = characterPreviewMetadata(image, instance);
+  characterPreviewNormalization(root, instance, metadata).then((automaticSlotNormalization) => {
+    if (!root.isConnected || root._characterPreviewPendingKey !== stateKey) return;
+    root._characterPreviewPendingKey = null;
+    root.style.setProperty("--preview-scale", String(Math.min(3, Math.max(0.25, (Number(root.dataset.previewScale) || 1) * automaticSlotNormalization))));
+    instance.metadata = metadata;
+    instance.automaticSlotNormalization = automaticSlotNormalization;
+    root._characterPreviewInstance = instance;
+    characterPreviewInstances.add(instance);
+    drawCharacterPreview(instance, 0);
+    if (Number(root.dataset.previewFrameCount) > 1 && !instance.paused) scheduleCharacterPreviewAnimation();
+  });
 }
 
 function handleCharacterVisualPreviewError(image) {
@@ -1768,12 +1847,12 @@ function renderCharacterVisualPreview(slot, label, visual, options = {}) {
   const fallback = asset ? "Preview unavailable" : "No sprite assigned";
   const comparisonClass = options.comparison ? " character-preview-comparison" : "";
   const controls = options.comparison ? "" : `<button type="button" class="small-button" data-action="toggle-character-preview">Pause</button>`;
-  return `<div class="character-preview${comparisonClass}" data-character-preview data-preview-slot="${slot}" data-preview-label="${label}" data-preview-asset-id="${escapeHtml(visual.assetId || "")}" data-preview-frame-count="${frameCount}" data-preview-columns="${columns}" data-preview-fps="${fps}" data-preview-scale="${scale}" data-preview-playing="true"><canvas class="character-preview-canvas" aria-hidden="true"></canvas>${path ? `<img class="character-preview-source" src="${assetPreviewUrl(path)}" alt="" aria-hidden="true" onload="initializeCharacterVisualPreview(this.closest('[data-character-preview]'))" onerror="handleCharacterVisualPreviewError(this)">` : ""}<span class="character-preview-fallback is-visible">${fallback}</span>${controls}</div>`;
+  return `<div class="character-preview${comparisonClass}" data-character-preview data-preview-character-id="${escapeHtml(options.characterId || state.draft?.id || "character")}" data-preview-slot="${slot}" data-preview-label="${label}" data-preview-asset-id="${escapeHtml(visual.assetId || "")}" data-preview-frame-count="${frameCount}" data-preview-columns="${columns}" data-preview-fps="${fps}" data-preview-scale="${scale}" data-preview-playing="true"><canvas class="character-preview-canvas" aria-hidden="true"></canvas>${path ? `<img class="character-preview-source" src="${assetPreviewUrl(path)}" alt="" aria-hidden="true" onload="initializeCharacterVisualPreview(this.closest('[data-character-preview]'))" onerror="handleCharacterVisualPreviewError(this)">` : ""}<span class="character-preview-fallback is-visible">${fallback}</span>${controls}</div>`;
 }
 
 function renderCharacterScaleComparison(definition) {
   const slots = [["idle", "Idle"], ["walk", "Walk"], ["attack", "Attack"]];
-  return `<div class="character-scale-comparison"><div class="section-heading"><div><h4>Scale Comparison</h4><p>Idle, Walk, and Attack share a ground line so authored scale differences are easy to spot.</p></div></div><div class="character-scale-comparison-grid">${slots.map(([slot, label]) => `<div class="character-scale-comparison-slot"><strong>${label}</strong>${renderCharacterVisualPreview(slot, label, definition?.visuals?.[slot] || {}, { comparison: true })}</div>`).join("")}</div></div>`;
+  return `<div class="character-scale-comparison"><div class="section-heading"><div><h4>Scale Comparison</h4><p>Idle, Walk, and Attack share a ground line so authored scale differences are easy to spot.</p></div></div><div class="character-scale-comparison-grid">${slots.map(([slot, label]) => `<div class="character-scale-comparison-slot"><strong>${label}</strong>${renderCharacterVisualPreview(slot, label, definition?.visuals?.[slot] || {}, { comparison: true, characterId: definition?.id })}</div>`).join("")}</div></div>`;
 }
 
 function renderCharacterVisuals(definition, context) {
@@ -1781,7 +1860,7 @@ function renderCharacterVisuals(definition, context) {
   const slots = [["idle", "Idle"], ["walk", "Walk"], ["attack", "Attack"]];
   return `<section class="section character-visuals"><div class="section-heading"><div><h3>Character Visuals</h3><p>Optional sprite slots. Sprite Sheet uploads preserve the full transparent sheet without cropping. Omitted FPS defaults to Idle 6, Walk 10, or Attack 12 when a slot has multiple frames.</p></div></div>${renderCharacterScaleComparison(definition)}${slots.map(([slot, label]) => {
     const visual = visuals[slot] || {};
-    return `<div class="section-card"><h4>${label}</h4>${renderCharacterVisualPreview(slot, label, visual)}${renderAssetSelector(`${label} visual`, `visuals.${slot}.assetId`, visual.assetId, "image", "combat", `${context} ${slot}`, "sprite_sheet")}<div class="form-grid four"><label>Frames<input type="number" min="1" step="1" data-field="visuals.${slot}.frameCount" value="${escapeHtml(visual.frameCount ?? "")}" placeholder="optional"></label><label>Columns<input type="number" min="1" step="1" data-field="visuals.${slot}.columns" value="${escapeHtml(visual.columns ?? "")}" placeholder="optional"></label><label>FPS<input type="number" min="0" step="any" data-field="visuals.${slot}.fps" value="${escapeHtml(visual.fps ?? "")}" placeholder="default"></label><label>Scale<input type="number" min="0.25" max="3" step="0.05" data-field="visuals.${slot}.scale" value="${escapeHtml(visual.scale ?? "")}" placeholder="1"></label></div></div>`;
+    return `<div class="section-card"><h4>${label}</h4>${renderCharacterVisualPreview(slot, label, visual, { characterId: definition?.id })}${renderAssetSelector(`${label} visual`, `visuals.${slot}.assetId`, visual.assetId, "image", "combat", `${context} ${slot}`, "sprite_sheet")}<div class="form-grid four"><label>Frames<input type="number" min="1" step="1" data-field="visuals.${slot}.frameCount" value="${escapeHtml(visual.frameCount ?? "")}" placeholder="optional"></label><label>Columns<input type="number" min="1" step="1" data-field="visuals.${slot}.columns" value="${escapeHtml(visual.columns ?? "")}" placeholder="optional"></label><label>FPS<input type="number" min="0" step="any" data-field="visuals.${slot}.fps" value="${escapeHtml(visual.fps ?? "")}" placeholder="default"></label><label>Scale<input type="number" min="0.25" max="3" step="0.05" data-field="visuals.${slot}.scale" value="${escapeHtml(visual.scale ?? "")}" placeholder="1"></label></div></div>`;
   }).join("")}</section>`;
 }
 
