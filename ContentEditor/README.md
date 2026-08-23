@@ -45,7 +45,8 @@ The default project is discovered as the sibling `../../Grail` relative to
 
 - Characters: the Player Character singleton edits Arthur's current identity,
   expedition/combat stats, portrait, static combat visual, visual scale, and
-  optional Idle/Walk/Attack sprite slots with frame count, columns, FPS, animated
+  optional Idle/Walk/Attack sprite slots with frame count, columns, FPS, authored Attack
+  Impact frame, animated
   previews, and play/pause controls. Companions are a first-class CRUD category backed
   by `COMPANION_DEFINITIONS`, with safe reference-aware deletion and the same
   current identity, provision, combat, static visual, visual scale, and the same

@@ -82,6 +82,8 @@ class ContentEditorTests(unittest.TestCase):
         self.assertIn('data-field="visuals.${slot}.scale"', app)
         self.assertIn('data-field="visuals.${slot}.offsetX"', app)
         self.assertIn('data-field="visuals.${slot}.offsetY"', app)
+        self.assertIn('data-field="visuals.${slot}.impactFrame"', app)
+        self.assertIn("Impact frame", app)
         self.assertIn('Scale Comparison', app)
         self.assertIn('character-scale-comparison-grid', app)
         image_assets = {"character_pass_combat": {"id": "character_pass_combat", "category": "combat", "path": "assets/images/combat/character_pass_combat.webp"}}
@@ -107,6 +109,10 @@ class ContentEditorTests(unittest.TestCase):
         errors = validate_catalog(values, catalog["known"])["errors"]
         self.assertTrue(any("offsetX" in issue["message"] for issue in errors))
         player["visuals"]["idle"]["offsetX"] = -3
+        player["visuals"]["idle"]["impactFrame"] = 4
+        errors = validate_catalog(values, catalog["known"])["errors"]
+        self.assertTrue(any("impactFrame" in issue["message"] for issue in errors))
+        player["visuals"]["idle"].pop("impactFrame")
         player["visualScale"] = 3.5
         errors = validate_catalog(values, catalog["known"])["errors"]
         self.assertTrue(any("visualScale" in issue["message"] for issue in errors))
@@ -122,6 +128,7 @@ class ContentEditorTests(unittest.TestCase):
             "frameCount": 3,
             "columns": 3,
             "fps": 12,
+            "impactFrame": 1,
             "scale": 0.8,
             "offsetX": -2,
             "offsetY": 1,
@@ -131,6 +138,7 @@ class ContentEditorTests(unittest.TestCase):
         self.assertEqual(after["playerCharacter"]["visualScale"], 0.75)
         self.assertEqual(after["playerCharacter"]["visuals"]["attack"]["columns"], 3)
         self.assertEqual(after["playerCharacter"]["visuals"]["attack"]["fps"], 12)
+        self.assertEqual(after["playerCharacter"]["visuals"]["attack"]["impactFrame"], 1)
         self.assertEqual(after["playerCharacter"]["visuals"]["attack"]["scale"], 0.8)
         self.assertEqual(after["playerCharacter"]["visuals"]["attack"]["offsetX"], -2)
         self.assertEqual(after["playerCharacter"]["visuals"]["attack"]["offsetY"], 1)

@@ -1545,6 +1545,13 @@ def _validate_character_visuals(definition: Any, known: dict[str, list[str]], so
                     errors.append(_issue("error", f"Character visual asset {asset_id!r} must use the combat image category.", source, f"{path}.assetId"))
         if "frameCount" in visual and (not isinstance(visual.get("frameCount"), int) or isinstance(visual.get("frameCount"), bool) or visual.get("frameCount") <= 0):
             errors.append(_issue("error", "Character visual frameCount must be a positive integer.", source, f"{path}.frameCount"))
+        frame_count = visual.get("frameCount") if isinstance(visual.get("frameCount"), int) and not isinstance(visual.get("frameCount"), bool) and visual.get("frameCount") > 0 else 1
+        if "impactFrame" in visual and (
+            not isinstance(visual.get("impactFrame"), int)
+            or isinstance(visual.get("impactFrame"), bool)
+            or not 0 <= visual.get("impactFrame") < frame_count
+        ):
+            errors.append(_issue("error", "Character visual impactFrame must be an integer from 0 through frameCount - 1.", source, f"{path}.impactFrame"))
         if "columns" in visual and (not isinstance(visual.get("columns"), int) or isinstance(visual.get("columns"), bool) or visual.get("columns") <= 0):
             errors.append(_issue("error", "Character visual columns must be a positive integer.", source, f"{path}.columns"))
         elif "columns" in visual and isinstance(visual.get("frameCount"), int) and not isinstance(visual.get("frameCount"), bool) and visual["columns"] > visual["frameCount"]:
