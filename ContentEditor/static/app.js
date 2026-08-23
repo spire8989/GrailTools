@@ -1619,6 +1619,21 @@ function characterPreviewMetadata(image, instance) {
   scanCanvas.height = image.naturalHeight;
   const scanContext = scanCanvas.getContext("2d", { willReadFrequently: true });
   const frameBounds = [];
+  const frameCells = [];
+  const opaqueOffsets = [];
+  const addFrame = (cell, bounds) => {
+    frameCells.push(cell);
+    frameBounds.push(bounds);
+    const cellCenterX = (cell.left + cell.right) / 2;
+    const cellCenterY = (cell.top + cell.bottom) / 2;
+    opaqueOffsets.push({
+      x: bounds.x - cell.left,
+      y: bounds.y - cell.top,
+      centerX: bounds.x + bounds.width / 2 - cellCenterX,
+      centerY: bounds.y + bounds.height / 2 - cellCenterY,
+      bottom: cell.bottom - (bounds.y + bounds.height),
+    });
+  };
   if (scanContext) {
     scanContext.drawImage(image, 0, 0);
     const pixels = scanContext.getImageData(0, 0, image.naturalWidth, image.naturalHeight).data;
@@ -1642,7 +1657,7 @@ function characterPreviewMetadata(image, instance) {
           maxY = Math.max(maxY, y);
         }
       }
-      frameBounds.push(maxX >= minX
+      addFrame({ left: startX, top: startY, right: endX, bottom: endY }, maxX >= minX
         ? { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 }
         : { x: startX, y: startY, width: Math.max(1, endX - startX), height: Math.max(1, endY - startY) });
     }
@@ -1654,11 +1669,12 @@ function characterPreviewMetadata(image, instance) {
       const startY = Math.floor(row * image.naturalHeight / rows);
       const endX = Math.floor((column + 1) * image.naturalWidth / columns);
       const endY = Math.floor((row + 1) * image.naturalHeight / rows);
-      frameBounds.push({ x: startX, y: startY, width: Math.max(1, endX - startX), height: Math.max(1, endY - startY) });
+      addFrame({ left: startX, top: startY, right: endX, bottom: endY }, { x: startX, y: startY, width: Math.max(1, endX - startX), height: Math.max(1, endY - startY) });
     }
   }
   const maximumVisibleHeight = Math.max(1, ...frameBounds.map((bounds) => bounds.height));
   const maximumVisibleWidth = Math.max(1, ...frameBounds.map((bounds) => bounds.width));
+  const commonBottomGap = opaqueOffsets.length ? Math.min(...opaqueOffsets.map((offset) => offset.bottom)) : 0;
   // The maximum opaque bounds define the logical animation box. Keep one
   // natural render scale for every frame; never rescale the current pose.
   const sharedScale = 1;
@@ -1666,6 +1682,12 @@ function characterPreviewMetadata(image, instance) {
     width: image.naturalWidth,
     height: image.naturalHeight,
     frameBounds,
+    frameCells,
+    opaqueOffsets,
+    commonFrameCellAnchor: frameCells[0]
+      ? { x: (frameCells[0].left + frameCells[0].right) / 2, y: frameCells[0].bottom }
+      : { x: 0, y: 0 },
+    commonBottomGap,
     sharedScale,
     normalizedWidth: Math.ceil(maximumVisibleWidth * sharedScale),
     normalizedHeight: Math.ceil(maximumVisibleHeight * sharedScale),
@@ -1745,7 +1767,10 @@ function drawCharacterPreview(instance, frameIndex = instance.frameIndex) {
   context.clearRect(0, 0, width, height);
   const destinationWidth = bounds.width * scale;
   const destinationHeight = bounds.height * scale;
-  context.drawImage(image, bounds.x, bounds.y, bounds.width, bounds.height, (width - destinationWidth) / 2 + instance.config.offsetX, height - destinationHeight + instance.config.offsetY, destinationWidth, destinationHeight);
+  const opaqueOffset = metadata.opaqueOffsets[frame];
+  const destinationX = width / 2 + opaqueOffset.centerX * scale - destinationWidth / 2 + instance.config.offsetX;
+  const destinationY = height - (opaqueOffset.bottom - metadata.commonBottomGap) * scale - destinationHeight + instance.config.offsetY;
+  context.drawImage(image, bounds.x, bounds.y, bounds.width, bounds.height, destinationX, destinationY, destinationWidth, destinationHeight);
   root.classList.add("is-ready");
   characterPreviewFallback(root, false);
   instance.frameIndex = frame;
