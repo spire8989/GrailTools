@@ -80,6 +80,8 @@ class ContentEditorTests(unittest.TestCase):
         self.assertIn('data-action="toggle-character-preview"', app)
         self.assertIn('data-field="visualScale"', app)
         self.assertIn('data-field="visuals.${slot}.scale"', app)
+        self.assertIn('Scale Comparison', app)
+        self.assertIn('character-scale-comparison-grid', app)
         image_assets = {"character_pass_combat": {"id": "character_pass_combat", "category": "combat", "path": "assets/images/combat/character_pass_combat.webp"}}
         player = clone(catalog["playerCharacter"])
         player["combatVisualAssetId"] = None

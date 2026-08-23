@@ -1645,9 +1645,19 @@ function characterPreviewMetadata(image, instance) {
       frameBounds.push({ x: (frame % columns) * frameWidth, y: Math.floor(frame / columns) * frameHeight, width: frameWidth, height: frameHeight });
     }
   }
-  const normalizedHeight = Math.max(1, ...frameBounds.map((bounds) => bounds.height));
-  const normalizedWidth = Math.max(1, Math.ceil(Math.max(...frameBounds.map((bounds) => bounds.width / bounds.height * normalizedHeight))));
-  const metadata = { width: image.naturalWidth, height: image.naturalHeight, frameBounds, normalizedWidth, normalizedHeight };
+  const maximumVisibleHeight = Math.max(1, ...frameBounds.map((bounds) => bounds.height));
+  const maximumVisibleWidth = Math.max(1, ...frameBounds.map((bounds) => bounds.width));
+  // The maximum opaque bounds define the logical animation box. Keep one
+  // natural render scale for every frame; never rescale the current pose.
+  const sharedScale = 1;
+  const metadata = {
+    width: image.naturalWidth,
+    height: image.naturalHeight,
+    frameBounds,
+    sharedScale,
+    normalizedWidth: Math.ceil(maximumVisibleWidth * sharedScale),
+    normalizedHeight: Math.ceil(maximumVisibleHeight * sharedScale),
+  };
   characterPreviewMetadataCache.set(key, metadata);
   return metadata;
 }
@@ -1659,7 +1669,7 @@ function drawCharacterPreview(instance, frameIndex = instance.frameIndex) {
   const frameCount = metadata.frameBounds.length;
   const frame = Math.max(0, Math.min(frameCount - 1, Math.floor(frameIndex)));
   const bounds = metadata.frameBounds[frame];
-  const scale = metadata.normalizedHeight / bounds.height;
+  const scale = metadata.sharedScale;
   const width = metadata.normalizedWidth;
   const height = metadata.normalizedHeight;
   canvas.width = width;
@@ -1748,7 +1758,7 @@ function syncCharacterVisualPreviews() {
   });
 }
 
-function renderCharacterVisualPreview(slot, label, visual) {
+function renderCharacterVisualPreview(slot, label, visual, options = {}) {
   const asset = visual.assetId ? state.catalog?.imageAssets?.[visual.assetId] : null;
   const path = asset?.path || "";
   const frameCount = Number(visual.frameCount) > 0 ? Number(visual.frameCount) : 1;
@@ -1756,13 +1766,20 @@ function renderCharacterVisualPreview(slot, label, visual) {
   const fps = Number(visual.fps) >= 0 ? Number(visual.fps) : 0;
   const scale = Math.min(3, Math.max(0.25, Number(visual.scale) || 1));
   const fallback = asset ? "Preview unavailable" : "No sprite assigned";
-  return `<div class="character-preview" data-character-preview data-preview-slot="${slot}" data-preview-label="${label}" data-preview-asset-id="${escapeHtml(visual.assetId || "")}" data-preview-frame-count="${frameCount}" data-preview-columns="${columns}" data-preview-fps="${fps}" data-preview-scale="${scale}" data-preview-playing="true"><canvas class="character-preview-canvas" aria-hidden="true"></canvas>${path ? `<img class="character-preview-source" src="${assetPreviewUrl(path)}" alt="" aria-hidden="true" onload="initializeCharacterVisualPreview(this.closest('[data-character-preview]'))" onerror="handleCharacterVisualPreviewError(this)">` : ""}<span class="character-preview-fallback is-visible">${fallback}</span><button type="button" class="small-button" data-action="toggle-character-preview">Pause</button></div>`;
+  const comparisonClass = options.comparison ? " character-preview-comparison" : "";
+  const controls = options.comparison ? "" : `<button type="button" class="small-button" data-action="toggle-character-preview">Pause</button>`;
+  return `<div class="character-preview${comparisonClass}" data-character-preview data-preview-slot="${slot}" data-preview-label="${label}" data-preview-asset-id="${escapeHtml(visual.assetId || "")}" data-preview-frame-count="${frameCount}" data-preview-columns="${columns}" data-preview-fps="${fps}" data-preview-scale="${scale}" data-preview-playing="true"><canvas class="character-preview-canvas" aria-hidden="true"></canvas>${path ? `<img class="character-preview-source" src="${assetPreviewUrl(path)}" alt="" aria-hidden="true" onload="initializeCharacterVisualPreview(this.closest('[data-character-preview]'))" onerror="handleCharacterVisualPreviewError(this)">` : ""}<span class="character-preview-fallback is-visible">${fallback}</span>${controls}</div>`;
+}
+
+function renderCharacterScaleComparison(definition) {
+  const slots = [["idle", "Idle"], ["walk", "Walk"], ["attack", "Attack"]];
+  return `<div class="character-scale-comparison"><div class="section-heading"><div><h4>Scale Comparison</h4><p>Idle, Walk, and Attack share a ground line so authored scale differences are easy to spot.</p></div></div><div class="character-scale-comparison-grid">${slots.map(([slot, label]) => `<div class="character-scale-comparison-slot"><strong>${label}</strong>${renderCharacterVisualPreview(slot, label, definition?.visuals?.[slot] || {}, { comparison: true })}</div>`).join("")}</div></div>`;
 }
 
 function renderCharacterVisuals(definition, context) {
   const visuals = definition?.visuals || {};
   const slots = [["idle", "Idle"], ["walk", "Walk"], ["attack", "Attack"]];
-  return `<section class="section character-visuals"><div class="section-heading"><div><h3>Character Visuals</h3><p>Optional sprite slots. Sprite Sheet uploads preserve the full transparent sheet without cropping. Omitted FPS defaults to Idle 6, Walk 10, or Attack 12 when a slot has multiple frames.</p></div></div>${slots.map(([slot, label]) => {
+  return `<section class="section character-visuals"><div class="section-heading"><div><h3>Character Visuals</h3><p>Optional sprite slots. Sprite Sheet uploads preserve the full transparent sheet without cropping. Omitted FPS defaults to Idle 6, Walk 10, or Attack 12 when a slot has multiple frames.</p></div></div>${renderCharacterScaleComparison(definition)}${slots.map(([slot, label]) => {
     const visual = visuals[slot] || {};
     return `<div class="section-card"><h4>${label}</h4>${renderCharacterVisualPreview(slot, label, visual)}${renderAssetSelector(`${label} visual`, `visuals.${slot}.assetId`, visual.assetId, "image", "combat", `${context} ${slot}`, "sprite_sheet")}<div class="form-grid four"><label>Frames<input type="number" min="1" step="1" data-field="visuals.${slot}.frameCount" value="${escapeHtml(visual.frameCount ?? "")}" placeholder="optional"></label><label>Columns<input type="number" min="1" step="1" data-field="visuals.${slot}.columns" value="${escapeHtml(visual.columns ?? "")}" placeholder="optional"></label><label>FPS<input type="number" min="0" step="any" data-field="visuals.${slot}.fps" value="${escapeHtml(visual.fps ?? "")}" placeholder="default"></label><label>Scale<input type="number" min="0.25" max="3" step="0.05" data-field="visuals.${slot}.scale" value="${escapeHtml(visual.scale ?? "")}" placeholder="1"></label></div></div>`;
   }).join("")}</section>`;
