@@ -44,13 +44,16 @@ The default project is discovered as the sibling `../../Grail` relative to
 ## Supported Pass 3 content
 
 - Characters: the Player Character singleton edits Arthur's current identity,
-  expedition/combat stats, portrait, static combat visual, visual scale, and
-  optional Idle/Walk/Attack sprite slots with frame count, columns, FPS, authored Attack
+  expedition/combat stats, portrait, static combat visual, visual scale, optional
+  combat-only visual scale, optional travel baseline offset, and optional
+  Idle/Walk/Attack sprite slots with frame count, columns, FPS, authored Attack
   Impact frame, animated
   previews, and play/pause controls. Companions are a first-class CRUD category backed
   by `COMPANION_DEFINITIONS`, with safe reference-aware deletion and the same
-  current identity, provision, combat, static visual, visual scale, and the same
-  visual-slot fields. Enemies expose the shared Character Visuals section as well.
+  current identity, provision, combat, static visual, visual scale, optional
+  combat-only visual scale, optional travel baseline offset, and the same
+  visual-slot fields. Enemies expose the shared Character Visuals section and
+  optional combat-only visual scale as well.
   Sprite Sheet uploads use a transparent, full-source, no-crop import profile;
   static combat visuals continue to use the Combat Cutout profile.
 

@@ -1566,11 +1566,16 @@ def _validate_character_visuals(definition: Any, known: dict[str, list[str]], so
 
 
 def _validate_character_scale(definition: Any, source: str, errors: list[dict[str, str]]) -> None:
-    if not isinstance(definition, dict) or "visualScale" not in definition or definition.get("visualScale") is None:
+    if not isinstance(definition, dict):
         return
-    scale = definition.get("visualScale")
-    if not _is_number(scale) or not 0.25 <= scale <= 3:
-        errors.append(_issue("error", "visualScale must be a number from 0.25 to 3.", source, "visualScale"))
+    for field_name in ("visualScale", "combatVisualScale"):
+        if field_name not in definition or definition.get(field_name) is None:
+            continue
+        scale = definition.get(field_name)
+        if not _is_number(scale) or not 0.25 <= scale <= 3:
+            errors.append(_issue("error", f"{field_name} must be a number from 0.25 to 3.", source, field_name))
+    if "travelOffsetY" in definition and definition.get("travelOffsetY") is not None and not _is_number(definition.get("travelOffsetY")):
+        errors.append(_issue("error", "travelOffsetY must be a finite number.", source, "travelOffsetY"))
 
 
 def _validate_player_character(player: Any, known: dict[str, list[str]], errors: list[dict[str, str]]) -> None:

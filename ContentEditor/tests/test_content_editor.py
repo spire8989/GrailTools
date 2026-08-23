@@ -79,6 +79,8 @@ class ContentEditorTests(unittest.TestCase):
         self.assertIn('"sprite_sheet"', app)
         self.assertIn('data-action="toggle-character-preview"', app)
         self.assertIn('data-field="visualScale"', app)
+        self.assertIn('data-field="combatVisualScale"', app)
+        self.assertIn('data-field="travelOffsetY"', app)
         self.assertIn('data-field="visuals.${slot}.scale"', app)
         self.assertIn('data-field="visuals.${slot}.offsetX"', app)
         self.assertIn('data-field="visuals.${slot}.offsetY"', app)
@@ -90,6 +92,8 @@ class ContentEditorTests(unittest.TestCase):
         player = clone(catalog["playerCharacter"])
         player["combatVisualAssetId"] = None
         player["visualScale"] = 1.25
+        player["combatVisualScale"] = 2.1
+        player["travelOffsetY"] = 38
         player["visuals"] = {"idle": {"assetId": "character_pass_combat", "frameCount": 4, "columns": 2, "fps": 0, "scale": 1.1, "offsetX": -3, "offsetY": 2}}
         values = {"imageAssets": image_assets, "playerCharacter": player}
         self.assertEqual(validate_catalog(values, catalog["known"])["errors"], [])
@@ -116,6 +120,14 @@ class ContentEditorTests(unittest.TestCase):
         player["visualScale"] = 3.5
         errors = validate_catalog(values, catalog["known"])["errors"]
         self.assertTrue(any("visualScale" in issue["message"] for issue in errors))
+        player["visualScale"] = 1.25
+        player["combatVisualScale"] = 3.5
+        errors = validate_catalog(values, catalog["known"])["errors"]
+        self.assertTrue(any("combatVisualScale" in issue["message"] for issue in errors))
+        player["combatVisualScale"] = 2.1
+        player["travelOffsetY"] = "down"
+        errors = validate_catalog(values, catalog["known"])["errors"]
+        self.assertTrue(any("travelOffsetY" in issue["message"] for issue in errors))
 
     def test_character_visual_metadata_round_trips_through_editor_save(self) -> None:
         temp, project = self.temporary_grail()
@@ -123,6 +135,8 @@ class ContentEditorTests(unittest.TestCase):
         before = load_catalog(project)
         player = clone(before["playerCharacter"])
         player["visualScale"] = 0.75
+        player["combatVisualScale"] = 2.1
+        player["travelOffsetY"] = 38
         player.setdefault("visuals", {})["attack"] = {
             "assetId": "combat_arthur_idle_basesprite",
             "frameCount": 3,
@@ -136,6 +150,8 @@ class ContentEditorTests(unittest.TestCase):
         save_catalog(project, {"playerCharacter": player}, before["sourceHashes"], Path(temp.name) / "backups")
         after = load_catalog(project)
         self.assertEqual(after["playerCharacter"]["visualScale"], 0.75)
+        self.assertEqual(after["playerCharacter"]["combatVisualScale"], 2.1)
+        self.assertEqual(after["playerCharacter"]["travelOffsetY"], 38)
         self.assertEqual(after["playerCharacter"]["visuals"]["attack"]["columns"], 3)
         self.assertEqual(after["playerCharacter"]["visuals"]["attack"]["fps"], 12)
         self.assertEqual(after["playerCharacter"]["visuals"]["attack"]["impactFrame"], 1)
