@@ -234,7 +234,7 @@ class ContentEditorTests(unittest.TestCase):
     def test_encounter_layout_round_trip_and_editor_surface(self) -> None:
         catalog = load_catalog(GRAIL)
         layout = catalog["encounters"]["abandoned_camp"]["encounterLayout"]
-        self.assertEqual(layout["arthur"], {"x": 0.42, "y": 0.66})
+        self.assertEqual(layout["arthur"], {"x": 0.609375, "y": 0.7990451388888888})
         app = (CONTENT_EDITOR / "static" / "app.js").read_text(encoding="utf-8")
         self.assertIn("data-encounter-layout-editor", app)
         self.assertIn("data-encounter-layout-marker", app)
@@ -245,17 +245,30 @@ class ContentEditorTests(unittest.TestCase):
         before = load_catalog(project)
         encounters = clone(before["encounters"])
         encounters["abandoned_camp"]["encounterLayout"] = {
-            "arthur": {"x": 0.123, "y": 0.987},
-            "companion1": {"x": 0.5, "y": 0.25},
+            "arthur": {"x": 0.123, "y": 0.987, "facing": "right", "scale": 1.1, "layer": 1},
+            "companion1": {"x": 0.5, "y": 0.25, "facing": "left", "scale": 0.8, "layer": 2},
         }
+        encounters["abandoned_camp"]["hiddenSlots"] = ["companion2"]
         save_catalog(project, {"encounters": encounters}, before["sourceHashes"], Path(temp.name) / "backups")
         after = load_catalog(project)
         self.assertEqual(after["encounters"]["abandoned_camp"]["encounterLayout"], encounters["abandoned_camp"]["encounterLayout"])
+        self.assertEqual(after["encounters"]["abandoned_camp"]["hiddenSlots"], ["companion2"])
 
         invalid = clone(after["encounters"])
         invalid["abandoned_camp"]["encounterLayout"]["arthur"]["x"] = 1.2
         validation = validate_catalog({"encounters": invalid}, after["known"], after["references"])
         self.assertTrue(any("Encounter layout arthur x must be a number from 0 to 1" in issue["message"] for issue in validation["errors"]))
+
+        invalid = clone(after["encounters"])
+        invalid["abandoned_camp"]["encounterLayout"]["companion1"]["facing"] = "forward"
+        invalid["abandoned_camp"]["encounterLayout"]["companion1"]["scale"] = 0
+        invalid["abandoned_camp"]["encounterLayout"]["companion1"]["layer"] = 1.5
+        invalid["abandoned_camp"]["hiddenSlots"] = ["companion9"]
+        errors = validate_catalog({"encounters": invalid}, after["known"], after["references"])["errors"]
+        self.assertTrue(any("facing must be left or right" in issue["message"] for issue in errors))
+        self.assertTrue(any("scale must be a finite number from 0.4 to 2" in issue["message"] for issue in errors))
+        self.assertTrue(any("layer must be a finite integer" in issue["message"] for issue in errors))
+        self.assertTrue(any("hiddenSlots must contain only" in issue["message"] for issue in errors))
 
     def test_outcome_visual_round_trip_and_editor_surface(self) -> None:
         catalog = load_catalog(GRAIL)

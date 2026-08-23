@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
@@ -894,6 +895,43 @@ def _validate_resolution_outcomes(outcomes: Any, known: dict[str, list[str]], so
         _validate_resolution_outcome(outcome, known, source, f"{path}[{index}]", errors)
 
 
+def _validate_encounter_layout(layout: Any, source: str, path: str, errors: list[dict[str, str]], *, partial: bool = False) -> None:
+    if not isinstance(layout, dict):
+        errors.append(_issue("error", "Encounter layout must be an object.", source, path))
+        return
+    for slot_id, position in layout.items():
+        slot_path = f"{path}.{slot_id}"
+        if slot_id not in {"arthur", "companion1", "companion2"}:
+            errors.append(_issue("error", f"Unknown encounter party slot {slot_id!r}.", source, slot_path))
+            continue
+        if not isinstance(position, dict):
+            errors.append(_issue("error", "Encounter layout positions must be objects.", source, slot_path))
+            continue
+        for axis in ("x", "y"):
+            if axis not in position:
+                if not partial:
+                    errors.append(_issue("error", f"Encounter layout {slot_id} {axis} must be a number from 0 to 1.", source, f"{slot_path}.{axis}"))
+                continue
+            value = position.get(axis)
+            if not _is_number(value) or not math.isfinite(value) or not 0 <= value <= 1:
+                errors.append(_issue("error", f"Encounter layout {slot_id} {axis} must be a number from 0 to 1.", source, f"{slot_path}.{axis}"))
+        if "facing" in position and position.get("facing") not in {"left", "right"}:
+            errors.append(_issue("error", "Encounter layout facing must be left or right.", source, f"{slot_path}.facing"))
+        if "scale" in position:
+            scale = position.get("scale")
+            if not _is_number(scale) or not math.isfinite(scale) or not 0.4 <= scale <= 2:
+                errors.append(_issue("error", "Encounter layout scale must be a finite number from 0.4 to 2.", source, f"{slot_path}.scale"))
+        if "layer" in position:
+            layer = position.get("layer")
+            if not _is_number(layer) or not math.isfinite(layer) or int(layer) != layer:
+                errors.append(_issue("error", "Encounter layout layer must be a finite integer.", source, f"{slot_path}.layer"))
+
+
+def _validate_hidden_slots(hidden_slots: Any, source: str, path: str, errors: list[dict[str, str]]) -> None:
+    if hidden_slots is not None and (not isinstance(hidden_slots, list) or not all(slot in {"arthur", "companion1", "companion2"} for slot in hidden_slots)):
+        errors.append(_issue("error", "Encounter hiddenSlots must contain only arthur, companion1, or companion2.", source, path))
+
+
 def _validate_visual_override(visual_override: Any, known: dict[str, list[str]], source: str, path: str, errors: list[dict[str, str]]) -> None:
     if not isinstance(visual_override, dict):
         errors.append(_issue("error", "visualOverride must be an object.", source, path))
@@ -904,24 +942,10 @@ def _validate_visual_override(visual_override: Any, known: dict[str, list[str]],
             errors.append(_issue("error", "visualOverride backgroundAssetId must reference a known image asset.", source, f"{path}.backgroundAssetId"))
     layout = visual_override.get("encounterLayout")
     if layout is not None:
-        if not isinstance(layout, dict):
-            errors.append(_issue("error", "visualOverride encounterLayout must be an object.", source, f"{path}.encounterLayout"))
-        else:
-            for slot_id, position in layout.items():
-                slot_path = f"{path}.encounterLayout.{slot_id}"
-                if slot_id not in {"arthur", "companion1", "companion2"}:
-                    errors.append(_issue("error", f"Unknown visual override party slot {slot_id!r}.", source, slot_path))
-                    continue
-                if not isinstance(position, dict):
-                    errors.append(_issue("error", "Visual override layout positions must be objects.", source, slot_path))
-                    continue
-                for axis in ("x", "y"):
-                    if axis in position and (not _is_number(position.get(axis)) or not 0 <= position[axis] <= 1):
-                        errors.append(_issue("error", f"Visual override {slot_id} {axis} must be a number from 0 to 1.", source, f"{slot_path}.{axis}"))
+        _validate_encounter_layout(layout, source, f"{path}.encounterLayout", errors, partial=True)
     hidden_slots = visual_override.get("hiddenSlots")
-    if hidden_slots is not None:
-        if not isinstance(hidden_slots, list) or not all(slot in {"arthur", "companion1", "companion2"} for slot in hidden_slots):
-            errors.append(_issue("error", "visualOverride hiddenSlots must contain only arthur, companion1, or companion2.", source, f"{path}.hiddenSlots"))
+    if hidden_slots is not None and (not isinstance(hidden_slots, list) or not all(slot in {"arthur", "companion1", "companion2"} for slot in hidden_slots)):
+        errors.append(_issue("error", "visualOverride hiddenSlots must contain only arthur, companion1, or companion2.", source, f"{path}.hiddenSlots"))
 
 
 def _validate_resolution_outcome(outcome: Any, known: dict[str, list[str]], source: str, path: str, errors: list[dict[str, str]]) -> None:
@@ -1059,22 +1083,9 @@ def _validate_encounters(encounters: Any, known: dict[str, list[str]], errors: l
         if not isinstance(encounter.get("directions"), list) or not all(isinstance(item, str) for item in encounter.get("directions", [])):
             errors.append(_issue("error", "directions must be an array of strings.", source, "directions"))
         if "encounterLayout" in encounter:
-            encounter_layout = encounter.get("encounterLayout")
-            if not isinstance(encounter_layout, dict):
-                errors.append(_issue("error", "encounterLayout must be an object.", source, "encounterLayout"))
-            else:
-                for slot_id in ("arthur", "companion1", "companion2"):
-                    if slot_id not in encounter_layout:
-                        continue
-                    position = encounter_layout.get(slot_id)
-                    position_path = f"encounterLayout.{slot_id}"
-                    if not isinstance(position, dict):
-                        errors.append(_issue("error", "Encounter layout positions must be objects.", source, position_path))
-                        continue
-                    for axis in ("x", "y"):
-                        value = position.get(axis)
-                        if not _is_number(value) or not 0 <= value <= 1:
-                            errors.append(_issue("error", f"Encounter layout {slot_id} {axis} must be a number from 0 to 1.", source, f"{position_path}.{axis}"))
+            _validate_encounter_layout(encounter.get("encounterLayout"), source, "encounterLayout", errors)
+        if "hiddenSlots" in encounter:
+            _validate_hidden_slots(encounter.get("hiddenSlots"), source, "hiddenSlots", errors)
         minimum = encounter.get("minimumDistance")
         maximum = encounter.get("maximumDistance")
         if minimum is not None and not isinstance(minimum, (int, float)):

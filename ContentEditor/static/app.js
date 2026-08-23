@@ -102,6 +102,8 @@ const state = {
   assetPreview: null,
   assetPreviewRequest: 0,
   encounterLayoutDrag: null,
+  encounterLayoutSelectedSlot: "arthur",
+  encounterPreviewCompanions: {},
   outcomeLayoutDrag: null,
 };
 
@@ -380,15 +382,100 @@ const ENCOUNTER_LAYOUT_SLOTS = Object.freeze([
   { id: "companion2", label: "2", name: "Companion 2" },
 ]);
 
-function encounterLayoutPosition(encounter, slotId) {
+const ENCOUNTER_LAYOUT_FACING_VALUES = Object.freeze(["right", "left"]);
+
+function encounterLayoutDefinitionForId(id) {
+  if (id === "arthur") return state.catalog?.playerCharacter || null;
+  return state.catalog?.companions?.[id] || null;
+}
+
+function encounterLayoutPreviewVisual(definition) {
+  const idle = definition?.visuals?.idle;
+  if (idle?.assetId && state.catalog?.imageAssets?.[idle.assetId]) return idle;
+  const staticAssetId = definition?.combatVisualAssetId || definition?.combat?.visualAssetId || definition?.visualAssetId;
+  if (staticAssetId && state.catalog?.imageAssets?.[staticAssetId]) return { assetId: staticAssetId };
+  return {};
+}
+
+function encounterLayoutPreviewCompanionId(encounter, slotId) {
+  const companionIds = Object.keys(state.catalog?.companions || {}).sort();
+  const preferred = slotId === "companion1" ? "sir_kay" : "llamrei";
+  const saved = state.encounterPreviewCompanions[encounter?.id]?.[slotId];
+  if (saved && companionIds.includes(saved)) return saved;
+  if (companionIds.includes(preferred)) return preferred;
+  return companionIds[0] || "";
+}
+
+function encounterLayoutPreviewDefinition(encounter, slotId) {
+  if (slotId === "arthur") return encounterLayoutDefinitionForId("arthur");
+  return encounterLayoutDefinitionForId(encounterLayoutPreviewCompanionId(encounter, slotId));
+}
+
+function encounterLayoutSlot(encounter, slotId) {
   const fallback = ENCOUNTER_LAYOUT_FALLBACKS[slotId] || ENCOUNTER_LAYOUT_FALLBACKS.arthur;
   const authored = encounter?.encounterLayout?.[slotId];
   const x = Number(authored?.x);
   const y = Number(authored?.y);
+  const scale = Number(authored?.scale);
+  const layer = Number(authored?.layer);
   return {
     x: clampTownLayoutValue(Number.isFinite(x) ? x : fallback.x, fallback.x),
     y: clampTownLayoutValue(Number.isFinite(y) ? y : fallback.y, fallback.y),
+    facing: ENCOUNTER_LAYOUT_FACING_VALUES.includes(authored?.facing) ? authored.facing : "",
+    scale: Number.isFinite(scale) && scale > 0 ? scale : 1,
+    layer: Number.isInteger(layer) ? layer : null,
+    visible: !(Array.isArray(encounter?.hiddenSlots) && encounter.hiddenSlots.includes(slotId)),
   };
+}
+
+function encounterLayoutPosition(encounter, slotId) {
+  const slot = encounterLayoutSlot(encounter, slotId);
+  return { x: slot.x, y: slot.y };
+}
+
+function encounterLayoutPreviewOptions(encounter, slotId) {
+  if (slotId === "arthur") return "";
+  const current = encounterLayoutPreviewCompanionId(encounter, slotId);
+  return `<label class="encounter-layout-preview-selector">Preview character<select data-encounter-layout-preview data-encounter-layout-slot="${slotId}">${Object.entries(state.catalog?.companions || {})
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([id, companion]) => `<option value="${escapeHtml(id)}"${selected(id, current)}>${escapeHtml(companion.name || id)}</option>`)
+    .join("")}</select></label>`;
+}
+
+function renderEncounterLayoutPreviewSprite(encounter, slot, layout) {
+  const definition = encounterLayoutPreviewDefinition(encounter, slot.id);
+  const visual = encounterLayoutPreviewVisual(definition);
+  const visualScale = Number(definition?.visualScale);
+  const composedScale = (Number.isFinite(visualScale) && visualScale > 0 ? visualScale : 1) * layout.scale;
+  const travelOffsetY = Number(definition?.travelOffsetY);
+  const travelOffsetStyle = Number.isFinite(travelOffsetY) ? `;--encounter-layout-travel-offset-y:${travelOffsetY}%` : "";
+  const preview = renderCharacterVisualPreview("idle", slot.name, visual, {
+    characterId: definition?.id || slot.id,
+    className: "encounter-layout-character-preview",
+    playing: false,
+    mirror: layout.facing === "left",
+    encounterLayout: true,
+    fallback: "Artwork unavailable",
+  });
+  const layerStyle = layout.layer === null ? "" : `;z-index:${layout.layer}`;
+  return `<button type="button" class="encounter-layout-marker encounter-layout-sprite-marker encounter-layout-marker-${slot.id}${layout.visible ? "" : " is-hidden"}${state.encounterLayoutSelectedSlot === slot.id ? " is-selected" : ""}" data-encounter-layout-marker data-encounter-layout-slot="${slot.id}" style="left:${layout.x * 100}%;top:${layout.y * 100}%;--encounter-layout-preview-scale:${composedScale}${travelOffsetStyle}${layerStyle}" title="Drag ${escapeHtml(slot.name)} to place its ground anchor" aria-label="${escapeHtml(slot.name)} layout handle">${preview}<span class="encounter-layout-anchor" aria-hidden="true"></span><span class="encounter-layout-label">${escapeHtml(slot.name)}</span></button>`;
+}
+
+function renderEncounterLayoutSlotFields(encounter, slot) {
+  const layout = encounterLayoutSlot(encounter, slot.id);
+  const authored = encounter?.encounterLayout?.[slot.id] || {};
+  const layerValue = Number.isInteger(Number(authored.layer)) ? Number(authored.layer) : "";
+  return `<div class="encounter-layout-slot-card${state.encounterLayoutSelectedSlot === slot.id ? " is-selected" : ""}" data-encounter-layout-slot-card="${slot.id}">
+    <div class="encounter-layout-slot-heading"><strong>${escapeHtml(slot.name)}</strong>${encounterLayoutPreviewOptions(encounter, slot.id)}<button type="button" class="small-button" data-action="reset-encounter-layout-slot" data-encounter-layout-slot="${slot.id}">Reset slot</button></div>
+    <div class="encounter-layout-slot-controls">
+      <label>X<input type="number" min="0" max="1" step="0.001" data-encounter-layout-input data-encounter-layout-slot="${slot.id}" data-encounter-layout-axis="x" value="${layout.x.toFixed(3)}"></label>
+      <label>Y<input type="number" min="0" max="1" step="0.001" data-encounter-layout-input data-encounter-layout-slot="${slot.id}" data-encounter-layout-axis="y" value="${layout.y.toFixed(3)}"></label>
+      <label>Facing<select data-encounter-layout-field="facing" data-encounter-layout-slot="${slot.id}"><option value=""${selected("", layout.facing)}>Default</option>${ENCOUNTER_LAYOUT_FACING_VALUES.map((facing) => `<option value="${facing}"${selected(facing, layout.facing)}>${facing[0].toUpperCase() + facing.slice(1)}</option>`).join("")}</select></label>
+      <label title="Additional layout multiplier; character visual scale is included automatically">Scale<input type="number" min="0.4" max="2" step="0.05" data-encounter-layout-field="scale" data-encounter-layout-slot="${slot.id}" value="${layout.scale}" placeholder="1"></label>
+      <label>Layer<input type="number" step="1" data-encounter-layout-field="layer" data-encounter-layout-slot="${slot.id}" value="${layerValue}" placeholder="Default"></label>
+      <label class="check-chip encounter-layout-visible"><input type="checkbox" data-encounter-layout-field="visible" data-encounter-layout-slot="${slot.id}"${checked(layout.visible)}>Visible</label>
+    </div>
+  </div>`;
 }
 
 function renderEncounterLayoutEditor(encounter) {
@@ -396,15 +483,9 @@ function renderEncounterLayoutEditor(encounter) {
   if (!asset || asset.category !== "encounter") {
     return `<section class="section encounter-layout-editor" data-encounter-layout-editor><div class="section-heading"><div><h3>Encounter Layout</h3><p>Select an encounter background above to place Arthur and the active companions.</p></div></div><p class="hint">No encounter background is selected for this definition yet.</p></section>`;
   }
-  const markers = ENCOUNTER_LAYOUT_SLOTS.map((slot) => {
-    const position = encounterLayoutPosition(encounter, slot.id);
-    return `<button type="button" class="encounter-layout-marker encounter-layout-marker-${slot.id}" data-encounter-layout-marker data-encounter-layout-slot="${slot.id}" style="left:${position.x * 100}%;top:${position.y * 100}%" title="Drag ${slot.name}"><strong>${slot.label}</strong><span>${slot.name}</span></button>`;
-  }).join("");
-  const fields = ENCOUNTER_LAYOUT_SLOTS.map((slot) => {
-    const position = encounterLayoutPosition(encounter, slot.id);
-    return `<div class="encounter-layout-coordinate-row" data-encounter-layout-slot="${slot.id}"><strong>${slot.label} · ${slot.name}</strong><label>X<input type="number" min="0" max="1" step="0.001" data-encounter-layout-input data-encounter-layout-slot="${slot.id}" data-encounter-layout-axis="x" value="${position.x.toFixed(3)}"></label><label>Y<input type="number" min="0" max="1" step="0.001" data-encounter-layout-slot="${slot.id}" data-encounter-layout-axis="y" value="${position.y.toFixed(3)}"></label></div>`;
-  }).join("");
-  return `<section class="section encounter-layout-editor" data-encounter-layout-editor><div class="section-heading"><div><h3>Encounter Layout</h3><p>Drag Arthur and the companion markers over the encounter artwork. Coordinates are normalized to the 16:9 visual frame.</p></div></div><div class="encounter-layout-stage" data-encounter-layout-stage><img class="encounter-layout-image" src="${assetPreviewUrl(asset.path)}" alt="${escapeHtml(encounter.title || "Encounter background")}" draggable="false"><div class="encounter-layout-marker-layer">${markers}</div></div><div class="encounter-layout-coordinate-list">${fields}</div></section>`;
+  const markers = ENCOUNTER_LAYOUT_SLOTS.map((slot) => renderEncounterLayoutPreviewSprite(encounter, slot, encounterLayoutSlot(encounter, slot.id))).join("");
+  const renderedFields = ENCOUNTER_LAYOUT_SLOTS.map((slot) => renderEncounterLayoutSlotFields(encounter, slot)).join("");
+  return `<section class="section encounter-layout-editor" data-encounter-layout-editor data-encounter-layout-id="${escapeHtml(encounter.id || "")}"><div class="section-heading"><div><h3>Encounter Layout</h3><p>Place the actual Idle sprites by their ground anchors. Coordinates stay normalized to the 16:9 visual frame; the preview companions are editor-only.</p></div><div class="button-row"><button type="button" class="small-button" data-action="align-encounter-layout-ground">Align selected</button><button type="button" class="small-button danger-outline" data-action="reset-encounter-layout">Reset layout</button></div></div><div class="encounter-layout-stage" data-encounter-layout-stage><img class="encounter-layout-image" src="${assetPreviewUrl(asset.path)}" alt="${escapeHtml(encounter.title || "Encounter background")}" draggable="false"><div class="encounter-layout-marker-layer">${markers}</div></div><div class="encounter-layout-slot-list">${renderedFields}</div></section>`;
 }
 
 function updateEncounterLayoutMarker(slotId, x, y) {
@@ -415,7 +496,7 @@ function updateEncounterLayoutMarker(slotId, x, y) {
     y: clampTownLayoutValue(y, fallback.y),
   };
   state.draft.encounterLayout ||= {};
-  state.draft.encounterLayout[slotId] = position;
+  state.draft.encounterLayout[slotId] = { ...(state.draft.encounterLayout[slotId] || {}), ...position };
   const marker = document.querySelector(`[data-encounter-layout-marker][data-encounter-layout-slot="${CSS.escape(slotId)}"]`);
   if (marker) {
     marker.style.left = `${position.x * 100}%`;
@@ -425,6 +506,83 @@ function updateEncounterLayoutMarker(slotId, x, y) {
     input.value = position[input.dataset.encounterLayoutAxis].toFixed(3);
   });
   return true;
+}
+
+function selectEncounterLayoutSlot(slotId) {
+  if (!ENCOUNTER_LAYOUT_FALLBACKS[slotId]) return;
+  state.encounterLayoutSelectedSlot = slotId;
+  document.querySelectorAll("[data-encounter-layout-marker]").forEach((marker) => marker.classList.toggle("is-selected", marker.dataset.encounterLayoutSlot === slotId));
+  document.querySelectorAll("[data-encounter-layout-slot-card]").forEach((card) => card.classList.toggle("is-selected", card.dataset.encounterLayoutSlotCard === slotId));
+}
+
+function updateEncounterLayoutHiddenSlot(slotId, visible) {
+  const hiddenSlots = new Set(Array.isArray(state.draft?.hiddenSlots) ? state.draft.hiddenSlots : []);
+  if (visible) hiddenSlots.delete(slotId);
+  else hiddenSlots.add(slotId);
+  if (hiddenSlots.size) state.draft.hiddenSlots = [...hiddenSlots];
+  else delete state.draft.hiddenSlots;
+  const marker = document.querySelector(`[data-encounter-layout-marker][data-encounter-layout-slot="${CSS.escape(slotId)}"]`);
+  marker?.classList.toggle("is-hidden", !visible);
+}
+
+function updateEncounterLayoutField(slotId, field, value) {
+  if (!state.draft || !ENCOUNTER_LAYOUT_FALLBACKS[slotId]) return;
+  if (field === "visible") {
+    updateEncounterLayoutHiddenSlot(slotId, Boolean(value));
+    return;
+  }
+  state.draft.encounterLayout ||= {};
+  const slot = state.draft.encounterLayout[slotId] ||= {};
+  if (field === "facing") {
+    if (ENCOUNTER_LAYOUT_FACING_VALUES.includes(value)) slot.facing = value;
+    else delete slot.facing;
+  } else if (field === "scale") {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric) && numeric >= 0.4 && numeric <= 2 && numeric !== 1) slot.scale = numeric;
+    else delete slot.scale;
+  } else if (field === "layer") {
+    const numeric = Number(value);
+    if (Number.isInteger(numeric)) slot.layer = numeric;
+    else delete slot.layer;
+  }
+  const layout = encounterLayoutSlot(state.draft, slotId);
+  const marker = document.querySelector(`[data-encounter-layout-marker][data-encounter-layout-slot="${CSS.escape(slotId)}"]`);
+  if (marker) {
+    marker.style.setProperty("--encounter-layout-preview-scale", String((Number(encounterLayoutPreviewDefinition(state.draft, slotId)?.visualScale) || 1) * layout.scale));
+    if (layout.layer === null) marker.style.removeProperty("z-index");
+    else marker.style.zIndex = String(layout.layer);
+    marker.querySelector("[data-character-preview]")?.classList.toggle("is-mirrored", layout.facing === "left");
+  }
+}
+
+function resetEncounterLayoutSlot(slotId) {
+  if (!state.draft || !ENCOUNTER_LAYOUT_FALLBACKS[slotId]) return;
+  const slot = state.draft.encounterLayout?.[slotId];
+  if (slot && typeof slot === "object") {
+    delete slot.facing;
+    delete slot.scale;
+    delete slot.layer;
+  }
+  updateEncounterLayoutHiddenSlot(slotId, true);
+  markDirty();
+  render();
+}
+
+function resetEncounterLayout() {
+  if (!state.draft) return;
+  delete state.draft.encounterLayout;
+  delete state.draft.hiddenSlots;
+  markDirty();
+  render();
+}
+
+function alignEncounterLayoutGround() {
+  const slotId = state.encounterLayoutSelectedSlot;
+  if (!state.draft || !ENCOUNTER_LAYOUT_FALLBACKS[slotId]) return;
+  const arthur = encounterLayoutPosition(state.draft, "arthur");
+  const current = encounterLayoutPosition(state.draft, slotId);
+  updateEncounterLayoutMarker(slotId, current.x, arthur.y);
+  markDirty();
 }
 
 function encounterLayoutPositionFromPointer(stage, event) {
@@ -445,6 +603,7 @@ function finishEncounterLayoutDrag() {
 function commitEncounterLayoutInput(input) {
   const slotId = input.dataset.encounterLayoutSlot;
   if (!ENCOUNTER_LAYOUT_FALLBACKS[slotId]) return;
+  selectEncounterLayoutSlot(slotId);
   const current = encounterLayoutPosition(state.draft, slotId);
   const value = clampTownLayoutValue(input.value, current[input.dataset.encounterLayoutAxis]);
   updateEncounterLayoutMarker(
@@ -1602,10 +1761,11 @@ function scheduleCharacterPreviewAnimation() {
 }
 
 function characterPreviewMetadataKey(instance, assetId = instance.root.dataset.previewAssetId, frameCount = instance.root.dataset.previewFrameCount, columns = instance.root.dataset.previewColumns) {
-  return `${instance.root.dataset.previewCharacterId || state.draft?.id || "character"}|${assetId}|${frameCount}|${columns}`;
+  return `${instance.root.dataset.previewCharacterId || state.draft?.id || "character"}|${assetId}|${frameCount}|${columns}|offset:${instance.root.dataset.previewOffsetX || 0},${instance.root.dataset.previewOffsetY || 0}`;
 }
 
 function characterPreviewMetadata(image, instance) {
+  if (!image?.naturalWidth || !image?.naturalHeight) return null;
   const key = characterPreviewMetadataKey(instance);
   const cached = characterPreviewMetadataCache.get(key);
   if (cached && cached.width === image.naturalWidth && cached.height === image.naturalHeight) return cached;
@@ -1672,12 +1832,29 @@ function characterPreviewMetadata(image, instance) {
       addFrame({ left: startX, top: startY, right: endX, bottom: endY }, { x: startX, y: startY, width: Math.max(1, endX - startX), height: Math.max(1, endY - startY) });
     }
   }
-  const maximumVisibleHeight = Math.max(1, ...frameBounds.map((bounds) => bounds.height));
-  const maximumVisibleWidth = Math.max(1, ...frameBounds.map((bounds) => bounds.width));
   const commonBottomGap = opaqueOffsets.length ? Math.min(...opaqueOffsets.map((offset) => offset.bottom)) : 0;
-  // The maximum opaque bounds define the logical animation box. Keep one
-  // natural render scale for every frame; never rescale the current pose.
+  // Match the game's shared feet-anchored canvas: the union of every frame's
+  // anchored opaque extent defines one stable logical animation box.
   const sharedScale = 1;
+  const offsetX = Number.isFinite(Number(instance.config?.offsetX)) ? Number(instance.config.offsetX) : 0;
+  const offsetY = Number.isFinite(Number(instance.config?.offsetY)) ? Number(instance.config.offsetY) : 0;
+  const anchoredFrameExtents = frameBounds.map((bounds, frame) => {
+    const opaqueOffset = opaqueOffsets[frame];
+    const destinationWidth = bounds.width * sharedScale;
+    const destinationHeight = bounds.height * sharedScale;
+    const left = opaqueOffset.centerX * sharedScale - destinationWidth / 2 + offsetX;
+    const bottom = -(opaqueOffset.bottom - commonBottomGap) * sharedScale + offsetY;
+    return {
+      left,
+      top: bottom - destinationHeight,
+      right: left + destinationWidth,
+      bottom,
+    };
+  });
+  const unionMinX = Math.min(...anchoredFrameExtents.map((extent) => extent.left));
+  const unionMinY = Math.min(...anchoredFrameExtents.map((extent) => extent.top));
+  const unionMaxX = Math.max(...anchoredFrameExtents.map((extent) => extent.right));
+  const unionMaxY = Math.max(...anchoredFrameExtents.map((extent) => extent.bottom));
   const metadata = {
     width: image.naturalWidth,
     height: image.naturalHeight,
@@ -1689,8 +1866,13 @@ function characterPreviewMetadata(image, instance) {
       : { x: 0, y: 0 },
     commonBottomGap,
     sharedScale,
-    normalizedWidth: Math.ceil(maximumVisibleWidth * sharedScale),
-    normalizedHeight: Math.ceil(maximumVisibleHeight * sharedScale),
+    anchoredFrameExtents,
+    unionMinX,
+    unionMinY,
+    unionMaxX,
+    unionMaxY,
+    normalizedWidth: Math.max(1, Math.ceil(unionMaxX - unionMinX)),
+    normalizedHeight: Math.max(1, Math.ceil(unionMaxY - unionMinY)),
   };
   characterPreviewMetadataCache.set(key, metadata);
   return metadata;
@@ -1728,16 +1910,24 @@ function loadCharacterPreviewMetadata(root, assetId, frameCount, columns, image 
   return promise;
 }
 
-function characterPreviewReferenceSlot() {
-  const visuals = state.draft?.visuals || {};
+function characterPreviewDefinitionForRoot(root) {
+  const id = root?.dataset.previewDefinitionId || root?.dataset.previewCharacterId;
+  if (id === "arthur") return state.catalog?.playerCharacter || state.draft;
+  if (id && state.catalog?.companions?.[id]) return state.catalog.companions[id];
+  return state.draft;
+}
+
+function characterPreviewReferenceSlot(root) {
+  const visuals = characterPreviewDefinitionForRoot(root)?.visuals || {};
   return ["walk", "idle", "attack"].find((slot) => visuals[slot]?.assetId && state.catalog.imageAssets?.[visuals[slot].assetId])
     || Object.keys(visuals).find((slot) => visuals[slot]?.assetId && state.catalog.imageAssets?.[visuals[slot].assetId])
     || "idle";
 }
 
 function characterPreviewNormalization(root, instance, metadata) {
-  const referenceSlot = characterPreviewReferenceSlot();
-  const referenceVisual = state.draft?.visuals?.[referenceSlot] || {};
+  const definition = characterPreviewDefinitionForRoot(root);
+  const referenceSlot = characterPreviewReferenceSlot(root);
+  const referenceVisual = definition?.visuals?.[referenceSlot] || {};
   const referenceConfig = characterPreviewConfig(referenceVisual);
   const referenceAssetId = referenceVisual.assetId || "";
   const key = `${characterPreviewMetadataKey(instance)}|reference:${characterPreviewMetadataKey(instance, referenceAssetId, referenceConfig.frameCount, referenceConfig.columns)}`;
@@ -1768,8 +1958,10 @@ function drawCharacterPreview(instance, frameIndex = instance.frameIndex) {
   const destinationWidth = bounds.width * scale;
   const destinationHeight = bounds.height * scale;
   const opaqueOffset = metadata.opaqueOffsets[frame];
-  const destinationX = width / 2 + opaqueOffset.centerX * scale - destinationWidth / 2 + instance.config.offsetX;
-  const destinationY = height - (opaqueOffset.bottom - metadata.commonBottomGap) * scale - destinationHeight + instance.config.offsetY;
+  const anchoredLeft = opaqueOffset.centerX * scale - destinationWidth / 2 + instance.config.offsetX;
+  const anchoredBottom = -(opaqueOffset.bottom - metadata.commonBottomGap) * scale + instance.config.offsetY;
+  const destinationX = anchoredLeft - metadata.unionMinX;
+  const destinationY = anchoredBottom - destinationHeight - metadata.unionMinY;
   context.drawImage(image, bounds.x, bounds.y, bounds.width, bounds.height, destinationX, destinationY, destinationWidth, destinationHeight);
   root.classList.add("is-ready");
   characterPreviewFallback(root, false);
@@ -1797,6 +1989,10 @@ function initializeCharacterVisualPreview(root) {
   root._characterPreviewPendingKey = stateKey;
   const instance = { root, image, canvas, config: characterPreviewConfig({ frameCount: root.dataset.previewFrameCount, columns: root.dataset.previewColumns, offsetX: root.dataset.previewOffsetX, offsetY: root.dataset.previewOffsetY }), frameIndex: 0, metadata: null, stateKey, startedAt: performance.now(), paused: root.dataset.previewPlaying === "false" || window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches };
   const metadata = characterPreviewMetadata(image, instance);
+  if (!metadata) {
+    root._characterPreviewPendingKey = null;
+    return;
+  }
   root._characterPreviewPendingKey = null;
   root.style.setProperty("--preview-scale", String(Math.min(3, Math.max(0.25, Number(root.dataset.previewScale) || 1))));
   instance.metadata = metadata;
@@ -1845,6 +2041,7 @@ function setupCharacterVisualPreviews() {
 function syncCharacterVisualPreviews() {
   if (!state.draft || !["playerCharacter", "companions", "enemyDefinitions"].includes(state.category)) return;
   document.querySelectorAll("[data-character-preview]").forEach((root) => {
+    if (root.dataset.previewEncounterLayout === "true") return;
     const visual = state.draft.visuals?.[root.dataset.previewSlot] || {};
     const assetId = visual.assetId || "";
     root.dataset.previewAssetId = assetId;
@@ -1879,8 +2076,12 @@ function renderCharacterVisualPreview(slot, label, visual, options = {}) {
   const offsetY = Number.isFinite(Number(visual.offsetY)) ? Number(visual.offsetY) : 0;
   const fallback = asset ? "Preview unavailable" : "No sprite assigned";
   const comparisonClass = options.comparison ? " character-preview-comparison" : "";
-  const controls = options.comparison ? "" : `<button type="button" class="small-button" data-action="toggle-character-preview">Pause</button>`;
-  return `<div class="character-preview${comparisonClass}" data-character-preview data-preview-character-id="${escapeHtml(options.characterId || state.draft?.id || "character")}" data-preview-slot="${slot}" data-preview-label="${label}" data-preview-asset-id="${escapeHtml(visual.assetId || "")}" data-preview-frame-count="${frameCount}" data-preview-columns="${columns}" data-preview-fps="${fps}" data-preview-scale="${scale}" data-preview-offset-x="${offsetX}" data-preview-offset-y="${offsetY}" data-preview-playing="true"><canvas class="character-preview-canvas" aria-hidden="true"></canvas>${path ? `<img class="character-preview-source" src="${assetPreviewUrl(path)}" alt="" aria-hidden="true" onload="initializeCharacterVisualPreview(this.closest('[data-character-preview]'))" onerror="handleCharacterVisualPreviewError(this)">` : ""}<span class="character-preview-fallback is-visible">${fallback}</span>${controls}</div>`;
+  const extraClass = options.className ? ` ${options.className}` : "";
+  const mirrorClass = options.mirror ? " is-mirrored" : "";
+  const controls = options.comparison || options.playing === false ? "" : `<button type="button" class="small-button" data-action="toggle-character-preview">Pause</button>`;
+  const fallbackText = options.fallback || fallback;
+  const definitionId = options.characterId || state.draft?.id || "character";
+  return `<div class="character-preview${comparisonClass}${extraClass}${mirrorClass}" data-character-preview${options.encounterLayout ? " data-preview-encounter-layout=\"true\"" : ""} data-preview-character-id="${escapeHtml(definitionId)}" data-preview-definition-id="${escapeHtml(definitionId)}" data-preview-slot="${slot}" data-preview-label="${label}" data-preview-asset-id="${escapeHtml(visual.assetId || "")}" data-preview-frame-count="${frameCount}" data-preview-columns="${columns}" data-preview-fps="${fps}" data-preview-scale="${scale}" data-preview-offset-x="${offsetX}" data-preview-offset-y="${offsetY}" data-preview-playing="${options.playing === false ? "false" : "true"}"><canvas class="character-preview-canvas" aria-hidden="true"></canvas>${path ? `<img class="character-preview-source" src="${assetPreviewUrl(path)}" alt="" aria-hidden="true" onload="initializeCharacterVisualPreview(this.closest('[data-character-preview]'))" onerror="handleCharacterVisualPreviewError(this)">` : ""}<span class="character-preview-fallback is-visible">${fallbackText}</span>${controls}</div>`;
 }
 
 function renderCharacterScaleComparison(definition) {
@@ -3579,7 +3780,13 @@ async function uploadSelectedAsset(file) {
 
 function handleAction(button) {
   const action = button.dataset.action;
-  if (action === "toggle-character-preview") {
+  if (action === "reset-encounter-layout-slot") {
+    resetEncounterLayoutSlot(button.dataset.encounterLayoutSlot);
+  } else if (action === "reset-encounter-layout") {
+    resetEncounterLayout();
+  } else if (action === "align-encounter-layout-ground") {
+    alignEncounterLayoutGround();
+  } else if (action === "toggle-character-preview") {
     const root = button.closest("[data-character-preview]");
     if (!root) return;
     const playing = root.dataset.previewPlaying !== "false";
@@ -4185,6 +4392,7 @@ document.addEventListener("pointerdown", (event) => {
   const slotId = marker.dataset.encounterLayoutSlot;
   if (!stage || !ENCOUNTER_LAYOUT_FALLBACKS[slotId]) return;
   event.preventDefault();
+  selectEncounterLayoutSlot(slotId);
   state.encounterLayoutDrag = { marker, stage, slotId, pointerId: event.pointerId };
   marker.setPointerCapture?.(event.pointerId);
   const position = encounterLayoutPositionFromPointer(stage, event);
@@ -4229,7 +4437,14 @@ document.addEventListener("pointercancel", (event) => {
   if (state.townLayoutDrag?.pointerId === event.pointerId) finishTownLayoutDrag();
 });
 document.addEventListener("input", (event) => {
-  if (!event.target.matches("[data-town-hotspot-input]")) handleInput(event.target);
+  if (event.target.matches("[data-town-hotspot-input]")) return;
+  if (event.target.matches("[data-encounter-layout-field][type=number]")) {
+    selectEncounterLayoutSlot(event.target.dataset.encounterLayoutSlot);
+    updateEncounterLayoutField(event.target.dataset.encounterLayoutSlot, event.target.dataset.encounterLayoutField, event.target.value);
+    markDirty();
+    return;
+  }
+  handleInput(event.target);
 });
 document.addEventListener("change", (event) => {
   if (event.target.matches("#asset-upload-input")) uploadSelectedAsset(event.target.files?.[0]);
@@ -4240,6 +4455,20 @@ document.addEventListener("change", (event) => {
   else if (event.target.matches("#asset-optimize-toggle, #asset-optimization-profile, #asset-crop-anchor")) refreshImageImportPreview();
   else if (event.target.matches("[data-outcome-layout-input]")) commitOutcomeLayoutInput(event.target);
   else if (event.target.matches("[data-encounter-layout-input]")) commitEncounterLayoutInput(event.target);
+  else if (event.target.matches("[data-encounter-layout-preview]")) {
+    const encounterId = state.draft?.id;
+    const slotId = event.target.dataset.encounterLayoutSlot;
+    if (encounterId && slotId) {
+      state.encounterPreviewCompanions[encounterId] ||= {};
+      state.encounterPreviewCompanions[encounterId][slotId] = event.target.value;
+      render();
+    }
+  }
+  else if (event.target.matches("[data-encounter-layout-field]")) {
+    selectEncounterLayoutSlot(event.target.dataset.encounterLayoutSlot);
+    updateEncounterLayoutField(event.target.dataset.encounterLayoutSlot, event.target.dataset.encounterLayoutField, event.target.type === "checkbox" ? event.target.checked : event.target.value);
+    markDirty();
+  }
   else if (event.target.matches("[data-town-hotspot-input]")) commitTownLayoutInput(event.target);
   else if (event.target.matches("textarea[data-object-json]")) handleObjectJson(event.target);
   else if (event.target.matches("textarea[data-dialogue-choice-json]")) {
