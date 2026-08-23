@@ -62,6 +62,12 @@ IMAGE_PROFILES: dict[str, dict[str, Any]] = {
         "size_warning": 500 * 1024,
         "size_warning_message": "Combat runtime file is unusually large for its dimensions.",
     },
+    "sprite_sheet": {
+        "label": "Character Sprite Sheet",
+        "quality": 90,
+        "size_warning": 1500 * 1024,
+        "size_warning_message": "Character sprite sheet is unusually large; keep sheets compact for mobile runtime use.",
+    },
     "ui": {
         "label": "UI",
         "max_dimension": 1024,
@@ -84,6 +90,7 @@ PROFILE_ALIASES = {
     "encounter": "scene",
     "portrait": "portrait",
     "combat": "combat",
+    "sprite_sheet": "sprite_sheet",
     "combat_scene": "scene",
     "ui": "ui",
 }

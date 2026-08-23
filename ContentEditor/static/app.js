@@ -1583,12 +1583,130 @@ function renderEnemyTraitRows(enemy) {
   </div>`).join("");
 }
 
+const characterPreviewInstances = new Set();
+let characterPreviewAnimationFrame = null;
+
+function characterPreviewFallback(root, visible = true) {
+  root?.querySelector(".character-preview-fallback")?.classList.toggle("is-visible", visible);
+}
+
+function stopCharacterPreview(root) {
+  for (const instance of characterPreviewInstances) if (instance.root === root) characterPreviewInstances.delete(instance);
+}
+
+function scheduleCharacterPreviewAnimation() {
+  if (characterPreviewAnimationFrame === null) characterPreviewAnimationFrame = window.requestAnimationFrame(tickCharacterPreviews);
+}
+
+function drawCharacterPreview(instance, frameIndex = instance.frameIndex) {
+  const { root, image, canvas } = instance;
+  if (!root?.isConnected || !image?.naturalWidth || !image?.naturalHeight || !canvas) return;
+  const frameCount = Math.max(1, Number(root.dataset.previewFrameCount) || 1);
+  const columns = Math.max(1, Math.min(frameCount, Number(root.dataset.previewColumns) || frameCount));
+  const rows = Math.max(1, Math.ceil(frameCount / columns));
+  const frameWidth = image.naturalWidth / columns;
+  const frameHeight = image.naturalHeight / rows;
+  const frame = Math.max(0, Math.min(frameCount - 1, Math.floor(frameIndex)));
+  const width = Math.max(1, Math.round(frameWidth));
+  const height = Math.max(1, Math.round(frameHeight));
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d");
+  if (!context) return;
+  context.clearRect(0, 0, width, height);
+  context.drawImage(image, (frame % columns) * frameWidth, Math.floor(frame / columns) * frameHeight, frameWidth, frameHeight, 0, 0, width, height);
+  root.classList.add("is-ready");
+  characterPreviewFallback(root, false);
+  instance.frameIndex = frame;
+}
+
+function initializeCharacterVisualPreview(root) {
+  if (!root) return;
+  stopCharacterPreview(root);
+  const image = root.querySelector(".character-preview-source");
+  const canvas = root.querySelector(".character-preview-canvas");
+  const assetId = root.dataset.previewAssetId;
+  const asset = state.catalog?.imageAssets?.[assetId];
+  if (!image || !canvas || !assetId || !asset) {
+    root.classList.remove("is-ready");
+    characterPreviewFallback(root, true);
+    return;
+  }
+  const instance = { root, image, canvas, frameIndex: 0, startedAt: performance.now(), paused: root.dataset.previewPlaying === "false" || window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches };
+  characterPreviewInstances.add(instance);
+  if (image.complete && image.naturalWidth) drawCharacterPreview(instance, 0);
+  if (Number(root.dataset.previewFrameCount) > 1 && !instance.paused) scheduleCharacterPreviewAnimation();
+}
+
+function handleCharacterVisualPreviewError(image) {
+  const root = image?.closest("[data-character-preview]");
+  if (!root) return;
+  stopCharacterPreview(root);
+  root.classList.remove("is-ready");
+  characterPreviewFallback(root, true);
+}
+
+function tickCharacterPreviews(timestamp) {
+  characterPreviewAnimationFrame = null;
+  let hasAnimation = false;
+  for (const instance of [...characterPreviewInstances]) {
+    if (!instance.root?.isConnected) {
+      characterPreviewInstances.delete(instance);
+      continue;
+    }
+    const frameCount = Math.max(1, Number(instance.root.dataset.previewFrameCount) || 1);
+    const fps = Number(instance.root.dataset.previewFps) || ({ Idle: 6, Walk: 10, Attack: 12 }[instance.root.dataset.previewLabel] ?? 8);
+    if (frameCount <= 1 || instance.paused || fps <= 0 || !instance.image?.naturalWidth) continue;
+    hasAnimation = true;
+    const frame = Math.floor((Math.max(0, timestamp - instance.startedAt) / 1000) * fps) % frameCount;
+    if (frame !== instance.frameIndex) drawCharacterPreview(instance, frame);
+  }
+  if (hasAnimation) scheduleCharacterPreviewAnimation();
+}
+
+function setupCharacterVisualPreviews() {
+  document.querySelectorAll("[data-character-preview]").forEach((root) => initializeCharacterVisualPreview(root));
+}
+
+function syncCharacterVisualPreviews() {
+  if (!state.draft || !["playerCharacter", "companions", "enemyDefinitions"].includes(state.category)) return;
+  document.querySelectorAll("[data-character-preview]").forEach((root) => {
+    const visual = state.draft.visuals?.[root.dataset.previewSlot] || {};
+    const assetId = visual.assetId || "";
+    root.dataset.previewAssetId = assetId;
+    root.dataset.previewFrameCount = String(Number(visual.frameCount) > 0 ? Number(visual.frameCount) : 1);
+    root.dataset.previewColumns = String(Number(visual.columns) > 0 ? Number(visual.columns) : root.dataset.previewFrameCount);
+    root.dataset.previewFps = String(Number(visual.fps) >= 0 ? Number(visual.fps) : 0);
+    const image = root.querySelector(".character-preview-source");
+    const path = state.catalog.imageAssets?.[assetId]?.path;
+    const nextSrc = path ? assetPreviewUrl(path) : "";
+    if (image && image.getAttribute("src") !== nextSrc) {
+      stopCharacterPreview(root);
+      root.classList.remove("is-ready");
+      root.querySelector(".character-preview-fallback")?.classList.add("is-visible");
+      image.src = nextSrc;
+    } else {
+      initializeCharacterVisualPreview(root);
+    }
+  });
+}
+
+function renderCharacterVisualPreview(slot, label, visual) {
+  const asset = visual.assetId ? state.catalog?.imageAssets?.[visual.assetId] : null;
+  const path = asset?.path || "";
+  const frameCount = Number(visual.frameCount) > 0 ? Number(visual.frameCount) : 1;
+  const columns = Number(visual.columns) > 0 ? Math.min(frameCount, Number(visual.columns)) : frameCount;
+  const fps = Number(visual.fps) >= 0 ? Number(visual.fps) : 0;
+  const fallback = asset ? "Preview unavailable" : "No sprite assigned";
+  return `<div class="character-preview" data-character-preview data-preview-slot="${slot}" data-preview-label="${label}" data-preview-asset-id="${escapeHtml(visual.assetId || "")}" data-preview-frame-count="${frameCount}" data-preview-columns="${columns}" data-preview-fps="${fps}" data-preview-playing="true"><canvas class="character-preview-canvas" aria-hidden="true"></canvas>${path ? `<img class="character-preview-source" src="${assetPreviewUrl(path)}" alt="" aria-hidden="true" onload="initializeCharacterVisualPreview(this.closest('[data-character-preview]'))" onerror="handleCharacterVisualPreviewError(this)">` : ""}<span class="character-preview-fallback is-visible">${fallback}</span><button type="button" class="small-button" data-action="toggle-character-preview">Pause</button></div>`;
+}
+
 function renderCharacterVisuals(definition, context) {
   const visuals = definition?.visuals || {};
   const slots = [["idle", "Idle"], ["walk", "Walk"], ["attack", "Attack"]];
-  return `<section class="section character-visuals"><div class="section-heading"><div><h3>Character Visuals</h3><p>Optional data-only slots for future presentation work. No playback or sprite-sheet processing is enabled in this pass.</p></div></div>${slots.map(([slot, label]) => {
+  return `<section class="section character-visuals"><div class="section-heading"><div><h3>Character Visuals</h3><p>Optional sprite slots. Sprite Sheet uploads preserve the full transparent sheet without cropping. Omitted FPS defaults to Idle 6, Walk 10, or Attack 12 when a slot has multiple frames.</p></div></div>${slots.map(([slot, label]) => {
     const visual = visuals[slot] || {};
-    return `<div class="section-card"><h4>${label}</h4>${renderAssetSelector(`${label} visual`, `visuals.${slot}.assetId`, visual.assetId, "image", "combat", `${context} ${slot}`, "combat")}<div class="form-grid"><label>Frame count<input type="number" min="1" step="1" data-field="visuals.${slot}.frameCount" value="${escapeHtml(visual.frameCount ?? "")}" placeholder="optional"></label><label>FPS<input type="number" min="0" step="any" data-field="visuals.${slot}.fps" value="${escapeHtml(visual.fps ?? "")}" placeholder="optional"></label></div></div>`;
+    return `<div class="section-card"><h4>${label}</h4>${renderCharacterVisualPreview(slot, label, visual)}${renderAssetSelector(`${label} visual`, `visuals.${slot}.assetId`, visual.assetId, "image", "combat", `${context} ${slot}`, "sprite_sheet")}<div class="form-grid three"><label>Frames<input type="number" min="1" step="1" data-field="visuals.${slot}.frameCount" value="${escapeHtml(visual.frameCount ?? "")}" placeholder="optional"></label><label>Columns<input type="number" min="1" step="1" data-field="visuals.${slot}.columns" value="${escapeHtml(visual.columns ?? "")}" placeholder="optional"></label><label>FPS<input type="number" min="0" step="any" data-field="visuals.${slot}.fps" value="${escapeHtml(visual.fps ?? "")}" placeholder="default"></label></div></div>`;
   }).join("")}</section>`;
 }
 
@@ -1596,7 +1714,7 @@ function renderPlayerCharacter() {
   const player = state.draft;
   if (!player) return `<div class="empty-state">The Arthur player definition is unavailable.</div>`;
   return `<div class="editor-title"><div><h2>${escapeHtml(player.name || "Arthur")}</h2><p>${escapeHtml(player.id || "arthur")}</p></div><span class="schema-badge">Player Character schema</span></div>
-    <section class="section"><div class="section-heading"><div><h3>Player identity and expedition stats</h3><p>Arthur is a singleton definition authored in <code>PLAYER_CHARACTER_DEFINITION</code>.</p></div></div><div class="form-grid"><label>ID<input value="${escapeHtml(player.id || "arthur")}" readonly></label><label>Name<input data-field="name" value="${escapeHtml(player.name || "")}"></label><label>Provision capacity<input type="number" min="0" step="any" data-field="provisionCapacity" value="${escapeHtml(player.provisionCapacity ?? "")}"></label><label>Provision consumption multiplier<input type="number" min="0" step="any" data-field="provisionConsumptionMultiplier" value="${escapeHtml(player.provisionConsumptionMultiplier ?? "")}"></label><label>Maximum HP<input type="number" min="1" step="1" data-field="combat.maxHp" value="${escapeHtml(player.combat?.maxHp ?? "")}"></label><label>Combat speed<input type="number" min="1" step="any" data-field="combat.speed" value="${escapeHtml(player.combat?.speed ?? "")}"></label>${renderAssetSelector("Portrait asset", "portraitAssetId", player.portraitAssetId, "image", "portrait", player.name || "arthur")}${renderAssetSelector("Combat visual", "combatVisualAssetId", player.combatVisualAssetId, "image", "combat", player.name || "arthur", "combat")}</div></section>
+    <section class="section"><div class="section-heading"><div><h3>Player identity and expedition stats</h3><p>Arthur is a singleton definition authored in <code>PLAYER_CHARACTER_DEFINITION</code>.</p></div></div><div class="form-grid"><label>ID<input value="${escapeHtml(player.id || "arthur")}" readonly></label><label>Name<input data-field="name" value="${escapeHtml(player.name || "")}"></label><label>Provision capacity<input type="number" min="0" step="any" data-field="provisionCapacity" value="${escapeHtml(player.provisionCapacity ?? "")}"></label><label>Provision consumption multiplier<input type="number" min="0" step="any" data-field="provisionConsumptionMultiplier" value="${escapeHtml(player.provisionConsumptionMultiplier ?? "")}"></label><label>Maximum HP<input type="number" min="1" step="1" data-field="combat.maxHp" value="${escapeHtml(player.combat?.maxHp ?? "")}"></label><label>Combat speed<input type="number" min="1" step="any" data-field="combat.speed" value="${escapeHtml(player.combat?.speed ?? "")}"></label><label>Visual scale<input type="number" min="0.25" max="3" step="0.05" data-field="visualScale" value="${escapeHtml(player.visualScale ?? 1)}"></label>${renderAssetSelector("Portrait asset", "portraitAssetId", player.portraitAssetId, "image", "portrait", player.name || "arthur")}${renderAssetSelector("Combat visual", "combatVisualAssetId", player.combatVisualAssetId, "image", "combat", player.name || "arthur", "combat")}</div></section>
     ${renderCharacterVisuals(player, player.name || "Arthur")}
     <section class="section"><details><summary>Raw player JSON (advanced)</summary><p class="hint">Use this for simple fields not yet surfaced by the editor. The singleton ID remains fixed to arthur.</p><textarea id="raw-json" class="raw-editor">${jsonText(player)}</textarea><div class="button-row"><button type="button" class="small-button" data-action="apply-raw">Apply raw JSON</button></div></details></section>`;
 }
@@ -1611,7 +1729,7 @@ function renderCompanion() {
   const references = (liveReferences().companions || []).filter((reference) => reference.id === companion.id);
   return `<div class="editor-title"><div><h2>${escapeHtml(companion.name || companion.id || "New companion")}</h2><p>${escapeHtml(companion.id || "Unsaved ID")}</p></div><span class="schema-badge">Companion schema</span></div>
     <section class="section"><div class="section-heading"><div><h3>Companion identity</h3><p>Companions are editable definitions from <code>COMPANION_DEFINITIONS</code>. IDs are stable references used by requirements, dialogue, camp events, and encounters.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(companion.id || "")}"></label><label>Name<input data-field="name" value="${escapeHtml(companion.name || "")}"></label><label>Type<input data-field="type" value="${escapeHtml(companion.type || "")}"></label><label class="wide">Description<textarea data-field="description">${escapeHtml(companion.description || "")}</textarea></label><label>Tags<input data-array-field="tags" value="${escapeHtml((companion.tags || []).join(", "))}" placeholder="knight, practical"></label>${renderAssetSelector("Portrait asset", "portraitAssetId", companion.portraitAssetId, "image", "portrait", companion.name || companion.id)}${renderAssetSelector("Combat visual", "combatVisualAssetId", companion.combatVisualAssetId ?? companion.visualAssetId, "image", "combat", companion.name || companion.id, "combat")}</div></section>
-    <section class="section"><div class="section-heading"><div><h3>Expedition and combat stats</h3><p>These fields retain the current companion runtime schema.</p></div></div><div class="form-grid"><label>Provision capacity bonus<input type="number" min="0" step="any" data-field="provisionCapacityBonus" value="${escapeHtml(companion.provisionCapacityBonus ?? "")}"></label><label>Provision consumption bonus<input type="number" min="0" step="any" data-field="provisionConsumptionBonus" value="${escapeHtml(companion.provisionConsumptionBonus ?? "")}"></label><label>Travel speed multiplier<input type="number" min="0" step="any" data-field="travelSpeedMultiplier" value="${escapeHtml(companion.travelSpeedMultiplier ?? "")}" placeholder="optional"></label><label>Maximum HP<input type="number" min="1" step="1" data-field="combat.maxHp" value="${escapeHtml(combat.maxHp ?? "")}"></label><label>Combat speed<input type="number" min="1" step="any" data-field="combat.speed" value="${escapeHtml(combat.speed ?? "")}"></label><label>Defense<input type="number" min="0" step="any" data-field="combat.defense" value="${escapeHtml(combat.defense ?? "")}"></label><label>Basic damage minimum<input type="number" min="0" step="any" data-field="combat.basicDamage.minimum" value="${escapeHtml(damage.minimum ?? "")}"></label><label>Basic damage maximum<input type="number" min="0" step="any" data-field="combat.basicDamage.maximum" value="${escapeHtml(damage.maximum ?? "")}"></label></div><div><strong>Capabilities</strong><div class="check-grid compact-check-grid">${["canUseItems", "canDefend", "canFlee"].map((field) => `<label class="check-chip"><input type="checkbox" data-field="capabilities.${field}"${checked(capabilities[field])}>${field.replace("can", "Can ")}</label>`).join("")}</div></div><div><strong>Combat abilities</strong><div class="check-grid compact-check-grid">${abilityIds.map((id) => `<label class="check-chip"><input type="checkbox" data-companion-ability="${escapeHtml(id)}"${checked((companion.combatAbilities || []).includes(id))}>${escapeHtml(abilityLabel(id))}</label>`).join("") || `<span class="hint">No combat abilities available.</span>`}</div></div></section>
+    <section class="section"><div class="section-heading"><div><h3>Expedition and combat stats</h3><p>These fields retain the current companion runtime schema.</p></div></div><div class="form-grid"><label>Provision capacity bonus<input type="number" min="0" step="any" data-field="provisionCapacityBonus" value="${escapeHtml(companion.provisionCapacityBonus ?? "")}"></label><label>Provision consumption bonus<input type="number" min="0" step="any" data-field="provisionConsumptionBonus" value="${escapeHtml(companion.provisionConsumptionBonus ?? "")}"></label><label>Travel speed multiplier<input type="number" min="0" step="any" data-field="travelSpeedMultiplier" value="${escapeHtml(companion.travelSpeedMultiplier ?? "")}" placeholder="optional"></label><label>Visual scale<input type="number" min="0.25" max="3" step="0.05" data-field="visualScale" value="${escapeHtml(companion.visualScale ?? 1)}"></label><label>Maximum HP<input type="number" min="1" step="1" data-field="combat.maxHp" value="${escapeHtml(combat.maxHp ?? "")}"></label><label>Combat speed<input type="number" min="1" step="any" data-field="combat.speed" value="${escapeHtml(combat.speed ?? "")}"></label><label>Defense<input type="number" min="0" step="any" data-field="combat.defense" value="${escapeHtml(combat.defense ?? "")}"></label><label>Basic damage minimum<input type="number" min="0" step="any" data-field="combat.basicDamage.minimum" value="${escapeHtml(damage.minimum ?? "")}"></label><label>Basic damage maximum<input type="number" min="0" step="any" data-field="combat.basicDamage.maximum" value="${escapeHtml(damage.maximum ?? "")}"></label></div><div><strong>Capabilities</strong><div class="check-grid compact-check-grid">${["canUseItems", "canDefend", "canFlee"].map((field) => `<label class="check-chip"><input type="checkbox" data-field="capabilities.${field}"${checked(capabilities[field])}>${field.replace("can", "Can ")}</label>`).join("")}</div></div><div><strong>Combat abilities</strong><div class="check-grid compact-check-grid">${abilityIds.map((id) => `<label class="check-chip"><input type="checkbox" data-companion-ability="${escapeHtml(id)}"${checked((companion.combatAbilities || []).includes(id))}>${escapeHtml(abilityLabel(id))}</label>`).join("") || `<span class="hint">No combat abilities available.</span>`}</div></div></section>
     ${renderCharacterVisuals(companion, companion.name || companion.id)}
     <section class="section"><div class="section-heading"><div><h3>Used by</h3><p>Deleting a referenced companion is blocked by catalog validation.</p></div></div><div class="reference-list">${renderReferenceRows(references, "No current references.")}</div></section>
     <section class="section"><details><summary>Raw companion JSON (advanced)</summary><textarea id="raw-json" class="raw-editor">${jsonText(companion)}</textarea><div class="button-row"><button type="button" class="small-button" data-action="apply-raw">Apply raw JSON</button></div></details></section>`;
@@ -1622,7 +1740,7 @@ function renderEnemy() {
   if (!enemy) return `<div class="empty-state">Choose an enemy to edit.</div>`;
   const references = (liveReferences().enemies || []).filter((reference) => reference.id === enemy.id);
   return `<div class="editor-title"><div><h2>${escapeHtml(enemy.name || enemy.id || "New enemy")}</h2><p>${escapeHtml(enemy.id || "Unsaved ID")}</p></div><span class="schema-badge">Enemy schema</span></div>
-    <section class="section"><div class="section-heading"><div><h3>Enemy identity and combat stats</h3><p>Enemies are reusable definitions authored in <code>COMBAT_ENEMY_DEFINITIONS</code>.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(enemy.id || "")}"></label><label>Name<input data-enemy-field="name" value="${escapeHtml(enemy.name || "")}"></label><label>Maximum HP<input type="number" min="1" step="1" data-enemy-field="maxHp" value="${escapeHtml(enemy.maxHp ?? "")}"></label><label>Speed<input type="number" min="1" step="any" data-enemy-field="speed" value="${escapeHtml(enemy.speed ?? "")}"></label><label>Defense<input type="number" min="0" step="any" data-enemy-field="defense" value="${escapeHtml(enemy.defense ?? "")}"></label>${renderAssetSelector("Combat visual", "combatVisualAssetId", enemy.combatVisualAssetId ?? enemy.visualAssetId, "image", "combat", enemy.name || enemy.id, "combat")}</div></section>
+    <section class="section"><div class="section-heading"><div><h3>Enemy identity and combat stats</h3><p>Enemies are reusable definitions authored in <code>COMBAT_ENEMY_DEFINITIONS</code>.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(enemy.id || "")}"></label><label>Name<input data-enemy-field="name" value="${escapeHtml(enemy.name || "")}"></label><label>Maximum HP<input type="number" min="1" step="1" data-enemy-field="maxHp" value="${escapeHtml(enemy.maxHp ?? "")}"></label><label>Speed<input type="number" min="1" step="any" data-enemy-field="speed" value="${escapeHtml(enemy.speed ?? "")}"></label><label>Defense<input type="number" min="0" step="any" data-enemy-field="defense" value="${escapeHtml(enemy.defense ?? "")}"></label><label>Visual scale<input type="number" min="0.25" max="3" step="0.05" data-field="visualScale" value="${escapeHtml(enemy.visualScale ?? 1)}"></label>${renderAssetSelector("Combat visual", "combatVisualAssetId", enemy.combatVisualAssetId ?? enemy.visualAssetId, "image", "combat", enemy.name || enemy.id, "combat")}</div></section>
     ${renderCharacterVisuals(enemy, enemy.name || enemy.id)}
     <section class="section"><div class="section-heading"><div><h3>Action pattern</h3><p>Choose reusable Enemy Actions in their authored order. Repeated action IDs remain meaningful.</p></div><button type="button" class="small-button" data-action="add-enemy-action-pattern">Add action</button></div>${renderEnemyPatternRows(enemy) || `<p class="hint">No actions. Add an action to author this enemy's pattern.</p>`}</section>
     <section class="section"><div class="section-heading"><div><h3>Traits</h3><p>Traits are generic runtime behaviors. Regeneration may be suppressed by authored combat statuses.</p></div><button type="button" class="small-button" data-action="add-enemy-trait">Add trait</button></div>${renderEnemyTraitRows(enemy) || `<p class="hint">No traits. Add one to author a reusable enemy behavior.</p>`}</section>
@@ -2170,6 +2288,7 @@ function render() {
              : renderLootTable();
    if (state.navigationHistory.length) $("#editor-root").insertAdjacentHTML("afterbegin", renderNavigationControls());
    injectAssetEditors();
+   setupCharacterVisualPreviews();
    updateSaveState();
   renderValidation();
   populateItemDatalist();
@@ -2272,6 +2391,7 @@ function markDirty() {
   state.draftDirty = true;
   updateSaveState();
   renderEntryPaneOnly();
+  syncCharacterVisualPreviews();
   scheduleValidation();
 }
 
@@ -3104,7 +3224,7 @@ function suggestClientAssetId(filename, assetType, category, context = "") {
 }
 
 function imageProfileForCategory(category) {
-  return { portrait: "portrait", location: "scene", town: "town", expedition: "scene", encounter: "scene", combat: "combat", combat_scene: "scene", ui: "ui" }[category] || "none";
+  return { portrait: "portrait", location: "scene", town: "town", expedition: "scene", encounter: "scene", combat: "combat", sprite_sheet: "sprite_sheet", combat_scene: "scene", ui: "ui" }[category] || "none";
 }
 
 function formatAssetBytes(bytes) {
@@ -3118,8 +3238,11 @@ function formatAssetImageSummary(processing) {
   const source = processing.source;
   const output = processing.output;
   const title = processing.profile === "none" ? "Original" : `${processing.profileLabel} · Quality 85 · ${processing.cropAnchor[0].toUpperCase()}${processing.cropAnchor.slice(1)} crop`;
+  const displayTitle = processing.profile === "sprite_sheet"
+    ? `${processing.profileLabel} · Full sheet · No crop`
+    : title;
   const warnings = (processing.warnings || []).map((warning) => `<div class="warning">Warning: ${escapeHtml(warning)}</div>`).join("");
-  return `<div><strong>Source</strong><br>${source.width} × ${source.height} ${escapeHtml(source.format)}<br>${formatAssetBytes(source.bytes)}</div><div><strong>${processing.profile === "none" ? "Output" : "Optimized"}</strong><br>${output.width} × ${output.height} ${escapeHtml(output.format)}<br>${formatAssetBytes(output.bytes)}</div><div>${escapeHtml(title)}</div>${warnings}`;
+  return `<div><strong>Source</strong><br>${source.width} × ${source.height} ${escapeHtml(source.format)}<br>${formatAssetBytes(source.bytes)}</div><div><strong>${processing.profile === "none" ? "Output" : "Optimized"}</strong><br>${output.width} × ${output.height} ${escapeHtml(output.format)}<br>${formatAssetBytes(output.bytes)}</div><div>${escapeHtml(displayTitle)}</div>${warnings}`;
 }
 
 function closeAssetImportDialog() {
@@ -3151,7 +3274,7 @@ async function refreshImageImportPreview() {
   const anchor = $("#asset-crop-anchor");
   const options = importOptions();
   if (profile) profile.disabled = !options.optimize;
-  if (anchor) anchor.disabled = !options.optimize || options.profile === "none";
+  if (anchor) anchor.disabled = !options.optimize || options.profile === "none" || options.profile === "sprite_sheet";
   if (confirm) confirm.disabled = true;
   if (status) status.textContent = "Processing preview…";
   if (summary) summary.textContent = "";
@@ -3268,7 +3391,14 @@ async function uploadSelectedAsset(file) {
 
 function handleAction(button) {
   const action = button.dataset.action;
-  if (action === "cancel-asset-upload") {
+  if (action === "toggle-character-preview") {
+    const root = button.closest("[data-character-preview]");
+    if (!root) return;
+    const playing = root.dataset.previewPlaying !== "false";
+    root.dataset.previewPlaying = playing ? "false" : "true";
+    button.textContent = playing ? "Play" : "Pause";
+    initializeCharacterVisualPreview(root);
+  } else if (action === "cancel-asset-upload") {
     closeAssetImportDialog();
   } else if (action === "confirm-asset-upload") {
     const pending = state.pendingAssetUpload;

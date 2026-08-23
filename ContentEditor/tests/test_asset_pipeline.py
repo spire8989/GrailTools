@@ -220,6 +220,27 @@ class AssetPipelineTests(unittest.TestCase):
             (1800, 600),
         )
 
+    def test_character_sprite_sheet_profile_preserves_full_transparent_geometry(self) -> None:
+        temp, project = self.temporary_grail()
+        self.addCleanup(temp.cleanup)
+        result = upload_asset(
+            project,
+            asset_type="image",
+            category="combat",
+            asset_id="character_sprite_sheet",
+            filename="hero-sheet.png",
+            content=self.image_bytes((12, 8), (180, 120, 60, 0)),
+            optimize_for_game=True,
+            optimization_profile="sprite_sheet",
+            backup_dir=Path(temp.name) / "backups",
+        )
+        self.assertEqual(result["assetResult"]["imageProcessing"]["profile"], "sprite_sheet")
+        self.assertEqual(result["assetResult"]["imageProcessing"]["profileLabel"], "Character Sprite Sheet")
+        with self.webp_info((project / result["assetResult"]["path"]).read_bytes()) as image:
+            self.assertEqual(image.size, (12, 8))
+            self.assertIn("A", image.getbands())
+            self.assertEqual(image.getpixel((0, 0))[3], 0)
+
     def test_travel_panorama_replacement_preserves_stable_asset_id(self) -> None:
         temp, project = self.temporary_grail()
         self.addCleanup(temp.cleanup)

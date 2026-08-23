@@ -76,14 +76,45 @@ class ContentEditorTests(unittest.TestCase):
         app = (CONTENT_EDITOR / "static" / "app.js").read_text(encoding="utf-8")
         self.assertIn('renderAssetSelector("Combat visual", "combatVisualAssetId"', app)
         self.assertIn('renderAssetSelector(`${label} visual`, `visuals.${slot}.assetId`, visual.assetId, "image", "combat"', app)
+        self.assertIn('"sprite_sheet"', app)
+        self.assertIn('data-action="toggle-character-preview"', app)
+        self.assertIn('data-field="visualScale"', app)
         image_assets = {"character_pass_combat": {"id": "character_pass_combat", "category": "combat", "path": "assets/images/combat/character_pass_combat.webp"}}
         player = clone(catalog["playerCharacter"])
-        player["visuals"] = {"idle": {"assetId": "character_pass_combat", "frameCount": 1, "fps": 0}}
+        player["combatVisualAssetId"] = None
+        player["visualScale"] = 1.25
+        player["visuals"] = {"idle": {"assetId": "character_pass_combat", "frameCount": 4, "columns": 2, "fps": 0}}
         values = {"imageAssets": image_assets, "playerCharacter": player}
         self.assertEqual(validate_catalog(values, catalog["known"])["errors"], [])
-        player["visuals"]["idle"]["frameCount"] = 0
+        player["visuals"]["idle"]["columns"] = 5
         errors = validate_catalog(values, catalog["known"])["errors"]
-        self.assertTrue(any("frameCount" in issue["message"] for issue in errors))
+        self.assertTrue(any("columns" in issue["message"] for issue in errors))
+        player["visuals"]["idle"]["columns"] = 2
+        player["visuals"]["idle"]["fps"] = -1
+        errors = validate_catalog(values, catalog["known"])["errors"]
+        self.assertTrue(any("fps" in issue["message"] for issue in errors))
+        player["visuals"]["idle"]["fps"] = 0
+        player["visualScale"] = 3.5
+        errors = validate_catalog(values, catalog["known"])["errors"]
+        self.assertTrue(any("visualScale" in issue["message"] for issue in errors))
+
+    def test_character_visual_metadata_round_trips_through_editor_save(self) -> None:
+        temp, project = self.temporary_grail()
+        self.addCleanup(temp.cleanup)
+        before = load_catalog(project)
+        player = clone(before["playerCharacter"])
+        player["visualScale"] = 0.75
+        player.setdefault("visuals", {})["attack"] = {
+            "assetId": "combat_arthur_idle_basesprite",
+            "frameCount": 3,
+            "columns": 3,
+            "fps": 12,
+        }
+        save_catalog(project, {"playerCharacter": player}, before["sourceHashes"], Path(temp.name) / "backups")
+        after = load_catalog(project)
+        self.assertEqual(after["playerCharacter"]["visualScale"], 0.75)
+        self.assertEqual(after["playerCharacter"]["visuals"]["attack"]["columns"], 3)
+        self.assertEqual(after["playerCharacter"]["visuals"]["attack"]["fps"], 12)
 
     def test_asset_browser_exposes_travel_panorama_and_travel_rows_select_it(self) -> None:
         index = (CONTENT_EDITOR / "static" / "index.html").read_text(encoding="utf-8")

@@ -1545,8 +1545,20 @@ def _validate_character_visuals(definition: Any, known: dict[str, list[str]], so
                     errors.append(_issue("error", f"Character visual asset {asset_id!r} must use the combat image category.", source, f"{path}.assetId"))
         if "frameCount" in visual and (not isinstance(visual.get("frameCount"), int) or isinstance(visual.get("frameCount"), bool) or visual.get("frameCount") <= 0):
             errors.append(_issue("error", "Character visual frameCount must be a positive integer.", source, f"{path}.frameCount"))
+        if "columns" in visual and (not isinstance(visual.get("columns"), int) or isinstance(visual.get("columns"), bool) or visual.get("columns") <= 0):
+            errors.append(_issue("error", "Character visual columns must be a positive integer.", source, f"{path}.columns"))
+        elif "columns" in visual and isinstance(visual.get("frameCount"), int) and not isinstance(visual.get("frameCount"), bool) and visual["columns"] > visual["frameCount"]:
+            errors.append(_issue("error", "Character visual columns cannot exceed frameCount.", source, f"{path}.columns"))
         if "fps" in visual and (not _is_number(visual.get("fps")) or visual.get("fps") < 0):
             errors.append(_issue("error", "Character visual fps must be a non-negative number.", source, f"{path}.fps"))
+
+
+def _validate_character_scale(definition: Any, source: str, errors: list[dict[str, str]]) -> None:
+    if not isinstance(definition, dict) or "visualScale" not in definition or definition.get("visualScale") is None:
+        return
+    scale = definition.get("visualScale")
+    if not _is_number(scale) or not 0.25 <= scale <= 3:
+        errors.append(_issue("error", "visualScale must be a number from 0.25 to 3.", source, "visualScale"))
 
 
 def _validate_player_character(player: Any, known: dict[str, list[str]], errors: list[dict[str, str]]) -> None:
@@ -1570,6 +1582,7 @@ def _validate_player_character(player: Any, known: dict[str, list[str]], errors:
                 errors.append(_issue("error", f"Player combat {field_name} must be a positive number.", source, f"combat.{field_name}"))
     _validate_character_asset_fields(player, known, source, errors, ("portraitAssetId", "combatVisualAssetId"))
     _validate_character_visuals(player, known, source, errors)
+    _validate_character_scale(player, source, errors)
 
 
 def _validate_companions(companions: Any, known: dict[str, list[str]], errors: list[dict[str, str]]) -> None:
@@ -1612,6 +1625,7 @@ def _validate_companions(companions: Any, known: dict[str, list[str]], errors: l
             errors.append(_issue("error", "Companion noPermanentDeath must be boolean.", source, "noPermanentDeath"))
         _validate_character_asset_fields(companion, known, source, errors, ("portraitAssetId", "combatVisualAssetId", "visualAssetId"))
         _validate_character_visuals(companion, known, source, errors)
+        _validate_character_scale(companion, source, errors)
 
 
 def _validate_enemy_definitions(enemies: Any, known: dict[str, list[str]], errors: list[dict[str, str]]) -> None:
@@ -1650,6 +1664,7 @@ def _validate_enemy_definitions(enemies: Any, known: dict[str, list[str]], error
             errors.append(_issue("error", "Enemy actionPattern must be a non-empty array of action IDs.", source, "actionPattern"))
         _validate_character_asset_fields(enemy, known, source, errors)
         _validate_character_visuals(enemy, known, source, errors)
+        _validate_character_scale(enemy, source, errors)
         traits = enemy.get("traits", [])
         if not isinstance(traits, list):
             errors.append(_issue("error", "Enemy traits must be an array.", source, "traits"))

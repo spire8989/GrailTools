@@ -95,6 +95,17 @@ h2, h3, h4 { margin: 0; }
 .asset-selector-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; align-items: end; }
 .asset-field-preview-wrap { min-height: 28px; color: var(--muted); }
 .asset-field-preview { display: block; max-width: 180px; max-height: 74px; border: 1px solid var(--border); border-radius: 4px; object-fit: cover; }
+.character-visuals .section-card { display: grid; grid-template-columns: 92px minmax(190px, 1fr); gap: 8px 12px; align-items: center; margin-bottom: 8px; padding: 9px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 5px; }
+.character-visuals .section-card h4 { color: #e2c27d; font-size: 12px; }
+.character-visuals .section-card .asset-selector { grid-column: 1 / -1; }
+.character-visuals .section-card .form-grid { grid-column: 1 / -1; }
+.character-preview { position: relative; display: grid; width: 92px; height: 92px; place-items: center; overflow: hidden; background: #101319; border: 1px solid #6b5434; border-radius: 4px; }
+.character-preview-canvas { display: block; width: 100%; height: 100%; object-fit: contain; image-rendering: auto; }
+.character-preview-source { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.character-preview:not(.is-ready) .character-preview-canvas { visibility: hidden; }
+.character-preview-fallback { position: absolute; inset: 0; display: grid; place-items: center; padding: 7px; color: var(--muted); font-size: 10px; text-align: center; }
+.character-preview.is-ready .character-preview-fallback { visibility: hidden; }
+.character-preview > .small-button { position: absolute; right: 3px; bottom: 3px; padding: 2px 4px; font-size: 9px; opacity: .88; }
 .travel-scene-editor-list { display: grid; gap: 8px; }
 .travel-scene-editor-row { display: grid; grid-template-columns: minmax(120px, 0.45fr) minmax(260px, 1fr) auto; gap: 9px; align-items: start; padding: 9px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 5px; }
 .travel-scene-editor-row .asset-field-preview-wrap { grid-column: 2; }

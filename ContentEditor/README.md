@@ -44,13 +44,14 @@ The default project is discovered as the sibling `../../Grail` relative to
 ## Supported Pass 3 content
 
 - Characters: the Player Character singleton edits Arthur's current identity,
-  expedition/combat stats, portrait, static combat visual, and optional data-only
-  Idle/Walk/Attack visual slots. Companions are a first-class CRUD category backed
+  expedition/combat stats, portrait, static combat visual, visual scale, and
+  optional Idle/Walk/Attack sprite slots with frame count, columns, FPS, animated
+  previews, and play/pause controls. Companions are a first-class CRUD category backed
   by `COMPANION_DEFINITIONS`, with safe reference-aware deletion and the same
-  current identity, provision, combat, static visual, and optional visual-slot
-  fields. Enemies expose the shared Character Visuals section as well. These
-  slots store authored metadata only in Character Pass 1; runtime playback is a
-  separate future pass.
+  current identity, provision, combat, static visual, visual scale, and the same
+  visual-slot fields. Enemies expose the shared Character Visuals section as well.
+  Sprite Sheet uploads use a transparent, full-source, no-crop import profile;
+  static combat visuals continue to use the Combat Cutout profile.
 
 - Encounters: metadata, path and direction filters, requirements, stages,
   choices, costs, outcomes/effects, pending actions, and advanced raw JSON.
@@ -227,6 +228,9 @@ the runtime assets folder.
   and encounter art use a 1280×720, 16:9 WebP profile.
 - Combat cutouts preserve aspect ratio and transparency with a 768px longest
   dimension cap.
+- Character Sprite Sheet assets preserve the full source geometry and alpha
+  without scene cropping; the whole sheet may be proportionally resized only
+  when an author explicitly adds that processing later.
 - Combat battlefield scenes use the normal 1280×720, 16:9 Scene profile and
   remain static behind the combat HUD.
 - UI images preserve aspect ratio with a 1024px longest dimension cap.
@@ -236,7 +240,7 @@ the runtime assets folder.
   output dimensions, format, file size, profile, and soft size warnings.
 - Turning optimization off keeps the existing raw-copy upload behavior.
 - The generic Asset Browser offers Portrait, Scene, Town Background, Travel
-  Panorama, Combat, UI, and None/Original profiles. Uploading from an Expedition
+  Panorama, Combat, Character Sprite Sheet, UI, and None/Original profiles. Uploading from an Expedition
   Travel Scene row selects Travel Panorama by default, town backgrounds select
   Town Background, Expedition Camp Visual keeps the normal Scene profile, and
   combat battlefield selectors use the Scene profile in the `combat_scene`
