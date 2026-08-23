@@ -1770,16 +1770,18 @@ function initializeCharacterVisualPreview(root) {
   root._characterPreviewPendingKey = stateKey;
   const instance = { root, image, canvas, frameIndex: 0, metadata: null, stateKey, startedAt: performance.now(), paused: root.dataset.previewPlaying === "false" || window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches };
   const metadata = characterPreviewMetadata(image, instance);
+  root._characterPreviewPendingKey = null;
+  root.style.setProperty("--preview-scale", String(Math.min(3, Math.max(0.25, Number(root.dataset.previewScale) || 1))));
+  instance.metadata = metadata;
+  instance.automaticSlotNormalization = 1;
+  root._characterPreviewInstance = instance;
+  characterPreviewInstances.add(instance);
+  drawCharacterPreview(instance, 0);
+  if (Number(root.dataset.previewFrameCount) > 1 && !instance.paused) scheduleCharacterPreviewAnimation();
   characterPreviewNormalization(root, instance, metadata).then((automaticSlotNormalization) => {
-    if (!root.isConnected || root._characterPreviewPendingKey !== stateKey) return;
-    root._characterPreviewPendingKey = null;
-    root.style.setProperty("--preview-scale", String(Math.min(3, Math.max(0.25, (Number(root.dataset.previewScale) || 1) * automaticSlotNormalization))));
-    instance.metadata = metadata;
+    if (!root.isConnected || root._characterPreviewInstance !== instance) return;
     instance.automaticSlotNormalization = automaticSlotNormalization;
-    root._characterPreviewInstance = instance;
-    characterPreviewInstances.add(instance);
-    drawCharacterPreview(instance, 0);
-    if (Number(root.dataset.previewFrameCount) > 1 && !instance.paused) scheduleCharacterPreviewAnimation();
+    root.style.setProperty("--preview-scale", String(Math.min(3, Math.max(0.25, (Number(root.dataset.previewScale) || 1) * automaticSlotNormalization))));
   });
 }
 
