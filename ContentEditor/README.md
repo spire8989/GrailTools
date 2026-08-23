@@ -43,6 +43,15 @@ The default project is discovered as the sibling `../../Grail` relative to
 
 ## Supported Pass 3 content
 
+- Characters: the Player Character singleton edits Arthur's current identity,
+  expedition/combat stats, portrait, static combat visual, and optional data-only
+  Idle/Walk/Attack visual slots. Companions are a first-class CRUD category backed
+  by `COMPANION_DEFINITIONS`, with safe reference-aware deletion and the same
+  current identity, provision, combat, static visual, and optional visual-slot
+  fields. Enemies expose the shared Character Visuals section as well. These
+  slots store authored metadata only in Character Pass 1; runtime playback is a
+  separate future pass.
+
 - Encounters: metadata, path and direction filters, requirements, stages,
   choices, costs, outcomes/effects, pending actions, and advanced raw JSON.
   The list supports combinable text search, path/region/direction/distance,

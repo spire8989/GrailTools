@@ -39,6 +39,49 @@ class ContentEditorTests(unittest.TestCase):
         self.assertGreaterEqual(len(catalog["campEvents"]), 6)
         self.assertEqual(catalog["validation"]["errors"], [])
 
+    def test_character_sources_load_and_player_singleton_save_is_surgical(self) -> None:
+        temp, project = self.temporary_grail()
+        self.addCleanup(temp.cleanup)
+        before = load_catalog(project)
+        self.assertEqual(before["playerCharacter"]["id"], "arthur")
+        self.assertIn("sir_kay", before["companions"])
+        incoming = {"playerCharacter": clone(before["playerCharacter"])}
+        incoming["playerCharacter"]["name"] = "Arthur (Character Pass Test)"
+        save_catalog(project, incoming, before["sourceHashes"], Path(temp.name) / "backups")
+        after = load_catalog(project)
+        self.assertEqual(after["playerCharacter"]["name"], "Arthur (Character Pass Test)")
+        self.assertEqual(after["companions"], before["companions"])
+
+    def test_companion_add_edit_and_referenced_delete_validation(self) -> None:
+        temp, project = self.temporary_grail()
+        self.addCleanup(temp.cleanup)
+        before = load_catalog(project)
+        companions = clone(before["companions"])
+        companions["character_pass_test"] = clone(companions["sir_kay"])
+        companions["character_pass_test"]["id"] = "character_pass_test"
+        companions["character_pass_test"]["name"] = "Character Pass Test"
+        save_catalog(project, {"companions": companions}, before["sourceHashes"], Path(temp.name) / "backups")
+        after = load_catalog(project)
+        self.assertEqual(after["companions"]["character_pass_test"]["name"], "Character Pass Test")
+        blocked = clone(after["companions"])
+        del blocked["character_pass_test"]
+        references = clone(after["encounters"])
+        first = next(iter(references.values()))
+        first.setdefault("requirements", []).append({"type": "companion", "companionId": "character_pass_test"})
+        validation = validate_catalog({"companions": blocked, "encounters": references}, after["known"], after["references"])
+        self.assertTrue(any("character_pass_test" in issue["message"] for issue in validation["errors"]))
+
+    def test_character_visual_slots_validate_optional_shape_and_combat_category(self) -> None:
+        catalog = load_catalog(GRAIL)
+        image_assets = {"character_pass_combat": {"id": "character_pass_combat", "category": "combat", "path": "assets/images/combat/character_pass_combat.webp"}}
+        player = clone(catalog["playerCharacter"])
+        player["visuals"] = {"idle": {"assetId": "character_pass_combat", "frameCount": 1, "fps": 0}}
+        values = {"imageAssets": image_assets, "playerCharacter": player}
+        self.assertEqual(validate_catalog(values, catalog["known"])["errors"], [])
+        player["visuals"]["idle"]["frameCount"] = 0
+        errors = validate_catalog(values, catalog["known"])["errors"]
+        self.assertTrue(any("frameCount" in issue["message"] for issue in errors))
+
     def test_asset_browser_exposes_travel_panorama_and_travel_rows_select_it(self) -> None:
         index = (CONTENT_EDITOR / "static" / "index.html").read_text(encoding="utf-8")
         app = (CONTENT_EDITOR / "static" / "app.js").read_text(encoding="utf-8")

@@ -18,6 +18,8 @@ const COMMON_EFFECT_TYPES = [
 const CONTENT_CATEGORIES = [
   ["imageAssets", "Images"],
   ["audioAssets", "Audio"],
+  ["playerCharacter", "Player Character"],
+  ["companions", "Companions"],
   ["encounters", "Encounters"],
   ["injuries", "Injuries"],
   ["campEvents", "Camp Events"],
@@ -41,7 +43,7 @@ const CONTENT_CATEGORIES = [
 ];
 
 const EDITABLE_REFERENCE_SOURCES = new Set([
-  "encounters", "injuries", "campEvents", "dialogues", "expeditions", "recipes", "materials", "craftingProviders", "shops", "npcs", "destinations", "locations", "items", "combats", "abilities", "combatStatuses", "enemyDefinitions", "enemyActions", "lootTables",
+  "playerCharacter", "companions", "encounters", "injuries", "campEvents", "dialogues", "expeditions", "recipes", "materials", "craftingProviders", "shops", "npcs", "destinations", "locations", "items", "combats", "abilities", "combatStatuses", "enemyDefinitions", "enemyActions", "lootTables",
 ]);
 
 const state = {
@@ -146,6 +148,11 @@ function enemyLabel(enemyId) {
   return enemy?.name ? `${enemy.name} (${enemyId})` : enemyId;
 }
 
+function companionLabel(companionId) {
+  const companion = state.catalog?.companions?.[companionId];
+  return companion?.name ? `${companion.name} (${companionId})` : companionId;
+}
+
 function enemyActionLabel(actionId) {
   const action = state.catalog?.enemyActions?.[actionId];
   return action?.name ? `${action.name} (${actionId})` : actionId;
@@ -236,8 +243,11 @@ function assetOptions(assetType, current, category = "") {
 function renderAssetSelector(label, field, current, assetType = "image", category = "", context = "", optimizationProfile = "") {
   const sourceCategory = assetType === "audio" ? "audioAssets" : "imageAssets";
   const asset = current ? state.catalog?.[sourceCategory]?.[current] : null;
-  const displayLabel = field === "campVisualAssetId" || field === "combatVisualAssetId"
+  const combatBackground = field === "combatVisualAssetId" && category === "combat_scene";
+  const displayLabel = field === "campVisualAssetId" || combatBackground
     ? `${label} · Scene 16:9`
+    : field === "combatVisualAssetId"
+      ? `${label} · Character visual`
     : label;
   const helper = field === "travelTransitionAssetId"
     ? `<span class="hint">Optional foreground artwork used to hide Travel Scene changes. Falls back to crossfade.</span>`
@@ -245,8 +255,10 @@ function renderAssetSelector(label, field, current, assetType = "image", categor
       ? `<span class="hint">Optional transparent PNG/WebP repeated at each travel panorama seam.</span>`
       : field === "travelParallaxAssetId"
         ? `<span class="hint">Optional transparent foreground cutout imported from a SAM JSON mask; stays aligned at 1.0×.</span>`
-        : field === "combatVisualAssetId"
+        : combatBackground
           ? `<span class="hint">Static 16:9 battlefield artwork. This is separate from the normal encounter scene and is never processed as a transparent combat cutout.</span>`
+          : field === "combatVisualAssetId"
+            ? `<span class="hint">Optional static character combat visual. Use the transparent combat cutout profile; playback and animation are intentionally deferred.</span>`
           : "";
   const preview = asset && assetType === "image"
     ? `<img class="asset-field-preview" src="${assetPreviewUrl(asset.path)}" alt="Preview of ${escapeHtml(current)}">`
@@ -791,14 +803,16 @@ function referenceInput(field, value, rootField = false) {
   }
   const map = { combatId: "combats", enemyId: "enemyDefinitions", enemyActionId: "enemyActions", abilityId: "abilities", injuryId: "injuries", treatmentItemId: "items", tableId: "lootTables", pathId: "paths", expeditionId: "expeditions", recipeId: "recipes", materialId: "materials", craftingProvider: "craftingProviders", craftingProviderId: "craftingProviders", shopId: "shops", regionId: "regions", eventId: "campEvents", campEventId: "campEvents", knowledgeId: "knowledge", companionId: "companions", dialogueId: "dialogues", dialogueSequenceId: "dialogues", introDialogueSequenceId: "dialogues", speakerId: "npcs", npcId: "npcs", destinationId: "destinations", locationId: "locations" };
   if (!map[field]) return `<input ${fieldAttribute} value="${escapeHtml(value || "")}">`;
-  let values = ["items", "combats", "enemyDefinitions", "enemyActions", "abilities", "injuries", "campEvents", "lootTables", "paths", "expeditions", "recipes", "materials", "craftingProviders", "dialogues", "npcs", "destinations", "locations", "shops"].includes(map[field])
+  let values = ["items", "combats", "enemyDefinitions", "enemyActions", "abilities", "injuries", "campEvents", "lootTables", "paths", "expeditions", "recipes", "materials", "craftingProviders", "dialogues", "npcs", "destinations", "locations", "shops", "companions"].includes(map[field])
     ? Object.keys(state.catalog?.[map[field]] || {}).sort()
     : known[map[field]] || [];
   if (field === "speakerId" && value === "arthur" && !values.includes("arthur")) values = ["arthur", ...values];
   const labels = map[field] === "items"
     ? Object.fromEntries(values.map((id) => [id, itemLabel(id)]))
-    : map[field] === "enemyDefinitions"
-      ? Object.fromEntries(values.map((id) => [id, enemyLabel(id)]))
+      : map[field] === "enemyDefinitions"
+        ? Object.fromEntries(values.map((id) => [id, enemyLabel(id)]))
+      : map[field] === "companions"
+        ? Object.fromEntries(values.map((id) => [id, companionLabel(id)]))
       : map[field] === "enemyActions"
         ? Object.fromEntries(values.map((id) => [id, enemyActionLabel(id)]))
       : map[field] === "injuries"
@@ -826,7 +840,7 @@ function referenceInput(field, value, rootField = false) {
                   : map[field] === "locations"
                     ? Object.fromEntries(values.map((id) => [id, locationLabel(id)]))
     : {};
-  const openCategory = map[field] === "items" ? "items" : map[field] === "combats" ? "combats" : map[field] === "enemyDefinitions" ? "enemyDefinitions" : map[field] === "enemyActions" ? "enemyActions" : map[field] === "abilities" ? "abilities" : map[field] === "injuries" ? "injuries" : map[field] === "campEvents" ? "campEvents" : map[field] === "lootTables" ? "lootTables" : map[field] === "paths" ? "paths" : map[field] === "expeditions" ? "expeditions" : map[field] === "recipes" ? "recipes" : map[field] === "materials" ? "materials" : map[field] === "craftingProviders" ? "craftingProviders" : map[field] === "dialogues" ? "dialogues" : map[field] === "npcs" ? "npcs" : map[field] === "destinations" ? "destinations" : map[field] === "locations" ? "locations" : null;
+  const openCategory = map[field] === "items" ? "items" : map[field] === "combats" ? "combats" : map[field] === "enemyDefinitions" ? "enemyDefinitions" : map[field] === "enemyActions" ? "enemyActions" : map[field] === "abilities" ? "abilities" : map[field] === "injuries" ? "injuries" : map[field] === "campEvents" ? "campEvents" : map[field] === "lootTables" ? "lootTables" : map[field] === "paths" ? "paths" : map[field] === "expeditions" ? "expeditions" : map[field] === "recipes" ? "recipes" : map[field] === "materials" ? "materials" : map[field] === "craftingProviders" ? "craftingProviders" : map[field] === "dialogues" ? "dialogues" : map[field] === "npcs" ? "npcs" : map[field] === "destinations" ? "destinations" : map[field] === "locations" ? "locations" : map[field] === "companions" ? "companions" : null;
   const openButton = openCategory && value
     ? ` <button type="button" class="small-button inline-open" data-action="open-reference" data-reference-category="${openCategory}" data-reference-id="${escapeHtml(value)}">Open</button>`
     : "";
@@ -1183,7 +1197,7 @@ function renderExpedition() {
 
 function collectClientReferences(value, source, references) {
   const scalarTypes = {
-    portraitAssetId: "imageAssets", visualAssetId: "imageAssets", backgroundAssetId: "imageAssets", travelVisualAssetId: "imageAssets", travelParallaxAssetId: "imageAssets", travelTransitionAssetId: "imageAssets", travelSeamForegroundAssetId: "imageAssets", campVisualAssetId: "imageAssets", combatVisualAssetId: "imageAssets", travelAmbienceAssetId: "audioAssets", campAmbienceAssetId: "audioAssets", ambienceAssetId: "audioAssets", stingAssetId: "audioAssets",
+    portraitAssetId: "imageAssets", visualAssetId: "imageAssets", backgroundAssetId: "imageAssets", travelVisualAssetId: "imageAssets", travelParallaxAssetId: "imageAssets", travelTransitionAssetId: "imageAssets", travelSeamForegroundAssetId: "imageAssets", campVisualAssetId: "imageAssets", combatVisualAssetId: "imageAssets", assetId: "imageAssets", travelAmbienceAssetId: "audioAssets", campAmbienceAssetId: "audioAssets", ambienceAssetId: "audioAssets", stingAssetId: "audioAssets",
     itemId: "items", treatmentItemId: "items", combatId: "combats", abilityId: "abilities", statusId: "combatStatuses", injuryId: "injuries",
     tableId: "lootTables", lootTableId: "lootTables", pathId: "paths", expeditionId: "expeditions",
     nextExpeditionId: "expeditions", materialId: "materials", recipeId: "recipes",
@@ -1229,7 +1243,7 @@ function liveReferences() {
   if (!state.catalog) return {};
   const references = {};
   const snapshot = draftSnapshot();
-  ["encounters", "injuries", "campEvents", "dialogues", "expeditions", "recipes", "materials", "craftingProviders", "shops", "npcs", "destinations", "locations", "items", "combats", "abilities", "enemyDefinitions", "enemyActions", "lootTables"].forEach((source) => {
+  ["playerCharacter", "companions", "encounters", "injuries", "campEvents", "dialogues", "expeditions", "recipes", "materials", "craftingProviders", "shops", "npcs", "destinations", "locations", "items", "combats", "abilities", "enemyDefinitions", "enemyActions", "lootTables"].forEach((source) => {
     collectClientReferences(snapshot[source], source, references);
   });
   Object.entries(state.catalog.references || {}).forEach(([type, entries]) => {
@@ -1241,7 +1255,7 @@ function liveReferences() {
 }
 
 function referenceCategory(source) {
-  return { encounters: "encounters", injuries: "injuries", campEvents: "campEvents", dialogues: "dialogues", campEventTables: "campEvents", expeditions: "expeditions", recipes: "recipes", materials: "materials", craftingProviders: "craftingProviders", shops: "shops", npcs: "npcs", destinations: "destinations", locations: "locations", items: "items", combats: "combats", enemyDefinitions: "enemyDefinitions", enemyActions: "enemyActions", abilities: "abilities", lootTables: "lootTables" }[source] || null;
+  return { playerCharacter: "playerCharacter", companions: "companions", encounters: "encounters", injuries: "injuries", campEvents: "campEvents", dialogues: "dialogues", campEventTables: "campEvents", expeditions: "expeditions", recipes: "recipes", materials: "materials", craftingProviders: "craftingProviders", shops: "shops", npcs: "npcs", destinations: "destinations", locations: "locations", items: "items", combats: "combats", enemyDefinitions: "enemyDefinitions", enemyActions: "enemyActions", abilities: "abilities", lootTables: "lootTables" }[source] || null;
 }
 
 function referenceTitle(source, id) {
@@ -1261,6 +1275,7 @@ function referenceTitle(source, id) {
   if (source === "destinations") return destinationLabel(id);
   if (source === "locations") return locationLabel(id);
   if (source === "enemyDefinitions") return enemyLabel(id);
+  if (source === "companions") return companionLabel(id);
   if (source === "enemyActions") return enemyActionLabel(id);
   return id;
 }
@@ -1568,12 +1583,47 @@ function renderEnemyTraitRows(enemy) {
   </div>`).join("");
 }
 
+function renderCharacterVisuals(definition, context) {
+  const visuals = definition?.visuals || {};
+  const slots = [["idle", "Idle"], ["walk", "Walk"], ["attack", "Attack"]];
+  return `<section class="section character-visuals"><div class="section-heading"><div><h3>Character Visuals</h3><p>Optional data-only slots for future presentation work. No playback or sprite-sheet processing is enabled in this pass.</p></div></div>${slots.map(([slot, label]) => {
+    const visual = visuals[slot] || {};
+    return `<div class="section-card"><h4>${label}</h4>${renderAssetSelector(`${label} visual`, `visuals.${slot}.assetId`, visual.assetId, "image", "combat", `${context} ${slot}`, "combat")}<div class="form-grid"><label>Frame count<input type="number" min="1" step="1" data-field="visuals.${slot}.frameCount" value="${escapeHtml(visual.frameCount ?? "")}" placeholder="optional"></label><label>FPS<input type="number" min="0" step="any" data-field="visuals.${slot}.fps" value="${escapeHtml(visual.fps ?? "")}" placeholder="optional"></label></div></div>`;
+  }).join("")}</section>`;
+}
+
+function renderPlayerCharacter() {
+  const player = state.draft;
+  if (!player) return `<div class="empty-state">The Arthur player definition is unavailable.</div>`;
+  return `<div class="editor-title"><div><h2>${escapeHtml(player.name || "Arthur")}</h2><p>${escapeHtml(player.id || "arthur")}</p></div><span class="schema-badge">Player Character schema</span></div>
+    <section class="section"><div class="section-heading"><div><h3>Player identity and expedition stats</h3><p>Arthur is a singleton definition authored in <code>PLAYER_CHARACTER_DEFINITION</code>.</p></div></div><div class="form-grid"><label>ID<input value="${escapeHtml(player.id || "arthur")}" readonly></label><label>Name<input data-field="name" value="${escapeHtml(player.name || "")}"></label><label>Provision capacity<input type="number" min="0" step="any" data-field="provisionCapacity" value="${escapeHtml(player.provisionCapacity ?? "")}"></label><label>Provision consumption multiplier<input type="number" min="0" step="any" data-field="provisionConsumptionMultiplier" value="${escapeHtml(player.provisionConsumptionMultiplier ?? "")}"></label><label>Maximum HP<input type="number" min="1" step="1" data-field="combat.maxHp" value="${escapeHtml(player.combat?.maxHp ?? "")}"></label><label>Combat speed<input type="number" min="1" step="any" data-field="combat.speed" value="${escapeHtml(player.combat?.speed ?? "")}"></label>${renderAssetSelector("Portrait asset", "portraitAssetId", player.portraitAssetId, "image", "portrait", player.name || "arthur")}${renderAssetSelector("Combat visual", "combatVisualAssetId", player.combatVisualAssetId, "image", "combat", player.name || "arthur", "combat")}</div></section>
+    ${renderCharacterVisuals(player, player.name || "Arthur")}
+    <section class="section"><details><summary>Raw player JSON (advanced)</summary><p class="hint">Use this for simple fields not yet surfaced by the editor. The singleton ID remains fixed to arthur.</p><textarea id="raw-json" class="raw-editor">${jsonText(player)}</textarea><div class="button-row"><button type="button" class="small-button" data-action="apply-raw">Apply raw JSON</button></div></details></section>`;
+}
+
+function renderCompanion() {
+  const companion = state.draft;
+  if (!companion) return `<div class="empty-state">Choose a companion to edit.</div>`;
+  const combat = companion.combat || {};
+  const damage = combat.basicDamage || {};
+  const capabilities = companion.capabilities || {};
+  const abilityIds = Object.keys(state.catalog.abilities || {}).sort();
+  const references = (liveReferences().companions || []).filter((reference) => reference.id === companion.id);
+  return `<div class="editor-title"><div><h2>${escapeHtml(companion.name || companion.id || "New companion")}</h2><p>${escapeHtml(companion.id || "Unsaved ID")}</p></div><span class="schema-badge">Companion schema</span></div>
+    <section class="section"><div class="section-heading"><div><h3>Companion identity</h3><p>Companions are editable definitions from <code>COMPANION_DEFINITIONS</code>. IDs are stable references used by requirements, dialogue, camp events, and encounters.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(companion.id || "")}"></label><label>Name<input data-field="name" value="${escapeHtml(companion.name || "")}"></label><label>Type<input data-field="type" value="${escapeHtml(companion.type || "")}"></label><label class="wide">Description<textarea data-field="description">${escapeHtml(companion.description || "")}</textarea></label><label>Tags<input data-array-field="tags" value="${escapeHtml((companion.tags || []).join(", "))}" placeholder="knight, practical"></label>${renderAssetSelector("Portrait asset", "portraitAssetId", companion.portraitAssetId, "image", "portrait", companion.name || companion.id)}${renderAssetSelector("Combat visual", "combatVisualAssetId", companion.combatVisualAssetId ?? companion.visualAssetId, "image", "combat", companion.name || companion.id, "combat")}</div></section>
+    <section class="section"><div class="section-heading"><div><h3>Expedition and combat stats</h3><p>These fields retain the current companion runtime schema.</p></div></div><div class="form-grid"><label>Provision capacity bonus<input type="number" min="0" step="any" data-field="provisionCapacityBonus" value="${escapeHtml(companion.provisionCapacityBonus ?? "")}"></label><label>Provision consumption bonus<input type="number" min="0" step="any" data-field="provisionConsumptionBonus" value="${escapeHtml(companion.provisionConsumptionBonus ?? "")}"></label><label>Travel speed multiplier<input type="number" min="0" step="any" data-field="travelSpeedMultiplier" value="${escapeHtml(companion.travelSpeedMultiplier ?? "")}" placeholder="optional"></label><label>Maximum HP<input type="number" min="1" step="1" data-field="combat.maxHp" value="${escapeHtml(combat.maxHp ?? "")}"></label><label>Combat speed<input type="number" min="1" step="any" data-field="combat.speed" value="${escapeHtml(combat.speed ?? "")}"></label><label>Defense<input type="number" min="0" step="any" data-field="combat.defense" value="${escapeHtml(combat.defense ?? "")}"></label><label>Basic damage minimum<input type="number" min="0" step="any" data-field="combat.basicDamage.minimum" value="${escapeHtml(damage.minimum ?? "")}"></label><label>Basic damage maximum<input type="number" min="0" step="any" data-field="combat.basicDamage.maximum" value="${escapeHtml(damage.maximum ?? "")}"></label></div><div><strong>Capabilities</strong><div class="check-grid compact-check-grid">${["canUseItems", "canDefend", "canFlee"].map((field) => `<label class="check-chip"><input type="checkbox" data-field="capabilities.${field}"${checked(capabilities[field])}>${field.replace("can", "Can ")}</label>`).join("")}</div></div><div><strong>Combat abilities</strong><div class="check-grid compact-check-grid">${abilityIds.map((id) => `<label class="check-chip"><input type="checkbox" data-companion-ability="${escapeHtml(id)}"${checked((companion.combatAbilities || []).includes(id))}>${escapeHtml(abilityLabel(id))}</label>`).join("") || `<span class="hint">No combat abilities available.</span>`}</div></div></section>
+    ${renderCharacterVisuals(companion, companion.name || companion.id)}
+    <section class="section"><div class="section-heading"><div><h3>Used by</h3><p>Deleting a referenced companion is blocked by catalog validation.</p></div></div><div class="reference-list">${renderReferenceRows(references, "No current references.")}</div></section>
+    <section class="section"><details><summary>Raw companion JSON (advanced)</summary><textarea id="raw-json" class="raw-editor">${jsonText(companion)}</textarea><div class="button-row"><button type="button" class="small-button" data-action="apply-raw">Apply raw JSON</button></div></details></section>`;
+}
+
 function renderEnemy() {
   const enemy = state.draft;
   if (!enemy) return `<div class="empty-state">Choose an enemy to edit.</div>`;
   const references = (liveReferences().enemies || []).filter((reference) => reference.id === enemy.id);
   return `<div class="editor-title"><div><h2>${escapeHtml(enemy.name || enemy.id || "New enemy")}</h2><p>${escapeHtml(enemy.id || "Unsaved ID")}</p></div><span class="schema-badge">Enemy schema</span></div>
-    <section class="section"><div class="section-heading"><div><h3>Enemy identity and combat stats</h3><p>Enemies are reusable definitions authored in <code>COMBAT_ENEMY_DEFINITIONS</code>.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(enemy.id || "")}"></label><label>Name<input data-enemy-field="name" value="${escapeHtml(enemy.name || "")}"></label><label>Maximum HP<input type="number" min="1" step="1" data-enemy-field="maxHp" value="${escapeHtml(enemy.maxHp ?? "")}"></label><label>Speed<input type="number" min="1" step="any" data-enemy-field="speed" value="${escapeHtml(enemy.speed ?? "")}"></label><label>Defense<input type="number" min="0" step="any" data-enemy-field="defense" value="${escapeHtml(enemy.defense ?? "")}"></label></div></section>
+    <section class="section"><div class="section-heading"><div><h3>Enemy identity and combat stats</h3><p>Enemies are reusable definitions authored in <code>COMBAT_ENEMY_DEFINITIONS</code>.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(enemy.id || "")}"></label><label>Name<input data-enemy-field="name" value="${escapeHtml(enemy.name || "")}"></label><label>Maximum HP<input type="number" min="1" step="1" data-enemy-field="maxHp" value="${escapeHtml(enemy.maxHp ?? "")}"></label><label>Speed<input type="number" min="1" step="any" data-enemy-field="speed" value="${escapeHtml(enemy.speed ?? "")}"></label><label>Defense<input type="number" min="0" step="any" data-enemy-field="defense" value="${escapeHtml(enemy.defense ?? "")}"></label>${renderAssetSelector("Combat visual", "combatVisualAssetId", enemy.combatVisualAssetId ?? enemy.visualAssetId, "image", "combat", enemy.name || enemy.id, "combat")}</div></section>
+    ${renderCharacterVisuals(enemy, enemy.name || enemy.id)}
     <section class="section"><div class="section-heading"><div><h3>Action pattern</h3><p>Choose reusable Enemy Actions in their authored order. Repeated action IDs remain meaningful.</p></div><button type="button" class="small-button" data-action="add-enemy-action-pattern">Add action</button></div>${renderEnemyPatternRows(enemy) || `<p class="hint">No actions. Add an action to author this enemy's pattern.</p>`}</section>
     <section class="section"><div class="section-heading"><div><h3>Traits</h3><p>Traits are generic runtime behaviors. Regeneration may be suppressed by authored combat statuses.</p></div><button type="button" class="small-button" data-action="add-enemy-trait">Add trait</button></div>${renderEnemyTraitRows(enemy) || `<p class="hint">No traits. Add one to author a reusable enemy behavior.</p>`}</section>
     <section class="section"><div class="section-heading"><div><h3>Used by</h3><p>Combat definitions that include this enemy.</p></div></div><div class="reference-list">${renderReferenceRows(references, "No combat currently uses this enemy.")}</div></section>
@@ -1785,7 +1835,7 @@ function renderLootTable() {
 
 function assetUsages(assetId, assetType) {
   const fields = assetType === "image"
-    ? new Set(["portraitAssetId", "visualAssetId", "travelVisualAssetId", "travelParallaxAssetId", "travelTransitionAssetId", "travelSeamForegroundAssetId", "campVisualAssetId", "combatVisualAssetId"])
+    ? new Set(["portraitAssetId", "visualAssetId", "travelVisualAssetId", "travelParallaxAssetId", "travelTransitionAssetId", "travelSeamForegroundAssetId", "campVisualAssetId", "combatVisualAssetId", "assetId"])
     : new Set(["travelAmbienceAssetId", "campAmbienceAssetId", "ambienceAssetId", "stingAssetId"]);
   const usages = [];
   const visit = (value, source, path) => {
@@ -1804,7 +1854,8 @@ function assetUsages(assetId, assetType) {
   Object.entries(snapshot).forEach(([category, entries]) => {
     if (["imageAssets", "audioAssets", "known", "files", "sourceHashes", "validation", "references", "paths", "projectRoot"].includes(category)) return;
     if (!entries || typeof entries !== "object") return;
-    Object.entries(entries).forEach(([id, entry]) => visit(entry, category, id));
+    if (category === "playerCharacter") visit(entries, category, entries.id || "arthur");
+    else Object.entries(entries).forEach(([id, entry]) => visit(entry, category, id));
   });
   const referenceType = assetType === "image" ? "imageAssets" : "audioAssets";
   const seen = new Set(usages.map((usage) => `${usage.source}:${usage.path}`));
@@ -1837,14 +1888,13 @@ function renderAsset() {
 }
 
 function injectAssetEditors() {
-  if (!state.draft || ["paths", "imageAssets", "audioAssets", "encounters", "expeditions", "npcs"].includes(state.category)) return;
-  if (["destinations", "locations", "enemyDefinitions", "campEvents"].includes(state.category)) {
+  if (!state.draft || ["paths", "imageAssets", "audioAssets", "encounters", "expeditions", "npcs", "playerCharacter", "companions", "enemyDefinitions"].includes(state.category)) return;
+  if (["destinations", "locations", "campEvents"].includes(state.category)) {
     const form = $("#editor-root .form-grid");
     if (!form) return;
     const config = {
       destinations: ["Visual asset", "visualAssetId", "location"],
       locations: ["Visual asset", "visualAssetId", "town"],
-      enemyDefinitions: ["Combat visual", "visualAssetId", "combat"],
       campEvents: ["Event visual", "visualAssetId", "encounter"],
     }[state.category];
     form.insertAdjacentHTML("beforeend", renderAssetSelector(config[0], config[1], state.draft[config[1]], "image", config[2], state.draft.name || state.draft.id));
@@ -1943,6 +1993,10 @@ function renderLocation() {
 
 function currentEntries() {
   if (!state.catalog) return {};
+  if (state.category === "playerCharacter") {
+    const player = state.draft || state.catalog.playerCharacter;
+    return player ? { [player.id || "arthur"]: player } : {};
+  }
   const entries = { ...state.catalog[state.category] };
   if (state.draft && !["paths", "imageAssets", "audioAssets"].includes(state.category)) {
     delete entries[state.originalSelectedId];
@@ -1951,6 +2005,12 @@ function currentEntries() {
     else entries[state.originalSelectedId] = state.draft;
   }
   return entries;
+}
+
+function categoryCount(category) {
+  return category === "playerCharacter"
+    ? (state.catalog?.playerCharacter ? 1 : 0)
+    : Object.keys(state.catalog?.[category] || {}).length;
 }
 
 function renderItemFilters(entries) {
@@ -2040,7 +2100,7 @@ function render() {
   if (!state.catalog) return;
   refreshDerivedPaths();
   $("#project-path").textContent = `Project: ${state.catalog.projectRoot}`;
-  $("#category-nav").innerHTML = CONTENT_CATEGORIES.map(([id, label]) => `<button type="button" class="${state.category === id ? "active" : ""}" data-action="category" data-category="${id}">${label}<span class="category-count">${Object.keys(state.catalog[id] || {}).length}</span></button>`).join("");
+  $("#category-nav").innerHTML = CONTENT_CATEGORIES.map(([id, label]) => `<button type="button" class="${state.category === id ? "active" : ""}" data-action="category" data-category="${id}">${label}<span class="category-count">${categoryCount(id)}</span></button>`).join("");
   const entries = currentEntries();
   const filterVisibleEntries = Object.fromEntries(filterEntries(state.category, entries));
   const query = currentSearch().trim().toLowerCase();
@@ -2059,7 +2119,7 @@ function render() {
     const recipeOutput = state.category === "recipes" ? ` · Produces: ${entry.output?.itemId ? itemLabel(entry.output.itemId) : `${entry.output?.provisions ?? 0} provisions`}` : "";
     return `<button type="button" role="option" aria-selected="${id === state.selectedId || (state.draft?.id === id && state.originalSelectedId === state.selectedId)}" class="entry-row ${(id === state.selectedId || (state.draft?.id === id && state.originalSelectedId === state.selectedId)) ? "active" : ""}" data-action="select" data-id="${escapeHtml(id)}"><span class="entry-title">${escapeHtml(entry.title || entry.displayName || entry.name || id)}</span><span class="entry-id">${escapeHtml(id)}${state.category === "paths" ? ` · ${escapeHtml(entry.encounterCount || 0)} encounters` : recipeOutput}</span></button>`;
   }).join("") : `<div class="empty-state">No matching entries.</div>`;
-  const readonlyPaths = ["paths", "imageAssets", "audioAssets"].includes(state.category);
+  const readonlyPaths = ["paths", "imageAssets", "audioAssets", "playerCharacter"].includes(state.category);
   $("[data-action='add']").disabled = readonlyPaths;
   $("[data-action='duplicate']").disabled = readonlyPaths;
   $("[data-action='delete']").disabled = readonlyPaths;
@@ -2067,6 +2127,10 @@ function render() {
     ? renderAsset()
     : state.category === "encounters"
     ? renderEncounter()
+    : state.category === "playerCharacter"
+      ? renderPlayerCharacter()
+    : state.category === "companions"
+      ? renderCompanion()
     : state.category === "injuries"
     ? renderInjury()
     : state.category === "campEvents"
@@ -2154,6 +2218,8 @@ function renderValidation() {
 
 function draftSnapshot() {
   const snapshot = {
+    playerCharacter: clone(state.catalog.playerCharacter),
+    companions: clone(state.catalog.companions),
     encounters: clone(state.catalog.encounters),
     injuries: clone(state.catalog.injuries),
     campEvents: clone(state.catalog.campEvents),
@@ -2179,7 +2245,9 @@ function draftSnapshot() {
     recipe.ingredients = normalizedRecipeIngredients(recipe);
     delete recipe.ingredientType;
   });
-  if (state.draft && !["paths", "imageAssets", "audioAssets"].includes(state.category)) {
+  if (state.draft && state.category === "playerCharacter") {
+    snapshot.playerCharacter = clone(state.draft);
+  } else if (state.draft && !["paths", "imageAssets", "audioAssets"].includes(state.category)) {
     const map = snapshot[state.category];
     const draftId = state.draft.id || state.originalSelectedId;
     const draftCopy = clone(state.draft);
@@ -2228,6 +2296,12 @@ async function requestValidation() {
 
 function commitDraftToCatalog() {
   if (!state.draft || !state.catalog || state.category === "paths") return;
+  if (state.category === "playerCharacter") {
+    state.catalog.playerCharacter = clone(state.draft);
+    state.selectedId = state.catalog.playerCharacter.id || "arthur";
+    state.originalSelectedId = state.selectedId;
+    return;
+  }
   const map = state.catalog[state.category];
   const draftId = state.draft.id || state.originalSelectedId;
   delete map[state.originalSelectedId];
@@ -2240,7 +2314,9 @@ function commitDraftToCatalog() {
 function selectEntry(id, discard = false) {
   if (!state.catalog) return;
   if (state.draftDirty && state.category !== "paths" && !discard && !window.confirm("Discard unsaved changes?")) return;
-  const entry = state.catalog[state.category]?.[id];
+  const entry = state.category === "playerCharacter"
+    ? state.catalog.playerCharacter
+    : state.catalog[state.category]?.[id];
   if (!entry) return;
   state.selectedId = id;
   state.originalSelectedId = id;
@@ -2251,6 +2327,21 @@ function selectEntry(id, discard = false) {
 }
 
 function defaultEntry(category) {
+  if (category === "playerCharacter") return { id: "arthur", name: "Arthur", portraitAssetId: null, combatVisualAssetId: null, provisionCapacity: 20, provisionConsumptionMultiplier: 1, combat: { maxHp: 45, speed: 10 } };
+  if (category === "companions") return {
+    id: "new_companion",
+    name: "New Companion",
+    description: "",
+    tags: [],
+    type: "companion",
+    portraitAssetId: null,
+    combatVisualAssetId: null,
+    provisionCapacityBonus: 0,
+    provisionConsumptionBonus: 0,
+    capabilities: { canUseItems: true, canDefend: true, canFlee: true },
+    combat: { maxHp: 20, speed: 10, defense: 0, basicDamage: { minimum: 1, maximum: 2 } },
+    combatAbilities: [],
+  };
   if (category === "injuries") return {
     id: "new_injury",
     name: "New Injury",
@@ -2375,7 +2466,7 @@ function uniqueId(base, map) {
 }
 
 function addEntry() {
-  if (state.category === "paths") return;
+  if (["paths", "playerCharacter"].includes(state.category)) return;
   commitDraftToCatalog();
   const map = state.catalog[state.category];
   const entry = defaultEntry(state.category);
@@ -2389,7 +2480,7 @@ function addEntry() {
 }
 
 function duplicateEntry() {
-  if (!state.draft || state.category === "paths") return;
+  if (!state.draft || ["paths", "playerCharacter"].includes(state.category)) return;
   commitDraftToCatalog();
   const map = state.catalog[state.category];
   const entry = clone(state.draft);
@@ -2400,6 +2491,7 @@ function duplicateEntry() {
   else if (state.category === "enemyActions") entry.name = `${entry.name || "Enemy Action"} Copy`;
   else if (state.category === "shops") entry.displayName = `${entry.displayName || "Shop"} Copy`;
   else if (["items", "abilities"].includes(state.category)) entry.name = `${entry.name || "Entry"} Copy`;
+  else if (state.category === "companions") entry.name = `${entry.name || "Companion"} Copy`;
   else if (["expeditions", "recipes", "materials", "craftingProviders", "npcs", "destinations", "locations"].includes(state.category)) entry.name = `${entry.name || "Entry"} Copy`;
   map[entry.id] = entry;
   state.selectedId = entry.id;
@@ -2410,9 +2502,9 @@ function duplicateEntry() {
 }
 
 function deleteEntry() {
-  if (!state.draft || !state.catalog || state.category === "paths") return;
+  if (!state.draft || !state.catalog || ["paths", "playerCharacter"].includes(state.category)) return;
   const id = state.draft.id || state.originalSelectedId;
-  const refType = state.category === "shops" ? "shops" : state.category === "items" ? "items" : state.category === "combats" ? "combats" : state.category === "enemyDefinitions" ? "enemies" : state.category === "enemyActions" ? "enemyActions" : state.category === "abilities" ? "abilities" : state.category === "combatStatuses" ? "combatStatuses" : state.category === "injuries" ? "injuries" : state.category === "campEvents" ? "campEvents" : state.category === "dialogues" ? "dialogues" : state.category === "npcs" ? "npcs" : state.category === "destinations" ? "destinations" : state.category === "locations" ? "locations" : state.category === "lootTables" ? "lootTables" : state.category === "expeditions" ? "expeditions" : state.category === "recipes" ? "recipes" : state.category === "materials" ? "materials" : state.category === "craftingProviders" ? "craftingProviders" : "encounters";
+  const refType = state.category === "companions" ? "companions" : state.category === "shops" ? "shops" : state.category === "items" ? "items" : state.category === "combats" ? "combats" : state.category === "enemyDefinitions" ? "enemies" : state.category === "enemyActions" ? "enemyActions" : state.category === "abilities" ? "abilities" : state.category === "combatStatuses" ? "combatStatuses" : state.category === "injuries" ? "injuries" : state.category === "campEvents" ? "campEvents" : state.category === "dialogues" ? "dialogues" : state.category === "npcs" ? "npcs" : state.category === "destinations" ? "destinations" : state.category === "locations" ? "locations" : state.category === "lootTables" ? "lootTables" : state.category === "expeditions" ? "expeditions" : state.category === "recipes" ? "recipes" : state.category === "materials" ? "materials" : state.category === "craftingProviders" ? "craftingProviders" : "encounters";
   const refs = (liveReferences()[refType] || []).filter((reference) => reference.id === id);
   const warning = refs.length ? `\n\nReferences found:\n${refs.map((reference) => `- ${reference.source} (${reference.path})`).join("\n")}\n\nSaving this deletion will be blocked until those references are resolved.` : "";
   if (!window.confirm(`Delete ${id}? This is an in-memory deletion until you explicitly save.${warning}`)) return;
@@ -2859,6 +2951,11 @@ function handleInput(input) {
     handleOutcomeVisualInput(input);
     return;
   }
+  if (input.dataset.companionAbility !== undefined) {
+    state.draft.combatAbilities = toggleArray(state.draft.combatAbilities, input.dataset.companionAbility, input.checked);
+    markDirty();
+    return;
+  }
   if (input.dataset.field) {
     if (input.dataset.field === "ingredientType" && state.category === "recipes") {
       const type = input.value === "item" ? "item" : "material";
@@ -2989,10 +3086,12 @@ function switchCategory(category, id = null) {
   state.draftDirty = false;
   state.category = category;
   state.search = state.searchByCategory[category] || "";
-  const nextId = id && state.catalog[category][id] ? id : Object.keys(state.catalog[category])[0] || null;
+  const nextId = category === "playerCharacter"
+    ? state.catalog.playerCharacter?.id || "arthur"
+    : id && state.catalog[category][id] ? id : Object.keys(state.catalog[category])[0] || null;
   state.selectedId = nextId;
   state.originalSelectedId = nextId;
-  state.draft = nextId ? clone(state.catalog[category][nextId]) : null;
+  state.draft = nextId ? clone(category === "playerCharacter" ? state.catalog.playerCharacter : state.catalog[category][nextId]) : null;
   state.validation = state.catalog.validation;
   render();
 }
@@ -3133,7 +3232,8 @@ async function submitAssetUpload(file, target, assetId, options = {}, samMaskFil
       if (payload.assetResult.parallaxAssetId) scene.travelParallaxAssetId = payload.assetResult.parallaxAssetId;
     } else if (target.nodeId) state.draft.nodes[target.nodeId][target.field] = payload.assetResult.assetId;
     else {
-      state.draft[target.field] = payload.assetResult.assetId;
+      if (target.field.includes(".")) setNested(state.draft, target.field, payload.assetResult.assetId);
+      else state.draft[target.field] = payload.assetResult.assetId;
       if (payload.assetResult.parallaxAssetId) state.draft.travelParallaxAssetId = payload.assetResult.parallaxAssetId;
     }
     markDirty();
@@ -3666,9 +3766,11 @@ async function saveChanges() {
     const selectedAfterSave = state.draft?.id || state.selectedId;
     state.catalog = payload;
     state.category = state.category;
-    state.selectedId = selectedAfterSave && state.catalog[state.category][selectedAfterSave] ? selectedAfterSave : Object.keys(state.catalog[state.category])[0] || null;
+    state.selectedId = state.category === "playerCharacter"
+      ? state.catalog.playerCharacter?.id || "arthur"
+      : selectedAfterSave && state.catalog[state.category][selectedAfterSave] ? selectedAfterSave : Object.keys(state.catalog[state.category])[0] || null;
     state.originalSelectedId = state.selectedId;
-    state.draft = state.selectedId ? clone(state.catalog[state.category][state.selectedId]) : null;
+    state.draft = state.selectedId ? clone(state.category === "playerCharacter" ? state.catalog.playerCharacter : state.catalog[state.category][state.selectedId]) : null;
     state.dirty = false;
     state.draftDirty = false;
     state.validation = state.catalog.validation;

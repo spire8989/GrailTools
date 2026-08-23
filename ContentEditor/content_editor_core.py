@@ -453,6 +453,8 @@ def serialize_js(value: Any, indent: int = 0, newline: str = "\n") -> str:
 CONTENT_FILES = {
     "imageAssets": ("js/asset-data.js", "IMAGE_ASSET_DEFINITIONS"),
     "audioAssets": ("js/asset-data.js", "AUDIO_ASSET_DEFINITIONS"),
+    "playerCharacter": ("js/data.js", "PLAYER_CHARACTER_DEFINITION"),
+    "companions": ("js/data.js", "COMPANION_DEFINITIONS"),
     "encounters": ("js/encounter-data.js", "ENCOUNTER_DEFINITIONS"),
     "injuries": ("js/injury-data.js", "INJURY_DEFINITIONS"),
     "campEvents": ("js/camp-data.js", "CAMP_EVENT_DEFINITIONS"),
@@ -524,7 +526,7 @@ def _walk(value: Any, path: str = "") -> Iterable[tuple[str, Any, Any]]:
 
 
 def _ref_type_for_key(key: str) -> str | None:
-    if key in {"portraitAssetId", "visualAssetId", "backgroundAssetId", "travelVisualAssetId", "travelParallaxAssetId", "travelTransitionAssetId", "travelSeamForegroundAssetId", "campVisualAssetId", "combatVisualAssetId"}:
+    if key in {"portraitAssetId", "visualAssetId", "backgroundAssetId", "travelVisualAssetId", "travelParallaxAssetId", "travelTransitionAssetId", "travelSeamForegroundAssetId", "campVisualAssetId", "combatVisualAssetId", "assetId"}:
         return "imageAssets"
     if key in {"travelAmbienceAssetId", "campAmbienceAssetId", "ambienceAssetId", "stingAssetId"}:
         return "audioAssets"
@@ -749,6 +751,7 @@ def load_catalog(project_root: Path) -> dict[str, Any]:
     known["craftingProviders"] = sorted(_id_map(values.get("craftingProviders")))
     known["imageAssets"] = sorted(_id_map(values.get("imageAssets")))
     known["audioAssets"] = sorted(_id_map(values.get("audioAssets")))
+    known["companions"] = sorted(_id_map(values.get("companions")))
     known["itemCategories"] = sorted({
         *(item.get("category") for item in item_map.values() if isinstance(item, dict) and isinstance(item.get("category"), str)),
         "other",
@@ -792,6 +795,8 @@ def load_catalog(project_root: Path) -> dict[str, Any]:
         "sourceHashes": source_hashes,
         "imageAssets": values["imageAssets"],
         "audioAssets": values["audioAssets"],
+        "playerCharacter": values["playerCharacter"],
+        "companions": values["companions"],
         "encounters": values["encounters"],
         "injuries": values["injuries"],
         "campEvents": values["campEvents"],
@@ -1493,6 +1498,122 @@ def _validate_combat_definitions(combats: Any, known: dict[str, list[str]], erro
             errors.append(_issue("error", "enemyIds must be a non-empty array of enemy IDs.", source, "enemyIds"))
 
 
+CHARACTER_VISUAL_SLOTS = ("idle", "walk", "attack")
+
+
+def _validate_character_asset_fields(definition: Any, known: dict[str, list[str]], source: str, errors: list[dict[str, str]], fields: tuple[str, ...] = ("portraitAssetId", "combatVisualAssetId", "visualAssetId")) -> None:
+    if not isinstance(definition, dict):
+        return
+    known_assets = set(known.get("imageAssets", []))
+    for field_name in fields:
+        if field_name not in definition or definition[field_name] is None:
+            continue
+        value = definition[field_name]
+        if not isinstance(value, str) or not value:
+            errors.append(_issue("error", f"{field_name} must be a non-empty image asset ID or null.", source, field_name))
+        elif value not in known_assets:
+            errors.append(_issue("error", f"Unknown image asset ID {value!r}.", source, field_name))
+
+
+def _validate_character_visuals(definition: Any, known: dict[str, list[str]], source: str, errors: list[dict[str, str]]) -> None:
+    if not isinstance(definition, dict) or "visuals" not in definition or definition.get("visuals") is None:
+        return
+    visuals = definition.get("visuals")
+    if not isinstance(visuals, dict):
+        errors.append(_issue("error", "visuals must be an object or null.", source, "visuals"))
+        return
+    known_assets = set(known.get("imageAssets", []))
+    for slot, visual in visuals.items():
+        path = f"visuals.{slot}"
+        if slot not in CHARACTER_VISUAL_SLOTS:
+            errors.append(_issue("error", f"Unknown character visual slot {slot!r}.", source, path))
+            continue
+        if visual is None:
+            continue
+        if not isinstance(visual, dict):
+            errors.append(_issue("error", "Character visual slots must be objects or null.", source, path))
+            continue
+        if "assetId" in visual:
+            asset_id = visual.get("assetId")
+            if asset_id is not None and (not isinstance(asset_id, str) or not asset_id):
+                errors.append(_issue("error", "Character visual assetId must be a non-empty image asset ID or null.", source, f"{path}.assetId"))
+            elif isinstance(asset_id, str) and asset_id not in known_assets:
+                errors.append(_issue("error", f"Unknown image asset ID {asset_id!r}.", source, f"{path}.assetId"))
+            elif isinstance(asset_id, str):
+                category = (known.get("imageAssetCategories") or {}).get(asset_id)
+                if category != "combat":
+                    errors.append(_issue("error", f"Character visual asset {asset_id!r} must use the combat image category.", source, f"{path}.assetId"))
+        if "frameCount" in visual and (not isinstance(visual.get("frameCount"), int) or isinstance(visual.get("frameCount"), bool) or visual.get("frameCount") <= 0):
+            errors.append(_issue("error", "Character visual frameCount must be a positive integer.", source, f"{path}.frameCount"))
+        if "fps" in visual and (not _is_number(visual.get("fps")) or visual.get("fps") < 0):
+            errors.append(_issue("error", "Character visual fps must be a non-negative number.", source, f"{path}.fps"))
+
+
+def _validate_player_character(player: Any, known: dict[str, list[str]], errors: list[dict[str, str]]) -> None:
+    source = "playerCharacter"
+    if not isinstance(player, dict):
+        errors.append(_issue("error", "Player character definition must be an object.", source))
+        return
+    if player.get("id") != "arthur":
+        errors.append(_issue("error", "Player character id must be 'arthur'.", source, "id"))
+    if not isinstance(player.get("name"), str) or not player.get("name"):
+        errors.append(_issue("error", "Player character name is required.", source, "name"))
+    for field_name in ("provisionCapacity", "provisionConsumptionMultiplier"):
+        if field_name in player and (not _is_number(player[field_name]) or player[field_name] < 0):
+            errors.append(_issue("error", f"Player character {field_name} must be a non-negative number.", source, field_name))
+    combat = player.get("combat")
+    if not isinstance(combat, dict):
+        errors.append(_issue("error", "Player character combat must be an object.", source, "combat"))
+    else:
+        for field_name in ("maxHp", "speed"):
+            if not _is_number(combat.get(field_name)) or combat[field_name] <= 0:
+                errors.append(_issue("error", f"Player combat {field_name} must be a positive number.", source, f"combat.{field_name}"))
+    _validate_character_asset_fields(player, known, source, errors, ("portraitAssetId", "combatVisualAssetId"))
+    _validate_character_visuals(player, known, source, errors)
+
+
+def _validate_companions(companions: Any, known: dict[str, list[str]], errors: list[dict[str, str]]) -> None:
+    if not isinstance(companions, dict):
+        errors.append(_issue("error", "Companion definitions must be an object.", "companions"))
+        return
+    for entry_id, companion in companions.items():
+        source = f"companion:{entry_id}"
+        if not isinstance(companion, dict):
+            errors.append(_issue("error", "Companion must be an object.", source))
+            continue
+        if companion.get("id") != entry_id:
+            errors.append(_issue("error", f"Definition key {entry_id!r} does not match its id field.", source, "id"))
+        for field_name in ("name", "description", "type"):
+            if not isinstance(companion.get(field_name), str):
+                errors.append(_issue("error", f"Companion {field_name} must be a string.", source, field_name))
+        if "tags" in companion and (not isinstance(companion["tags"], list) or not all(isinstance(tag, str) for tag in companion["tags"])):
+            errors.append(_issue("error", "Companion tags must be an array of strings.", source, "tags"))
+        for field_name in ("provisionCapacityBonus", "provisionConsumptionBonus", "travelSpeedMultiplier"):
+            if field_name in companion and (not _is_number(companion[field_name]) or companion[field_name] < 0):
+                errors.append(_issue("error", f"Companion {field_name} must be a non-negative number.", source, field_name))
+        capabilities = companion.get("capabilities")
+        if capabilities is not None and (not isinstance(capabilities, dict) or not all(isinstance(value, bool) for value in capabilities.values())):
+            errors.append(_issue("error", "Companion capabilities must be an object of booleans.", source, "capabilities"))
+        combat = companion.get("combat")
+        if not isinstance(combat, dict):
+            errors.append(_issue("error", "Companion combat must be an object.", source, "combat"))
+        else:
+            for field_name in ("maxHp", "speed"):
+                if not _is_number(combat.get(field_name)) or combat[field_name] <= 0:
+                    errors.append(_issue("error", f"Companion combat {field_name} must be a positive number.", source, f"combat.{field_name}"))
+            if "defense" in combat and (not _is_number(combat["defense"]) or combat["defense"] < 0):
+                errors.append(_issue("error", "Companion combat defense must be non-negative.", source, "combat.defense"))
+            damage = combat.get("basicDamage")
+            if damage is not None and (not isinstance(damage, dict) or not _is_number(damage.get("minimum")) or not _is_number(damage.get("maximum")) or damage["minimum"] < 0 or damage["maximum"] < damage["minimum"]):
+                errors.append(_issue("error", "Companion basicDamage must have non-negative minimum and maximum values.", source, "combat.basicDamage"))
+        if "combatAbilities" in companion and (not isinstance(companion["combatAbilities"], list) or not all(isinstance(ability_id, str) for ability_id in companion["combatAbilities"])):
+            errors.append(_issue("error", "Companion combatAbilities must be an array of ability IDs.", source, "combatAbilities"))
+        if "noPermanentDeath" in companion and not isinstance(companion["noPermanentDeath"], bool):
+            errors.append(_issue("error", "Companion noPermanentDeath must be boolean.", source, "noPermanentDeath"))
+        _validate_character_asset_fields(companion, known, source, errors, ("portraitAssetId", "combatVisualAssetId", "visualAssetId"))
+        _validate_character_visuals(companion, known, source, errors)
+
+
 def _validate_enemy_definitions(enemies: Any, known: dict[str, list[str]], errors: list[dict[str, str]]) -> None:
     if not isinstance(enemies, dict):
         errors.append(_issue("error", "Enemy definitions must be an object.", "enemyDefinitions"))
@@ -1527,6 +1648,8 @@ def _validate_enemy_definitions(enemies: Any, known: dict[str, list[str]], error
         pattern = enemy.get("actionPattern")
         if not isinstance(pattern, list) or not pattern or not all(isinstance(action_id, str) and action_id for action_id in pattern):
             errors.append(_issue("error", "Enemy actionPattern must be a non-empty array of action IDs.", source, "actionPattern"))
+        _validate_character_asset_fields(enemy, known, source, errors)
+        _validate_character_visuals(enemy, known, source, errors)
         traits = enemy.get("traits", [])
         if not isinstance(traits, list):
             errors.append(_issue("error", "Enemy traits must be an array.", source, "traits"))
@@ -2249,7 +2372,7 @@ def _validate_asset_references(values: dict[str, Any], errors: list[dict[str, st
         "travelTransitionAssetId": {"expedition"},
         "travelSeamForegroundAssetId": {"expedition"},
         "campVisualAssetId": {"expedition"},
-        "combatVisualAssetId": {"combat_scene"},
+        "combatVisualAssetId": {"combat"},
     }
     audio_fields = {
         "travelAmbienceAssetId": {"ambience"},
@@ -2264,6 +2387,8 @@ def _validate_asset_references(values: dict[str, Any], errors: list[dict[str, st
         "campEvents": {"encounter"},
         "expeditions": {"expedition"},
         "enemyDefinitions": {"combat"},
+        "companions": {"combat"},
+        "playerCharacter": {"combat"},
     }
 
     def visit(node: Any, source: str, path: str = "") -> None:
@@ -2273,6 +2398,8 @@ def _validate_asset_references(values: dict[str, Any], errors: list[dict[str, st
                 allowed_image_categories = image_fields.get(key)
                 if key == "visualAssetId":
                     allowed_image_categories = visual_field_categories.get(source)
+                elif key == "combatVisualAssetId" and source in {"encounters", "expeditions"}:
+                    allowed_image_categories = {"combat_scene"}
                 if isinstance(child, str) and allowed_image_categories:
                     asset = image_assets.get(child)
                     if asset and asset.get("category") not in allowed_image_categories:
@@ -2312,8 +2439,15 @@ def validate_catalog(values: dict[str, Any], known: dict[str, list[str]], refere
         effective_known["materials"] = sorted(_id_map(values.get("materials")))
     if "imageAssets" in values:
         effective_known["imageAssets"] = sorted(_id_map(values.get("imageAssets")))
+        effective_known["imageAssetCategories"] = {
+            asset_id: asset.get("category")
+            for asset_id, asset in _id_map(values.get("imageAssets")).items()
+            if isinstance(asset, dict)
+        }
     if "audioAssets" in values:
         effective_known["audioAssets"] = sorted(_id_map(values.get("audioAssets")))
+    if "companions" in values:
+        effective_known["companions"] = sorted(_id_map(values.get("companions")))
     for duplicate in parse_duplicates or []:
         errors.append(_issue("error", f"Duplicate object key {duplicate['id']!r}.", duplicate["source"]))
     if "encounters" in values:
@@ -2348,6 +2482,10 @@ def validate_catalog(values: dict[str, Any], known: dict[str, list[str]], refere
         _validate_combat_definitions(values.get("combats"), effective_known, errors)
     if "enemyDefinitions" in values:
         _validate_enemy_definitions(values.get("enemyDefinitions"), effective_known, errors)
+    if "playerCharacter" in values:
+        _validate_player_character(values.get("playerCharacter"), effective_known, errors)
+    if "companions" in values:
+        _validate_companions(values.get("companions"), effective_known, errors)
     if "enemyActions" in values:
         _validate_enemy_actions(values.get("enemyActions"), effective_known, errors)
     if "abilities" in values:
