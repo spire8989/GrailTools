@@ -1553,6 +1553,9 @@ def _validate_character_visuals(definition: Any, known: dict[str, list[str]], so
             errors.append(_issue("error", "Character visual fps must be a non-negative number.", source, f"{path}.fps"))
         if "scale" in visual and visual.get("scale") is not None and (not _is_number(visual.get("scale")) or not 0.25 <= visual.get("scale") <= 3):
             errors.append(_issue("error", "Character visual scale must be a number from 0.25 to 3.", source, f"{path}.scale"))
+        for offset in ("offsetX", "offsetY"):
+            if offset in visual and visual.get(offset) is not None and not _is_number(visual.get(offset)):
+                errors.append(_issue("error", f"Character visual {offset} must be a finite number in normalized pixels.", source, f"{path}.{offset}"))
 
 
 def _validate_character_scale(definition: Any, source: str, errors: list[dict[str, str]]) -> None:

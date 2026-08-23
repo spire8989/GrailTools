@@ -293,6 +293,9 @@ attempted.
   0.25–3 scale multiplier. Character previews alpha-normalize each frame and
   bottom-align the visible artwork so authored transparent padding does not
   create frame jitter.
+- Character visual slots also expose normalized-pixel Offset X / Offset Y
+  controls (positive X right, positive Y down). The live Scale Comparison
+  reflects these offsets immediately.
 - The Character Visuals editor also shows a live Idle/Walk/Attack Scale
   Comparison using the same shared animation normalization as the game.
 

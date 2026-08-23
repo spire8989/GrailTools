@@ -1677,7 +1677,9 @@ function characterPreviewMetadata(image, instance) {
 function characterPreviewConfig(visual = {}) {
   const frameCount = Number(visual.frameCount) > 0 ? Number(visual.frameCount) : 1;
   const columns = Number(visual.columns) > 0 ? Math.min(frameCount, Number(visual.columns)) : frameCount;
-  return { frameCount, columns };
+  const offsetX = Number.isFinite(Number(visual.offsetX)) ? Number(visual.offsetX) : 0;
+  const offsetY = Number.isFinite(Number(visual.offsetY)) ? Number(visual.offsetY) : 0;
+  return { frameCount, columns, offsetX, offsetY };
 }
 
 function loadCharacterPreviewMetadata(root, assetId, frameCount, columns, image = null) {
@@ -1743,7 +1745,7 @@ function drawCharacterPreview(instance, frameIndex = instance.frameIndex) {
   context.clearRect(0, 0, width, height);
   const destinationWidth = bounds.width * scale;
   const destinationHeight = bounds.height * scale;
-  context.drawImage(image, bounds.x, bounds.y, bounds.width, bounds.height, (width - destinationWidth) / 2, height - destinationHeight, destinationWidth, destinationHeight);
+  context.drawImage(image, bounds.x, bounds.y, bounds.width, bounds.height, (width - destinationWidth) / 2 + instance.config.offsetX, height - destinationHeight + instance.config.offsetY, destinationWidth, destinationHeight);
   root.classList.add("is-ready");
   characterPreviewFallback(root, false);
   instance.frameIndex = frame;
@@ -1761,14 +1763,14 @@ function initializeCharacterVisualPreview(root) {
     characterPreviewFallback(root, true);
     return;
   }
-  const stateKey = `${assetId}|${root.dataset.previewFrameCount}|${root.dataset.previewColumns}|${root.dataset.previewScale}|${root.dataset.previewSlot}`;
+  const stateKey = `${assetId}|${root.dataset.previewFrameCount}|${root.dataset.previewColumns}|${root.dataset.previewScale}|${root.dataset.previewOffsetX}|${root.dataset.previewOffsetY}|${root.dataset.previewSlot}`;
   if (root._characterPreviewInstance?.stateKey === stateKey && root._characterPreviewInstance.image === image) return;
   if (root._characterPreviewPendingKey === stateKey) return;
   stopCharacterPreview(root);
   root.classList.remove("is-ready");
   root.style.setProperty("--preview-scale", String(Math.min(3, Math.max(0.25, Number(root.dataset.previewScale) || 1))));
   root._characterPreviewPendingKey = stateKey;
-  const instance = { root, image, canvas, frameIndex: 0, metadata: null, stateKey, startedAt: performance.now(), paused: root.dataset.previewPlaying === "false" || window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches };
+  const instance = { root, image, canvas, config: characterPreviewConfig({ frameCount: root.dataset.previewFrameCount, columns: root.dataset.previewColumns, offsetX: root.dataset.previewOffsetX, offsetY: root.dataset.previewOffsetY }), frameIndex: 0, metadata: null, stateKey, startedAt: performance.now(), paused: root.dataset.previewPlaying === "false" || window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches };
   const metadata = characterPreviewMetadata(image, instance);
   root._characterPreviewPendingKey = null;
   root.style.setProperty("--preview-scale", String(Math.min(3, Math.max(0.25, Number(root.dataset.previewScale) || 1))));
@@ -1825,6 +1827,8 @@ function syncCharacterVisualPreviews() {
     root.dataset.previewColumns = String(Number(visual.columns) > 0 ? Number(visual.columns) : root.dataset.previewFrameCount);
     root.dataset.previewFps = String(Number(visual.fps) >= 0 ? Number(visual.fps) : 0);
     root.dataset.previewScale = String(Math.min(3, Math.max(0.25, Number(visual.scale) || 1)));
+    root.dataset.previewOffsetX = String(Number.isFinite(Number(visual.offsetX)) ? Number(visual.offsetX) : 0);
+    root.dataset.previewOffsetY = String(Number.isFinite(Number(visual.offsetY)) ? Number(visual.offsetY) : 0);
     const image = root.querySelector(".character-preview-source");
     const path = state.catalog.imageAssets?.[assetId]?.path;
     const nextSrc = path ? assetPreviewUrl(path) : "";
@@ -1846,10 +1850,12 @@ function renderCharacterVisualPreview(slot, label, visual, options = {}) {
   const columns = Number(visual.columns) > 0 ? Math.min(frameCount, Number(visual.columns)) : frameCount;
   const fps = Number(visual.fps) >= 0 ? Number(visual.fps) : 0;
   const scale = Math.min(3, Math.max(0.25, Number(visual.scale) || 1));
+  const offsetX = Number.isFinite(Number(visual.offsetX)) ? Number(visual.offsetX) : 0;
+  const offsetY = Number.isFinite(Number(visual.offsetY)) ? Number(visual.offsetY) : 0;
   const fallback = asset ? "Preview unavailable" : "No sprite assigned";
   const comparisonClass = options.comparison ? " character-preview-comparison" : "";
   const controls = options.comparison ? "" : `<button type="button" class="small-button" data-action="toggle-character-preview">Pause</button>`;
-  return `<div class="character-preview${comparisonClass}" data-character-preview data-preview-character-id="${escapeHtml(options.characterId || state.draft?.id || "character")}" data-preview-slot="${slot}" data-preview-label="${label}" data-preview-asset-id="${escapeHtml(visual.assetId || "")}" data-preview-frame-count="${frameCount}" data-preview-columns="${columns}" data-preview-fps="${fps}" data-preview-scale="${scale}" data-preview-playing="true"><canvas class="character-preview-canvas" aria-hidden="true"></canvas>${path ? `<img class="character-preview-source" src="${assetPreviewUrl(path)}" alt="" aria-hidden="true" onload="initializeCharacterVisualPreview(this.closest('[data-character-preview]'))" onerror="handleCharacterVisualPreviewError(this)">` : ""}<span class="character-preview-fallback is-visible">${fallback}</span>${controls}</div>`;
+  return `<div class="character-preview${comparisonClass}" data-character-preview data-preview-character-id="${escapeHtml(options.characterId || state.draft?.id || "character")}" data-preview-slot="${slot}" data-preview-label="${label}" data-preview-asset-id="${escapeHtml(visual.assetId || "")}" data-preview-frame-count="${frameCount}" data-preview-columns="${columns}" data-preview-fps="${fps}" data-preview-scale="${scale}" data-preview-offset-x="${offsetX}" data-preview-offset-y="${offsetY}" data-preview-playing="true"><canvas class="character-preview-canvas" aria-hidden="true"></canvas>${path ? `<img class="character-preview-source" src="${assetPreviewUrl(path)}" alt="" aria-hidden="true" onload="initializeCharacterVisualPreview(this.closest('[data-character-preview]'))" onerror="handleCharacterVisualPreviewError(this)">` : ""}<span class="character-preview-fallback is-visible">${fallback}</span>${controls}</div>`;
 }
 
 function renderCharacterScaleComparison(definition) {
@@ -1862,7 +1868,7 @@ function renderCharacterVisuals(definition, context) {
   const slots = [["idle", "Idle"], ["walk", "Walk"], ["attack", "Attack"]];
   return `<section class="section character-visuals"><div class="section-heading"><div><h3>Character Visuals</h3><p>Optional sprite slots. Sprite Sheet uploads preserve the full transparent sheet without cropping. Omitted FPS defaults to Idle 6, Walk 10, or Attack 12 when a slot has multiple frames.</p></div></div>${renderCharacterScaleComparison(definition)}${slots.map(([slot, label]) => {
     const visual = visuals[slot] || {};
-    return `<div class="section-card"><h4>${label}</h4>${renderCharacterVisualPreview(slot, label, visual, { characterId: definition?.id })}${renderAssetSelector(`${label} visual`, `visuals.${slot}.assetId`, visual.assetId, "image", "combat", `${context} ${slot}`, "sprite_sheet")}<div class="form-grid four"><label>Frames<input type="number" min="1" step="1" data-field="visuals.${slot}.frameCount" value="${escapeHtml(visual.frameCount ?? "")}" placeholder="optional"></label><label>Columns<input type="number" min="1" step="1" data-field="visuals.${slot}.columns" value="${escapeHtml(visual.columns ?? "")}" placeholder="optional"></label><label>FPS<input type="number" min="0" step="any" data-field="visuals.${slot}.fps" value="${escapeHtml(visual.fps ?? "")}" placeholder="default"></label><label>Scale<input type="number" min="0.25" max="3" step="0.05" data-field="visuals.${slot}.scale" value="${escapeHtml(visual.scale ?? "")}" placeholder="1"></label></div></div>`;
+    return `<div class="section-card"><h4>${label}</h4>${renderCharacterVisualPreview(slot, label, visual, { characterId: definition?.id })}${renderAssetSelector(`${label} visual`, `visuals.${slot}.assetId`, visual.assetId, "image", "combat", `${context} ${slot}`, "sprite_sheet")}<div class="form-grid four"><label>Frames<input type="number" min="1" step="1" data-field="visuals.${slot}.frameCount" value="${escapeHtml(visual.frameCount ?? "")}" placeholder="optional"></label><label>Columns<input type="number" min="1" step="1" data-field="visuals.${slot}.columns" value="${escapeHtml(visual.columns ?? "")}" placeholder="optional"></label><label>FPS<input type="number" min="0" step="any" data-field="visuals.${slot}.fps" value="${escapeHtml(visual.fps ?? "")}" placeholder="default"></label><label>Scale<input type="number" min="0.25" max="3" step="0.05" data-field="visuals.${slot}.scale" value="${escapeHtml(visual.scale ?? "")}" placeholder="1"></label><label>Offset X<input type="number" step="1" data-field="visuals.${slot}.offsetX" value="${escapeHtml(visual.offsetX ?? "")}" placeholder="0"><span class="hint">normalized px; + right</span></label><label>Offset Y<input type="number" step="1" data-field="visuals.${slot}.offsetY" value="${escapeHtml(visual.offsetY ?? "")}" placeholder="0"><span class="hint">normalized px; + down</span></label></div></div>`;
   }).join("")}</section>`;
 }
 
