@@ -289,6 +289,10 @@ attempted.
   save is rejected and the editor must be reloaded before trying again.
 - The editor accepts browser-supported raster/audio formats; audio remains a
   raw-copy pipeline and is not transcoded or normalized.
+- Character visual slots optionally author frame count, columns, FPS, and a
+  0.25–3 scale multiplier. Character previews alpha-normalize each frame and
+  bottom-align the visible artwork so authored transparent padding does not
+  create frame jitter.
 
 ## Tests
 

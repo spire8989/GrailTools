@@ -1584,6 +1584,7 @@ function renderEnemyTraitRows(enemy) {
 }
 
 const characterPreviewInstances = new Set();
+const characterPreviewMetadataCache = new Map();
 let characterPreviewAnimationFrame = null;
 
 function characterPreviewFallback(root, visible = true) {
@@ -1598,23 +1599,77 @@ function scheduleCharacterPreviewAnimation() {
   if (characterPreviewAnimationFrame === null) characterPreviewAnimationFrame = window.requestAnimationFrame(tickCharacterPreviews);
 }
 
-function drawCharacterPreview(instance, frameIndex = instance.frameIndex) {
-  const { root, image, canvas } = instance;
-  if (!root?.isConnected || !image?.naturalWidth || !image?.naturalHeight || !canvas) return;
-  const frameCount = Math.max(1, Number(root.dataset.previewFrameCount) || 1);
-  const columns = Math.max(1, Math.min(frameCount, Number(root.dataset.previewColumns) || frameCount));
+function characterPreviewMetadata(image, instance) {
+  const key = `${instance.root.dataset.previewAssetId}|${instance.root.dataset.previewFrameCount}|${instance.root.dataset.previewColumns}`;
+  const cached = characterPreviewMetadataCache.get(key);
+  if (cached && cached.width === image.naturalWidth && cached.height === image.naturalHeight) return cached;
+  const frameCount = Math.max(1, Number(instance.root.dataset.previewFrameCount) || 1);
+  const columns = Math.max(1, Math.min(frameCount, Number(instance.root.dataset.previewColumns) || frameCount));
   const rows = Math.max(1, Math.ceil(frameCount / columns));
   const frameWidth = image.naturalWidth / columns;
   const frameHeight = image.naturalHeight / rows;
+  const scanCanvas = document.createElement("canvas");
+  scanCanvas.width = image.naturalWidth;
+  scanCanvas.height = image.naturalHeight;
+  const scanContext = scanCanvas.getContext("2d", { willReadFrequently: true });
+  const frameBounds = [];
+  if (scanContext) {
+    scanContext.drawImage(image, 0, 0);
+    const pixels = scanContext.getImageData(0, 0, image.naturalWidth, image.naturalHeight).data;
+    for (let frame = 0; frame < frameCount; frame += 1) {
+      const cellX = Math.floor(frame % columns) * frameWidth;
+      const cellY = Math.floor(frame / columns) * frameHeight;
+      const startX = Math.floor(cellX);
+      const startY = Math.floor(cellY);
+      const endX = Math.min(image.naturalWidth, Math.ceil(cellX + frameWidth));
+      const endY = Math.min(image.naturalHeight, Math.ceil(cellY + frameHeight));
+      let minX = endX;
+      let minY = endY;
+      let maxX = startX - 1;
+      let maxY = startY - 1;
+      for (let y = startY; y < endY; y += 1) {
+        for (let x = startX; x < endX; x += 1) {
+          if (pixels[(y * image.naturalWidth + x) * 4 + 3] <= 8) continue;
+          minX = Math.min(minX, x);
+          minY = Math.min(minY, y);
+          maxX = Math.max(maxX, x);
+          maxY = Math.max(maxY, y);
+        }
+      }
+      frameBounds.push(maxX >= minX
+        ? { x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1 }
+        : { x: startX, y: startY, width: Math.max(1, Math.round(frameWidth)), height: Math.max(1, Math.round(frameHeight)) });
+    }
+  } else {
+    for (let frame = 0; frame < frameCount; frame += 1) {
+      frameBounds.push({ x: (frame % columns) * frameWidth, y: Math.floor(frame / columns) * frameHeight, width: frameWidth, height: frameHeight });
+    }
+  }
+  const normalizedHeight = Math.max(1, ...frameBounds.map((bounds) => bounds.height));
+  const normalizedWidth = Math.max(1, Math.ceil(Math.max(...frameBounds.map((bounds) => bounds.width / bounds.height * normalizedHeight))));
+  const metadata = { width: image.naturalWidth, height: image.naturalHeight, frameBounds, normalizedWidth, normalizedHeight };
+  characterPreviewMetadataCache.set(key, metadata);
+  return metadata;
+}
+
+function drawCharacterPreview(instance, frameIndex = instance.frameIndex) {
+  const { root, image, canvas } = instance;
+  if (!root?.isConnected || !image?.naturalWidth || !image?.naturalHeight || !canvas) return;
+  const metadata = instance.metadata || (instance.metadata = characterPreviewMetadata(image, instance));
+  const frameCount = metadata.frameBounds.length;
   const frame = Math.max(0, Math.min(frameCount - 1, Math.floor(frameIndex)));
-  const width = Math.max(1, Math.round(frameWidth));
-  const height = Math.max(1, Math.round(frameHeight));
+  const bounds = metadata.frameBounds[frame];
+  const scale = metadata.normalizedHeight / bounds.height;
+  const width = metadata.normalizedWidth;
+  const height = metadata.normalizedHeight;
   canvas.width = width;
   canvas.height = height;
   const context = canvas.getContext("2d");
   if (!context) return;
   context.clearRect(0, 0, width, height);
-  context.drawImage(image, (frame % columns) * frameWidth, Math.floor(frame / columns) * frameHeight, frameWidth, frameHeight, 0, 0, width, height);
+  const destinationWidth = bounds.width * scale;
+  const destinationHeight = bounds.height * scale;
+  context.drawImage(image, bounds.x, bounds.y, bounds.width, bounds.height, (width - destinationWidth) / 2, height - destinationHeight, destinationWidth, destinationHeight);
   root.classList.add("is-ready");
   characterPreviewFallback(root, false);
   instance.frameIndex = frame;
@@ -1632,7 +1687,8 @@ function initializeCharacterVisualPreview(root) {
     characterPreviewFallback(root, true);
     return;
   }
-  const instance = { root, image, canvas, frameIndex: 0, startedAt: performance.now(), paused: root.dataset.previewPlaying === "false" || window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches };
+  root.style.setProperty("--preview-scale", String(Math.min(3, Math.max(0.25, Number(root.dataset.previewScale) || 1))));
+  const instance = { root, image, canvas, frameIndex: 0, metadata: null, startedAt: performance.now(), paused: root.dataset.previewPlaying === "false" || window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches };
   characterPreviewInstances.add(instance);
   if (image.complete && image.naturalWidth) drawCharacterPreview(instance, 0);
   if (Number(root.dataset.previewFrameCount) > 1 && !instance.paused) scheduleCharacterPreviewAnimation();
@@ -1677,6 +1733,7 @@ function syncCharacterVisualPreviews() {
     root.dataset.previewFrameCount = String(Number(visual.frameCount) > 0 ? Number(visual.frameCount) : 1);
     root.dataset.previewColumns = String(Number(visual.columns) > 0 ? Number(visual.columns) : root.dataset.previewFrameCount);
     root.dataset.previewFps = String(Number(visual.fps) >= 0 ? Number(visual.fps) : 0);
+    root.dataset.previewScale = String(Math.min(3, Math.max(0.25, Number(visual.scale) || 1)));
     const image = root.querySelector(".character-preview-source");
     const path = state.catalog.imageAssets?.[assetId]?.path;
     const nextSrc = path ? assetPreviewUrl(path) : "";
@@ -1697,8 +1754,9 @@ function renderCharacterVisualPreview(slot, label, visual) {
   const frameCount = Number(visual.frameCount) > 0 ? Number(visual.frameCount) : 1;
   const columns = Number(visual.columns) > 0 ? Math.min(frameCount, Number(visual.columns)) : frameCount;
   const fps = Number(visual.fps) >= 0 ? Number(visual.fps) : 0;
+  const scale = Math.min(3, Math.max(0.25, Number(visual.scale) || 1));
   const fallback = asset ? "Preview unavailable" : "No sprite assigned";
-  return `<div class="character-preview" data-character-preview data-preview-slot="${slot}" data-preview-label="${label}" data-preview-asset-id="${escapeHtml(visual.assetId || "")}" data-preview-frame-count="${frameCount}" data-preview-columns="${columns}" data-preview-fps="${fps}" data-preview-playing="true"><canvas class="character-preview-canvas" aria-hidden="true"></canvas>${path ? `<img class="character-preview-source" src="${assetPreviewUrl(path)}" alt="" aria-hidden="true" onload="initializeCharacterVisualPreview(this.closest('[data-character-preview]'))" onerror="handleCharacterVisualPreviewError(this)">` : ""}<span class="character-preview-fallback is-visible">${fallback}</span><button type="button" class="small-button" data-action="toggle-character-preview">Pause</button></div>`;
+  return `<div class="character-preview" data-character-preview data-preview-slot="${slot}" data-preview-label="${label}" data-preview-asset-id="${escapeHtml(visual.assetId || "")}" data-preview-frame-count="${frameCount}" data-preview-columns="${columns}" data-preview-fps="${fps}" data-preview-scale="${scale}" data-preview-playing="true"><canvas class="character-preview-canvas" aria-hidden="true"></canvas>${path ? `<img class="character-preview-source" src="${assetPreviewUrl(path)}" alt="" aria-hidden="true" onload="initializeCharacterVisualPreview(this.closest('[data-character-preview]'))" onerror="handleCharacterVisualPreviewError(this)">` : ""}<span class="character-preview-fallback is-visible">${fallback}</span><button type="button" class="small-button" data-action="toggle-character-preview">Pause</button></div>`;
 }
 
 function renderCharacterVisuals(definition, context) {
@@ -1706,7 +1764,7 @@ function renderCharacterVisuals(definition, context) {
   const slots = [["idle", "Idle"], ["walk", "Walk"], ["attack", "Attack"]];
   return `<section class="section character-visuals"><div class="section-heading"><div><h3>Character Visuals</h3><p>Optional sprite slots. Sprite Sheet uploads preserve the full transparent sheet without cropping. Omitted FPS defaults to Idle 6, Walk 10, or Attack 12 when a slot has multiple frames.</p></div></div>${slots.map(([slot, label]) => {
     const visual = visuals[slot] || {};
-    return `<div class="section-card"><h4>${label}</h4>${renderCharacterVisualPreview(slot, label, visual)}${renderAssetSelector(`${label} visual`, `visuals.${slot}.assetId`, visual.assetId, "image", "combat", `${context} ${slot}`, "sprite_sheet")}<div class="form-grid three"><label>Frames<input type="number" min="1" step="1" data-field="visuals.${slot}.frameCount" value="${escapeHtml(visual.frameCount ?? "")}" placeholder="optional"></label><label>Columns<input type="number" min="1" step="1" data-field="visuals.${slot}.columns" value="${escapeHtml(visual.columns ?? "")}" placeholder="optional"></label><label>FPS<input type="number" min="0" step="any" data-field="visuals.${slot}.fps" value="${escapeHtml(visual.fps ?? "")}" placeholder="default"></label></div></div>`;
+    return `<div class="section-card"><h4>${label}</h4>${renderCharacterVisualPreview(slot, label, visual)}${renderAssetSelector(`${label} visual`, `visuals.${slot}.assetId`, visual.assetId, "image", "combat", `${context} ${slot}`, "sprite_sheet")}<div class="form-grid four"><label>Frames<input type="number" min="1" step="1" data-field="visuals.${slot}.frameCount" value="${escapeHtml(visual.frameCount ?? "")}" placeholder="optional"></label><label>Columns<input type="number" min="1" step="1" data-field="visuals.${slot}.columns" value="${escapeHtml(visual.columns ?? "")}" placeholder="optional"></label><label>FPS<input type="number" min="0" step="any" data-field="visuals.${slot}.fps" value="${escapeHtml(visual.fps ?? "")}" placeholder="default"></label><label>Scale<input type="number" min="0.25" max="3" step="0.05" data-field="visuals.${slot}.scale" value="${escapeHtml(visual.scale ?? "")}" placeholder="1"></label></div></div>`;
   }).join("")}</section>`;
 }
 

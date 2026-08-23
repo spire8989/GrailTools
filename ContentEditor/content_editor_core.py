@@ -1551,6 +1551,8 @@ def _validate_character_visuals(definition: Any, known: dict[str, list[str]], so
             errors.append(_issue("error", "Character visual columns cannot exceed frameCount.", source, f"{path}.columns"))
         if "fps" in visual and (not _is_number(visual.get("fps")) or visual.get("fps") < 0):
             errors.append(_issue("error", "Character visual fps must be a non-negative number.", source, f"{path}.fps"))
+        if "scale" in visual and visual.get("scale") is not None and (not _is_number(visual.get("scale")) or not 0.25 <= visual.get("scale") <= 3):
+            errors.append(_issue("error", "Character visual scale must be a number from 0.25 to 3.", source, f"{path}.scale"))
 
 
 def _validate_character_scale(definition: Any, source: str, errors: list[dict[str, str]]) -> None:

@@ -79,11 +79,12 @@ class ContentEditorTests(unittest.TestCase):
         self.assertIn('"sprite_sheet"', app)
         self.assertIn('data-action="toggle-character-preview"', app)
         self.assertIn('data-field="visualScale"', app)
+        self.assertIn('data-field="visuals.${slot}.scale"', app)
         image_assets = {"character_pass_combat": {"id": "character_pass_combat", "category": "combat", "path": "assets/images/combat/character_pass_combat.webp"}}
         player = clone(catalog["playerCharacter"])
         player["combatVisualAssetId"] = None
         player["visualScale"] = 1.25
-        player["visuals"] = {"idle": {"assetId": "character_pass_combat", "frameCount": 4, "columns": 2, "fps": 0}}
+        player["visuals"] = {"idle": {"assetId": "character_pass_combat", "frameCount": 4, "columns": 2, "fps": 0, "scale": 1.1}}
         values = {"imageAssets": image_assets, "playerCharacter": player}
         self.assertEqual(validate_catalog(values, catalog["known"])["errors"], [])
         player["visuals"]["idle"]["columns"] = 5
@@ -94,6 +95,10 @@ class ContentEditorTests(unittest.TestCase):
         errors = validate_catalog(values, catalog["known"])["errors"]
         self.assertTrue(any("fps" in issue["message"] for issue in errors))
         player["visuals"]["idle"]["fps"] = 0
+        player["visuals"]["idle"]["scale"] = 3.5
+        errors = validate_catalog(values, catalog["known"])["errors"]
+        self.assertTrue(any("Character visual scale" in issue["message"] for issue in errors))
+        player["visuals"]["idle"]["scale"] = 1.1
         player["visualScale"] = 3.5
         errors = validate_catalog(values, catalog["known"])["errors"]
         self.assertTrue(any("visualScale" in issue["message"] for issue in errors))
@@ -109,12 +114,14 @@ class ContentEditorTests(unittest.TestCase):
             "frameCount": 3,
             "columns": 3,
             "fps": 12,
+            "scale": 0.8,
         }
         save_catalog(project, {"playerCharacter": player}, before["sourceHashes"], Path(temp.name) / "backups")
         after = load_catalog(project)
         self.assertEqual(after["playerCharacter"]["visualScale"], 0.75)
         self.assertEqual(after["playerCharacter"]["visuals"]["attack"]["columns"], 3)
         self.assertEqual(after["playerCharacter"]["visuals"]["attack"]["fps"], 12)
+        self.assertEqual(after["playerCharacter"]["visuals"]["attack"]["scale"], 0.8)
 
     def test_asset_browser_exposes_travel_panorama_and_travel_rows_select_it(self) -> None:
         index = (CONTENT_EDITOR / "static" / "index.html").read_text(encoding="utf-8")
