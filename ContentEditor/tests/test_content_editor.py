@@ -73,6 +73,9 @@ class ContentEditorTests(unittest.TestCase):
 
     def test_character_visual_slots_validate_optional_shape_and_combat_category(self) -> None:
         catalog = load_catalog(GRAIL)
+        app = (CONTENT_EDITOR / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertIn('renderAssetSelector("Combat visual", "combatVisualAssetId"', app)
+        self.assertIn('renderAssetSelector(`${label} visual`, `visuals.${slot}.assetId`, visual.assetId, "image", "combat"', app)
         image_assets = {"character_pass_combat": {"id": "character_pass_combat", "category": "combat", "path": "assets/images/combat/character_pass_combat.webp"}}
         player = clone(catalog["playerCharacter"])
         player["visuals"] = {"idle": {"assetId": "character_pass_combat", "frameCount": 1, "fps": 0}}

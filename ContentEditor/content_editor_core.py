@@ -2398,8 +2398,8 @@ def _validate_asset_references(values: dict[str, Any], errors: list[dict[str, st
                 allowed_image_categories = image_fields.get(key)
                 if key == "visualAssetId":
                     allowed_image_categories = visual_field_categories.get(source)
-                elif key == "combatVisualAssetId" and source in {"encounters", "expeditions"}:
-                    allowed_image_categories = {"combat_scene"}
+                elif key == "combatVisualAssetId":
+                    allowed_image_categories = {"combat_scene"} if source in {"encounters", "expeditions"} else {"combat"}
                 if isinstance(child, str) and allowed_image_categories:
                     asset = image_assets.get(child)
                     if asset and asset.get("category") not in allowed_image_categories:
