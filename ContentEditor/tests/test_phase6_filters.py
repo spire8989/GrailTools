@@ -256,6 +256,16 @@ class Phase6FilterBrowserTests(unittest.TestCase):
         self.browser.evaluate("document.querySelector('[data-action=select][data-id=repair_kit]').click()")
         self.assertTrue(self.browser.evaluate("""Boolean(document.querySelector('[data-recipe-ingredient-field="id"] option'))"""))
 
+    def test_starting_state_editor_surfaces_and_updates_draft(self) -> None:
+        self.click_category("startingState")
+        self.assertEqual(self.browser.evaluate("document.querySelector('#entry-heading').textContent.trim()"), "Starting State")
+        self.assertTrue(self.browser.evaluate("Boolean(document.querySelector('#editor-root [data-starting-field=currentGold]'))"))
+        self.assertTrue(self.browser.evaluate("Boolean(document.querySelector('#editor-root [data-starting-map-field=ownedItems]'))"))
+        self.browser.evaluate("(() => { const input=document.querySelector('#editor-root [data-starting-field=currentGold]'); input.value='33'; input.dispatchEvent(new Event('input',{bubbles:true})); })()")
+        self.assertEqual(self.browser.evaluate("state.draft.currentGold"), 33)
+        self.browser.evaluate("(() => { const input=document.querySelector('#editor-root [data-starting-map-field=ownedItems][data-starting-map-id=rope]'); input.value='2'; input.dispatchEvent(new Event('input',{bubbles:true})); })()")
+        self.assertEqual(self.browser.evaluate("state.draft.ownedItems.rope"), 2)
+
     def test_loot_entry_type_refreshes_reference_fields(self) -> None:
         self.click_category("lootTables")
         self.browser.evaluate("document.querySelector('[data-action=select][data-id=bandit_leader_loot]').click()")

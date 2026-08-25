@@ -455,6 +455,7 @@ CONTENT_FILES = {
     "imageAssets": ("js/asset-data.js", "IMAGE_ASSET_DEFINITIONS"),
     "audioAssets": ("js/asset-data.js", "AUDIO_ASSET_DEFINITIONS"),
     "playerCharacter": ("js/data.js", "PLAYER_CHARACTER_DEFINITION"),
+    "startingState": ("js/storage.js", "STARTING_PLAYER_STATE"),
     "companions": ("js/data.js", "COMPANION_DEFINITIONS"),
     "encounters": ("js/encounter-data.js", "ENCOUNTER_DEFINITIONS"),
     "injuries": ("js/injury-data.js", "INJURY_DEFINITIONS"),
@@ -553,6 +554,8 @@ def _ref_type_for_key(key: str) -> str | None:
         "campEventId": "campEvents",
         "knowledgeId": "knowledge",
         "companionId": "companions",
+        "selectedCompanion": "companions",
+        "selectedCompanionId": "companions",
         "dialogueId": "dialogues",
         "dialogueSequenceId": "dialogues",
         "introDialogueSequenceId": "dialogues",
@@ -603,6 +606,37 @@ def collect_references(value: Any, source: str, references: dict[str, list[dict[
                 if key in {"itemsForSale", "sellValues"} and isinstance(child, dict):
                     for item_id in child:
                         references.setdefault("items", []).append({"source": source, "path": f"{child_path}.{item_id}", "id": item_id})
+                if key in {"ownedItems", "equippedItems"} and isinstance(child, dict):
+                    if key == "ownedItems":
+                        for item_id in child:
+                            references.setdefault("items", []).append({"source": source, "path": f"{child_path}.{item_id}", "id": item_id})
+                    else:
+                        for slot, item_id in child.items():
+                            if isinstance(item_id, str):
+                                references.setdefault("items", []).append({"source": source, "path": f"{child_path}.{slot}", "id": item_id})
+                elif key in {"packedItems"} and isinstance(child, list):
+                    for index, item_id in enumerate(child):
+                        if isinstance(item_id, str):
+                            references.setdefault("items", []).append({"source": source, "path": f"{child_path}[{index}]", "id": item_id})
+                elif key in {"materials", "packedMaterials"} and isinstance(child, dict):
+                    for material_id in child:
+                        references.setdefault("materials", []).append({"source": source, "path": f"{child_path}.{material_id}", "id": material_id})
+                elif key in {"learnedAbilityIds", "selectedActiveAbilityIds", "selectedPassiveAbilityIds"} and isinstance(child, list):
+                    for index, ability_id in enumerate(child):
+                        if isinstance(ability_id, str):
+                            references.setdefault("abilities", []).append({"source": source, "path": f"{child_path}[{index}]", "id": ability_id})
+                elif key in {"learnedRecipes"} and isinstance(child, list):
+                    for index, recipe_id in enumerate(child):
+                        if isinstance(recipe_id, str):
+                            references.setdefault("recipes", []).append({"source": source, "path": f"{child_path}[{index}]", "id": recipe_id})
+                elif key in {"unlockedCompanions", "selectedCompanions"} and isinstance(child, list):
+                    for index, companion_id in enumerate(child):
+                        if isinstance(companion_id, str):
+                            references.setdefault("companions", []).append({"source": source, "path": f"{child_path}[{index}]", "id": companion_id})
+                elif key in {"learnedKnowledge"} and isinstance(child, list):
+                    for index, knowledge_id in enumerate(child):
+                        if isinstance(knowledge_id, str):
+                            references.setdefault("knowledge", []).append({"source": source, "path": f"{child_path}[{index}]", "id": knowledge_id})
                 if key == "ingredients" and isinstance(child, dict):
                     ingredient_type = node.get("ingredientType", "material")
                     ref_type = "items" if ingredient_type == "item" else "materials"
@@ -753,6 +787,14 @@ def load_catalog(project_root: Path) -> dict[str, Any]:
     known["imageAssets"] = sorted(_id_map(values.get("imageAssets")))
     known["audioAssets"] = sorted(_id_map(values.get("audioAssets")))
     known["companions"] = sorted(_id_map(values.get("companions")))
+    known["materials"] = sorted(set(known.get("materials", [])) | {
+        item_id
+        for item_id, item in item_map.items()
+        if isinstance(item, dict) and (
+            item.get("category") == "ingredient"
+            or "ingredient" in item.get("tags", [])
+        )
+    })
     known["itemCategories"] = sorted({
         *(item.get("category") for item in item_map.values() if isinstance(item, dict) and isinstance(item.get("category"), str)),
         "other",
@@ -775,6 +817,11 @@ def load_catalog(project_root: Path) -> dict[str, Any]:
     except (FileNotFoundError, JsParseError):
         pass
     material_labels = {key: value.get("name", key) for key, value in _id_map(material_map).items() if isinstance(value, dict)}
+    material_labels.update({
+        key: value.get("name", key)
+        for key, value in item_map.items()
+        if key in known.get("materials", []) and isinstance(value, dict)
+    })
     ability_map = {}
     try:
         ability_map, *_ = _read_constant(project_root, *REFERENCE_FILES["abilities"])
@@ -797,6 +844,7 @@ def load_catalog(project_root: Path) -> dict[str, Any]:
         "imageAssets": values["imageAssets"],
         "audioAssets": values["audioAssets"],
         "playerCharacter": values["playerCharacter"],
+        "startingState": values["startingState"],
         "companions": values["companions"],
         "encounters": values["encounters"],
         "injuries": values["injuries"],
@@ -1611,6 +1659,117 @@ def _validate_player_character(player: Any, known: dict[str, list[str]], errors:
     _validate_character_asset_fields(player, known, source, errors, ("portraitAssetId", "combatVisualAssetId"))
     _validate_character_visuals(player, known, source, errors)
     _validate_character_scale(player, source, errors)
+
+
+def _validate_starting_state(starting_state: Any, known: dict[str, list[str]], errors: list[dict[str, str]], items: Any = None) -> None:
+    source = "startingState"
+    if not isinstance(starting_state, dict):
+        errors.append(_issue("error", "Starting player state must be an object.", source))
+        return
+
+    def non_negative_number(field_name: str, integer: bool = False) -> None:
+        value = starting_state.get(field_name)
+        valid = isinstance(value, int) and not isinstance(value, bool) if integer else _is_number(value)
+        if not valid or value < 0:
+            kind = "non-negative integer" if integer else "non-negative number"
+            errors.append(_issue("error", f"Starting state {field_name} must be a {kind}.", source, field_name))
+
+    for field_name in ("faith", "maxFaith", "currentGold", "provisions", "bestExpeditionDistance"):
+        non_negative_number(field_name, field_name == "bestExpeditionDistance")
+    if _is_number(starting_state.get("faith")) and _is_number(starting_state.get("maxFaith")) and starting_state["faith"] > starting_state["maxFaith"]:
+        errors.append(_issue("error", "Starting state faith cannot exceed maxFaith.", source, "faith"))
+
+    item_ids = set(known.get("items", [])) - set(known.get("materials", []))
+    material_ids = set(known.get("materials", []))
+    item_map = _id_map(items)
+
+    def validate_quantity_map(field_name: str, valid_ids: set[str], label: str) -> None:
+        values = starting_state.get(field_name)
+        if not isinstance(values, dict):
+            errors.append(_issue("error", f"Starting state {field_name} must be an object of {label} quantities.", source, field_name))
+            return
+        for entry_id, quantity in values.items():
+            if entry_id not in valid_ids:
+                errors.append(_issue("error", f"Starting state {field_name} references unknown {label} ID {entry_id!r}.", source, f"{field_name}.{entry_id}"))
+            if not isinstance(quantity, int) or isinstance(quantity, bool) or quantity <= 0:
+                errors.append(_issue("error", f"Starting state {field_name} quantities must be positive integers.", source, f"{field_name}.{entry_id}"))
+
+    validate_quantity_map("ownedItems", item_ids, "item")
+    validate_quantity_map("materials", material_ids, "material")
+    validate_quantity_map("packedMaterials", material_ids, "material")
+
+    equipped = starting_state.get("equippedItems")
+    if not isinstance(equipped, dict):
+        errors.append(_issue("error", "Starting state equippedItems must be an object.", source, "equippedItems"))
+    else:
+        for slot, item_id in equipped.items():
+            if slot not in {"weapon", "armor", "relic"}:
+                errors.append(_issue("error", f"Starting state equippedItems has unknown slot {slot!r}.", source, f"equippedItems.{slot}"))
+            if not isinstance(item_id, str) or item_id not in item_ids:
+                errors.append(_issue("error", "Starting state equipped items must reference known non-material item IDs.", source, f"equippedItems.{slot}"))
+            elif not isinstance(starting_state.get("ownedItems"), dict) or starting_state["ownedItems"].get(item_id, 0) <= 0:
+                errors.append(_issue("error", f"Starting state equipped item {item_id!r} must also be owned.", source, f"equippedItems.{slot}"))
+            elif isinstance(item_map.get(item_id), dict) and item_map[item_id].get("equipmentSlot") != slot:
+                errors.append(_issue("error", f"Starting state equipped item {item_id!r} does not fit the {slot} slot.", source, f"equippedItems.{slot}"))
+
+    packed_items = starting_state.get("packedItems")
+    if not isinstance(packed_items, list) or not all(isinstance(item_id, str) for item_id in packed_items):
+        errors.append(_issue("error", "Starting state packedItems must be an array of item IDs.", source, "packedItems"))
+    else:
+        if len(packed_items) != len(set(packed_items)):
+            errors.append(_issue("error", "Starting state packedItems cannot contain duplicates.", source, "packedItems"))
+        for index, item_id in enumerate(packed_items):
+            if item_id not in item_ids:
+                errors.append(_issue("error", f"Starting state packedItems references unknown item ID {item_id!r}.", source, f"packedItems[{index}]"))
+            elif not isinstance(starting_state.get("ownedItems"), dict) or starting_state["ownedItems"].get(item_id, 0) <= 0:
+                errors.append(_issue("error", f"Starting state packed item {item_id!r} must also be owned.", source, f"packedItems[{index}]"))
+            elif isinstance(item_map.get(item_id), dict) and item_map[item_id].get("carriable") is not True:
+                errors.append(_issue("error", f"Starting state packed item {item_id!r} is not carriable.", source, f"packedItems[{index}]"))
+            elif item_id in set((starting_state.get("equippedItems") or {}).values()):
+                errors.append(_issue("error", f"Starting state packed item {item_id!r} is already equipped.", source, f"packedItems[{index}]"))
+
+    def validate_id_list(field_name: str, known_key: str, label: str) -> None:
+        values = starting_state.get(field_name)
+        if not isinstance(values, list) or not all(isinstance(value, str) and value for value in values):
+            errors.append(_issue("error", f"Starting state {field_name} must be an array of {label} IDs.", source, field_name))
+            return
+        if len(values) != len(set(values)):
+            errors.append(_issue("error", f"Starting state {field_name} cannot contain duplicates.", source, field_name))
+        valid_ids = set(known.get(known_key, []))
+        for index, value in enumerate(values):
+            if value not in valid_ids:
+                errors.append(_issue("error", f"Starting state {field_name} references unknown {label} ID {value!r}.", source, f"{field_name}[{index}]"))
+
+    validate_id_list("learnedAbilityIds", "abilities", "ability")
+    validate_id_list("selectedActiveAbilityIds", "abilities", "ability")
+    validate_id_list("selectedPassiveAbilityIds", "abilities", "ability")
+    learned_abilities = set(starting_state.get("learnedAbilityIds", []))
+    for field_name in ("selectedActiveAbilityIds", "selectedPassiveAbilityIds"):
+        for index, ability_id in enumerate(starting_state.get(field_name, [])):
+            if ability_id not in learned_abilities:
+                errors.append(_issue("error", f"Starting state {field_name} must contain only learned abilities.", source, f"{field_name}[{index}]"))
+    validate_id_list("learnedRecipes", "recipes", "recipe")
+    validate_id_list("unlockedCompanions", "companions", "companion")
+    validate_id_list("selectedCompanions", "companions", "companion")
+    unlocked_companions = set(starting_state.get("unlockedCompanions", []))
+    for index, companion_id in enumerate(starting_state.get("selectedCompanions", [])):
+        if companion_id not in unlocked_companions:
+            errors.append(_issue("error", "Starting state selectedCompanions must contain only unlocked companions.", source, f"selectedCompanions[{index}]"))
+    selected_companion = starting_state.get("selectedCompanion")
+    if selected_companion is not None and (not isinstance(selected_companion, str) or selected_companion not in unlocked_companions):
+        errors.append(_issue("error", "Starting state selectedCompanion must be an unlocked companion ID.", source, "selectedCompanion"))
+    validate_id_list("learnedKnowledge", "knowledge", "knowledge")
+
+    for field_name, known_key, label in (("selectedExpeditionId", "expeditions", "expedition"), ("currentLocationId", "locations", "location")):
+        value = starting_state.get(field_name)
+        if not isinstance(value, str) or value not in set(known.get(known_key, [])):
+            errors.append(_issue("error", f"Starting state {field_name} must reference a known {label} ID.", source, field_name))
+    campaign_flags = starting_state.get("campaignFlags")
+    if not isinstance(campaign_flags, dict) or not all(isinstance(value, bool) for value in campaign_flags.values()):
+        errors.append(_issue("error", "Starting state campaignFlags must be an object of booleans.", source, "campaignFlags"))
+    chapters = starting_state.get("completedChapters")
+    if not isinstance(chapters, list) or not all(isinstance(value, str) and value for value in chapters):
+        errors.append(_issue("error", "Starting state completedChapters must be an array of strings.", source, "completedChapters"))
 
 
 def _validate_companions(companions: Any, known: dict[str, list[str]], errors: list[dict[str, str]]) -> None:
@@ -2479,7 +2638,23 @@ def validate_catalog(values: dict[str, Any], known: dict[str, list[str]], refere
     if "craftingProviders" in values:
         effective_known["craftingProviders"] = sorted(_id_map(values.get("craftingProviders")))
     if "materials" in values:
-        effective_known["materials"] = sorted(_id_map(values.get("materials")))
+        item_values = _id_map(values.get("items"))
+        material_ids = set(_id_map(values.get("materials")))
+        if "items" not in values:
+            material_ids.update(
+                entry["id"]
+                for entry in (references or {}).get("materials", [])
+                if entry.get("source") == "startingState" and isinstance(entry.get("id"), str)
+            )
+        material_ids.update({
+            item_id
+            for item_id, item in item_values.items()
+            if isinstance(item, dict) and (
+                item.get("category") == "ingredient"
+                or "ingredient" in item.get("tags", [])
+            )
+        })
+        effective_known["materials"] = sorted(material_ids)
     if "imageAssets" in values:
         effective_known["imageAssets"] = sorted(_id_map(values.get("imageAssets")))
         effective_known["imageAssetCategories"] = {
@@ -2527,6 +2702,8 @@ def validate_catalog(values: dict[str, Any], known: dict[str, list[str]], refere
         _validate_enemy_definitions(values.get("enemyDefinitions"), effective_known, errors)
     if "playerCharacter" in values:
         _validate_player_character(values.get("playerCharacter"), effective_known, errors)
+    if "startingState" in values:
+        _validate_starting_state(values.get("startingState"), effective_known, errors, values.get("items"))
     if "companions" in values:
         _validate_companions(values.get("companions"), effective_known, errors)
     if "enemyActions" in values:

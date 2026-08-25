@@ -52,6 +52,38 @@ class ContentEditorTests(unittest.TestCase):
         self.assertEqual(after["playerCharacter"]["name"], "Arthur (Character Pass Test)")
         self.assertEqual(after["companions"], before["companions"])
 
+    def test_starting_state_round_trips_resources_materials_and_items(self) -> None:
+        temp, project = self.temporary_grail()
+        self.addCleanup(temp.cleanup)
+        before = load_catalog(project)
+        self.assertEqual(before["startingState"]["currentGold"], 12)
+        self.assertIn("raw_meat", before["known"]["materials"])
+        starting = clone(before["startingState"])
+        starting["currentGold"] = 27
+        starting["provisions"] = 31
+        starting["ownedItems"]["rope"] = 2
+        starting["materials"]["raw_meat"] = 4
+        starting["packedMaterials"]["raw_meat"] = 3
+        result = save_catalog(project, {"startingState": starting}, before["sourceHashes"], Path(temp.name) / "backups")
+        after = load_catalog(project)
+        self.assertEqual(after["startingState"]["currentGold"], 27)
+        self.assertEqual(after["startingState"]["provisions"], 31)
+        self.assertEqual(after["startingState"]["ownedItems"]["rope"], 2)
+        self.assertEqual(after["startingState"]["materials"]["raw_meat"], 4)
+        self.assertEqual(after["startingState"]["packedMaterials"]["raw_meat"], 3)
+        self.assertTrue(any(item["file"] == "js/storage.js" and item["status"] == "updated" for item in result["saveResults"]))
+        self.assertTrue(list((Path(temp.name) / "backups").glob("storage.js.*.bak")))
+
+        invalid = clone(after["startingState"])
+        invalid["ownedItems"]["missing_starting_item"] = 1
+        validation = validate_catalog({"startingState": invalid}, after["known"], after["references"])
+        self.assertTrue(any("unknown item ID 'missing_starting_item'" in issue["message"] for issue in validation["errors"]))
+
+        app = (CONTENT_EDITOR / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertIn('[\"startingState\", \"Starting State\"]', app)
+        self.assertIn("function renderStartingState()", app)
+        self.assertIn("data-starting-map-field", app)
+
     def test_companion_add_edit_and_referenced_delete_validation(self) -> None:
         temp, project = self.temporary_grail()
         self.addCleanup(temp.cleanup)

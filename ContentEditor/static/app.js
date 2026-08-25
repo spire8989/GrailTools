@@ -19,6 +19,7 @@ const CONTENT_CATEGORIES = [
   ["imageAssets", "Images"],
   ["audioAssets", "Audio"],
   ["playerCharacter", "Player Character"],
+  ["startingState", "Starting State"],
   ["companions", "Companions"],
   ["encounters", "Encounters"],
   ["injuries", "Injuries"],
@@ -43,7 +44,7 @@ const CONTENT_CATEGORIES = [
 ];
 
 const EDITABLE_REFERENCE_SOURCES = new Set([
-  "playerCharacter", "companions", "encounters", "injuries", "campEvents", "dialogues", "expeditions", "recipes", "materials", "craftingProviders", "shops", "npcs", "destinations", "locations", "items", "combats", "abilities", "combatStatuses", "enemyDefinitions", "enemyActions", "lootTables",
+  "playerCharacter", "startingState", "companions", "encounters", "injuries", "campEvents", "dialogues", "expeditions", "recipes", "materials", "craftingProviders", "shops", "npcs", "destinations", "locations", "items", "combats", "abilities", "combatStatuses", "enemyDefinitions", "enemyActions", "lootTables",
 ]);
 
 const state = {
@@ -182,7 +183,7 @@ function providerLabel(providerId) {
 
 function materialLabel(materialId) {
   const material = state.catalog?.materials?.[materialId];
-  const name = material?.name || state.catalog?.materialLabels?.[materialId];
+  const name = material?.name || state.catalog?.materialLabels?.[materialId] || state.catalog?.items?.[materialId]?.name;
   return name
     ? `${name} (${materialId})`
     : materialId;
@@ -1358,14 +1359,14 @@ function collectClientReferences(value, source, references) {
   const scalarTypes = {
     portraitAssetId: "imageAssets", visualAssetId: "imageAssets", backgroundAssetId: "imageAssets", travelVisualAssetId: "imageAssets", travelParallaxAssetId: "imageAssets", travelTransitionAssetId: "imageAssets", travelSeamForegroundAssetId: "imageAssets", campVisualAssetId: "imageAssets", combatVisualAssetId: "imageAssets", assetId: "imageAssets", travelAmbienceAssetId: "audioAssets", campAmbienceAssetId: "audioAssets", ambienceAssetId: "audioAssets", stingAssetId: "audioAssets",
     itemId: "items", treatmentItemId: "items", combatId: "combats", abilityId: "abilities", statusId: "combatStatuses", injuryId: "injuries",
-    tableId: "lootTables", lootTableId: "lootTables", pathId: "paths", expeditionId: "expeditions",
+    tableId: "lootTables", lootTableId: "lootTables", pathId: "paths", expeditionId: "expeditions", selectedExpeditionId: "expeditions",
     nextExpeditionId: "expeditions", materialId: "materials", recipeId: "recipes",
-    craftingProvider: "craftingProviders", craftingProviderId: "craftingProviders", eventId: "campEvents", campEventId: "campEvents", knowledgeId: "knowledge", companionId: "companions", dialogueId: "dialogues", dialogueSequenceId: "dialogues", introDialogueSequenceId: "dialogues", speakerId: "npcs", npcId: "npcs", destinationId: "destinations", locationId: "locations",
+    craftingProvider: "craftingProviders", craftingProviderId: "craftingProviders", eventId: "campEvents", campEventId: "campEvents", knowledgeId: "knowledge", companionId: "companions", selectedCompanion: "companions", dialogueId: "dialogues", dialogueSequenceId: "dialogues", introDialogueSequenceId: "dialogues", speakerId: "npcs", npcId: "npcs", destinationId: "destinations", locationId: "locations", currentLocationId: "locations",
   };
   const listTypes = {
     itemIds: "items", injuryIds: "injuries", prerequisites: "items", enemyIds: "enemies", abilityIds: "abilities",
     grantedAbilityIds: "abilities", combatAbilities: "abilities", actionPattern: "enemyActions", suppressedByStatuses: "combatStatuses",
-    pathIds: "paths", expeditionIds: "expeditions", availableExpeditions: "expeditions", campEventTableIds: "campEventTables", recipeIds: "recipes", npcIds: "npcs", locationIds: "locations", destinationIds: "destinations", destinations: "destinations", npcs: "npcs", locations: "locations",
+    pathIds: "paths", expeditionIds: "expeditions", availableExpeditions: "expeditions", campEventTableIds: "campEventTables", recipeIds: "recipes", npcIds: "npcs", locationIds: "locations", destinationIds: "destinations", destinations: "destinations", npcs: "npcs", locations: "locations", packedItems: "items", learnedAbilityIds: "abilities", selectedActiveAbilityIds: "abilities", selectedPassiveAbilityIds: "abilities", learnedRecipes: "recipes", unlockedCompanions: "companions", selectedCompanions: "companions", learnedKnowledge: "knowledge",
   };
   function visit(node, path = "") {
     if (Array.isArray(node)) {
@@ -1388,6 +1389,17 @@ function collectClientReferences(value, source, references) {
       if (["itemsForSale", "sellValues"].includes(key) && child && typeof child === "object" && !Array.isArray(child)) {
         Object.keys(child).forEach((id) => (references.items ||= []).push({ source, path: `${childPath}.${id}`, id }));
       }
+      if (key === "ownedItems" && child && typeof child === "object" && !Array.isArray(child)) {
+        Object.keys(child).forEach((id) => (references.items ||= []).push({ source, path: childPath + "." + id, id }));
+      }
+      if (key === "equippedItems" && child && typeof child === "object" && !Array.isArray(child)) {
+        Object.entries(child).forEach(([slot, id]) => {
+          if (typeof id === "string") (references.items ||= []).push({ source, path: childPath + "." + slot, id });
+        });
+      }
+      if ((key === "materials" || key === "packedMaterials") && child && typeof child === "object" && !Array.isArray(child)) {
+        Object.keys(child).forEach((id) => (references.materials ||= []).push({ source, path: childPath + "." + id, id }));
+      }
       if (key === "ingredients" && child && typeof child === "object" && !Array.isArray(child)) {
         const refType = node.ingredientType === "item" ? "items" : "materials";
         Object.keys(child).forEach((id) => (references[refType] ||= []).push({ source, path: `${childPath}.${id}`, id }));
@@ -1402,7 +1414,7 @@ function liveReferences() {
   if (!state.catalog) return {};
   const references = {};
   const snapshot = draftSnapshot();
-  ["playerCharacter", "companions", "encounters", "injuries", "campEvents", "dialogues", "expeditions", "recipes", "materials", "craftingProviders", "shops", "npcs", "destinations", "locations", "items", "combats", "abilities", "enemyDefinitions", "enemyActions", "lootTables"].forEach((source) => {
+  ["playerCharacter", "startingState", "companions", "encounters", "injuries", "campEvents", "dialogues", "expeditions", "recipes", "materials", "craftingProviders", "shops", "npcs", "destinations", "locations", "items", "combats", "abilities", "enemyDefinitions", "enemyActions", "lootTables"].forEach((source) => {
     collectClientReferences(snapshot[source], source, references);
   });
   Object.entries(state.catalog.references || {}).forEach(([type, entries]) => {
@@ -1414,7 +1426,7 @@ function liveReferences() {
 }
 
 function referenceCategory(source) {
-  return { playerCharacter: "playerCharacter", companions: "companions", encounters: "encounters", injuries: "injuries", campEvents: "campEvents", dialogues: "dialogues", campEventTables: "campEvents", expeditions: "expeditions", recipes: "recipes", materials: "materials", craftingProviders: "craftingProviders", shops: "shops", npcs: "npcs", destinations: "destinations", locations: "locations", items: "items", combats: "combats", enemyDefinitions: "enemyDefinitions", enemyActions: "enemyActions", abilities: "abilities", lootTables: "lootTables" }[source] || null;
+  return { playerCharacter: "playerCharacter", startingState: "startingState", companions: "companions", encounters: "encounters", injuries: "injuries", campEvents: "campEvents", dialogues: "dialogues", campEventTables: "campEvents", expeditions: "expeditions", recipes: "recipes", materials: "materials", craftingProviders: "craftingProviders", shops: "shops", npcs: "npcs", destinations: "destinations", locations: "locations", items: "items", combats: "combats", enemyDefinitions: "enemyDefinitions", enemyActions: "enemyActions", abilities: "abilities", lootTables: "lootTables" }[source] || null;
 }
 
 function referenceTitle(source, id) {
@@ -2099,6 +2111,73 @@ function renderCharacterVisuals(definition, context) {
   }).join("")}</section>`;
 }
 
+function startingItemIds() {
+  const materialIds = new Set(state.catalog?.known?.materials || []);
+  return Object.keys(state.catalog?.items || {}).filter((id) => !materialIds.has(id)).sort();
+}
+
+function startingMapRows(field, ids, label) {
+  const values = state.draft?.[field] || {};
+  const entries = Object.entries(values).sort(([left], [right]) => left.localeCompare(right));
+  const rows = entries.map(([id, quantity]) => (
+    "<div class=\"reference-array-row\"><span>" + escapeHtml(label(id)) + "</span><code>" + escapeHtml(id) + "</code>" +
+    "<input type=\"number\" min=\"1\" step=\"1\" data-starting-map-field=\"" + field + "\" data-starting-map-id=\"" + escapeHtml(id) + "\" value=\"" + escapeHtml(quantity) + "\">" +
+    "<button type=\"button\" class=\"small-button danger-outline\" data-action=\"remove-starting-map-entry\" data-starting-map-field=\"" + field + "\" data-starting-map-id=\"" + escapeHtml(id) + "\">Remove</button></div>"
+  )).join("");
+  const options = ids.filter((id) => values[id] === undefined).map((id) => "<option value=\"" + escapeHtml(id) + "\">" + escapeHtml(label(id)) + "</option>").join("");
+  return "<div class=\"starting-map-rows\">" + (rows || "<p class=\"hint\">No entries assigned.</p>") + "</div>" +
+    "<div class=\"button-row\"><select id=\"starting-" + field + "-add\"><option value=\"\">Add entry...</option>" + options + "</select>" +
+    "<input id=\"starting-" + field + "-quantity\" type=\"number\" min=\"1\" step=\"1\" value=\"1\">" +
+    "<button type=\"button\" class=\"small-button\" data-action=\"add-starting-map-entry\" data-starting-map-field=\"" + field + "\">Add</button></div>";
+}
+
+function startingChecks(field, ids, selectedIds, label) {
+  const selectedSet = new Set(selectedIds || []);
+  const checks = ids.map((id) => (
+    "<label class=\"check-chip\"><input type=\"checkbox\" data-array-toggle=\"" + field + "\" data-array-value=\"" + escapeHtml(id) + "\"" +
+    checked(selectedSet.has(id)) + ">" + escapeHtml(label(id)) + "</label>"
+  )).join("");
+  return "<div class=\"check-grid compact-check-grid\">" + (checks || "<span class=\"hint\">No references available.</span>") + "</div>";
+}
+
+function renderStartingState() {
+  const starting = state.draft;
+  if (!starting) return "<div class=\"empty-state\">The starting player state is unavailable.</div>";
+  const itemIds = startingItemIds();
+  const materialIds = state.catalog.known?.materials || [];
+  const abilityIds = Object.keys(state.catalog.abilities || {}).sort();
+  const recipeIds = Object.keys(state.catalog.recipes || {}).sort();
+  const companionIds = Object.keys(state.catalog.companions || {}).sort();
+  const knowledgeIds = state.catalog.known?.knowledge || [];
+  const select = (field, ids, current) => "<select data-starting-field=\"" + field + "\"><option value=\"\">Select...</option>" + selectOptions(ids, current) + "</select>";
+  const equipment = ["weapon", "armor", "relic"].map((slot) => "<label>" + slot + select("equippedItems." + slot, itemIds, starting.equippedItems?.[slot]) + "</label>").join("");
+  return "<div class=\"editor-title\"><div><h2>Starting State</h2><p>New campaign defaults</p></div><span class=\"schema-badge\">Starting State schema</span></div>" +
+    "<section class=\"section\"><div class=\"section-heading\"><div><h3>Resources and position</h3><p>These values seed a new campaign. Health still starts from live combat definitions.</p></div></div><div class=\"form-grid\">" +
+    "<label>Faith<input type=\"number\" min=\"0\" step=\"1\" data-starting-field=\"faith\" value=\"" + escapeHtml(starting.faith ?? "") + "\"></label>" +
+    "<label>Maximum faith<input type=\"number\" min=\"0\" step=\"1\" data-starting-field=\"maxFaith\" value=\"" + escapeHtml(starting.maxFaith ?? "") + "\"></label>" +
+    "<label>Gold<input type=\"number\" min=\"0\" step=\"1\" data-starting-field=\"currentGold\" value=\"" + escapeHtml(starting.currentGold ?? "") + "\"></label>" +
+    "<label>Provisions<input type=\"number\" min=\"0\" step=\"1\" data-starting-field=\"provisions\" value=\"" + escapeHtml(starting.provisions ?? "") + "\"></label>" +
+    "<label>Best expedition distance<input type=\"number\" min=\"0\" step=\"1\" data-starting-field=\"bestExpeditionDistance\" value=\"" + escapeHtml(starting.bestExpeditionDistance ?? "") + "\"></label>" +
+    "<label>Starting expedition" + select("selectedExpeditionId", Object.keys(state.catalog.expeditions || {}).sort(), starting.selectedExpeditionId) + "</label>" +
+    "<label>Starting location" + select("currentLocationId", Object.keys(state.catalog.locations || {}).sort(), starting.currentLocationId) + "</label></div></section>" +
+    "<section class=\"section\"><h3>Items and equipment</h3><p class=\"hint\">Owned quantities, equipped slots, and expedition-pack contents.</p>" +
+    startingMapRows("ownedItems", itemIds, itemLabel) + "<div class=\"form-grid\">" + equipment + "</div><h4>Packed items</h4>" +
+    startingChecks("packedItems", itemIds, starting.packedItems, itemLabel) + "</section>" +
+    "<section class=\"section\"><h3>Materials</h3>" + startingMapRows("materials", materialIds, materialLabel) + "<h4>Packed materials</h4>" +
+    startingMapRows("packedMaterials", materialIds, materialLabel) + "</section>" +
+    "<section class=\"section\"><h3>Progress and loadout</h3><h4>Learned abilities</h4>" +
+    startingChecks("learnedAbilityIds", abilityIds, starting.learnedAbilityIds, abilityLabel) + "<h4>Active loadout</h4>" +
+    startingChecks("selectedActiveAbilityIds", abilityIds, starting.selectedActiveAbilityIds, abilityLabel) + "<h4>Passive loadout</h4>" +
+    startingChecks("selectedPassiveAbilityIds", abilityIds, starting.selectedPassiveAbilityIds, abilityLabel) + "<h4>Learned recipes</h4>" +
+    startingChecks("learnedRecipes", recipeIds, starting.learnedRecipes, recipeLabel) + "<h4>Learned knowledge</h4>" +
+    startingChecks("learnedKnowledge", knowledgeIds, starting.learnedKnowledge, (id) => id) + "</section>" +
+    "<section class=\"section\"><h3>Companions</h3><label>Selected companion" + select("selectedCompanion", companionIds, starting.selectedCompanion) + "</label><h4>Unlocked companions</h4>" +
+    startingChecks("unlockedCompanions", companionIds, starting.unlockedCompanions, companionLabel) + "<h4>Selected companions</h4>" +
+    startingChecks("selectedCompanions", companionIds, starting.selectedCompanions, companionLabel) + "</section>" +
+    "<section class=\"section\"><details><summary>Raw starting state JSON (advanced)</summary><textarea id=\"raw-json\" class=\"raw-editor\">" +
+    jsonText(starting) + "</textarea><div class=\"button-row\"><button type=\"button\" class=\"small-button\" data-action=\"apply-raw\">Apply raw JSON</button></div></details></section>";
+}
+
 function renderPlayerCharacter() {
   const player = state.draft;
   if (!player) return `<div class="empty-state">The Arthur player definition is unavailable.</div>`;
@@ -2361,7 +2440,7 @@ function assetUsages(assetId, assetType) {
   Object.entries(snapshot).forEach(([category, entries]) => {
     if (["imageAssets", "audioAssets", "known", "files", "sourceHashes", "validation", "references", "paths", "projectRoot"].includes(category)) return;
     if (!entries || typeof entries !== "object") return;
-    if (category === "playerCharacter") visit(entries, category, entries.id || "arthur");
+  if (category === "playerCharacter") visit(entries, category, entries.id || "arthur");
     else Object.entries(entries).forEach(([id, entry]) => visit(entry, category, id));
   });
   const referenceType = assetType === "image" ? "imageAssets" : "audioAssets";
@@ -2500,9 +2579,10 @@ function renderLocation() {
 
 function currentEntries() {
   if (!state.catalog) return {};
-  if (state.category === "playerCharacter") {
-    const player = state.draft || state.catalog.playerCharacter;
-    return player ? { [player.id || "arthur"]: player } : {};
+  if (["playerCharacter", "startingState"].includes(state.category)) {
+    const singleton = state.draft || state.catalog[state.category];
+    const id = state.category === "playerCharacter" ? singleton?.id || "arthur" : "startingState";
+    return singleton ? { [id]: singleton } : {};
   }
   const entries = { ...state.catalog[state.category] };
   if (state.draft && !["paths", "imageAssets", "audioAssets"].includes(state.category)) {
@@ -2515,8 +2595,8 @@ function currentEntries() {
 }
 
 function categoryCount(category) {
-  return category === "playerCharacter"
-    ? (state.catalog?.playerCharacter ? 1 : 0)
+  return ["playerCharacter", "startingState"].includes(category)
+    ? (state.catalog?.[category] ? 1 : 0)
     : Object.keys(state.catalog?.[category] || {}).length;
 }
 
@@ -2626,7 +2706,7 @@ function render() {
     const recipeOutput = state.category === "recipes" ? ` · Produces: ${entry.output?.itemId ? itemLabel(entry.output.itemId) : `${entry.output?.provisions ?? 0} provisions`}` : "";
     return `<button type="button" role="option" aria-selected="${id === state.selectedId || (state.draft?.id === id && state.originalSelectedId === state.selectedId)}" class="entry-row ${(id === state.selectedId || (state.draft?.id === id && state.originalSelectedId === state.selectedId)) ? "active" : ""}" data-action="select" data-id="${escapeHtml(id)}"><span class="entry-title">${escapeHtml(entry.title || entry.displayName || entry.name || id)}</span><span class="entry-id">${escapeHtml(id)}${state.category === "paths" ? ` · ${escapeHtml(entry.encounterCount || 0)} encounters` : recipeOutput}</span></button>`;
   }).join("") : `<div class="empty-state">No matching entries.</div>`;
-  const readonlyPaths = ["paths", "imageAssets", "audioAssets", "playerCharacter"].includes(state.category);
+  const readonlyPaths = ["paths", "imageAssets", "audioAssets", "playerCharacter", "startingState"].includes(state.category);
   $("[data-action='add']").disabled = readonlyPaths;
   $("[data-action='duplicate']").disabled = readonlyPaths;
   $("[data-action='delete']").disabled = readonlyPaths;
@@ -2636,6 +2716,8 @@ function render() {
     ? renderEncounter()
     : state.category === "playerCharacter"
       ? renderPlayerCharacter()
+    : state.category === "startingState"
+      ? renderStartingState()
     : state.category === "companions"
       ? renderCompanion()
     : state.category === "injuries"
@@ -2727,6 +2809,7 @@ function renderValidation() {
 function draftSnapshot() {
   const snapshot = {
     playerCharacter: clone(state.catalog.playerCharacter),
+    startingState: clone(state.catalog.startingState),
     companions: clone(state.catalog.companions),
     encounters: clone(state.catalog.encounters),
     injuries: clone(state.catalog.injuries),
@@ -2753,8 +2836,8 @@ function draftSnapshot() {
     recipe.ingredients = normalizedRecipeIngredients(recipe);
     delete recipe.ingredientType;
   });
-  if (state.draft && state.category === "playerCharacter") {
-    snapshot.playerCharacter = clone(state.draft);
+  if (state.draft && ["playerCharacter", "startingState"].includes(state.category)) {
+    snapshot[state.category] = clone(state.draft);
   } else if (state.draft && !["paths", "imageAssets", "audioAssets"].includes(state.category)) {
     const map = snapshot[state.category];
     const draftId = state.draft.id || state.originalSelectedId;
@@ -2805,9 +2888,9 @@ async function requestValidation() {
 
 function commitDraftToCatalog() {
   if (!state.draft || !state.catalog || state.category === "paths") return;
-  if (state.category === "playerCharacter") {
-    state.catalog.playerCharacter = clone(state.draft);
-    state.selectedId = state.catalog.playerCharacter.id || "arthur";
+  if (["playerCharacter", "startingState"].includes(state.category)) {
+    state.catalog[state.category] = clone(state.draft);
+    state.selectedId = state.category === "playerCharacter" ? state.catalog.playerCharacter.id || "arthur" : "startingState";
     state.originalSelectedId = state.selectedId;
     return;
   }
@@ -2823,8 +2906,8 @@ function commitDraftToCatalog() {
 function selectEntry(id, discard = false) {
   if (!state.catalog) return;
   if (state.draftDirty && state.category !== "paths" && !discard && !window.confirm("Discard unsaved changes?")) return;
-  const entry = state.category === "playerCharacter"
-    ? state.catalog.playerCharacter
+  const entry = ["playerCharacter", "startingState"].includes(state.category)
+    ? state.catalog[state.category]
     : state.catalog[state.category]?.[id];
   if (!entry) return;
   state.selectedId = id;
@@ -2837,6 +2920,7 @@ function selectEntry(id, discard = false) {
 
 function defaultEntry(category) {
   if (category === "playerCharacter") return { id: "arthur", name: "Arthur", portraitAssetId: null, combatVisualAssetId: null, provisionCapacity: 20, provisionConsumptionMultiplier: 1, combat: { maxHp: 45, speed: 10 } };
+  if (category === "startingState") return clone(state.catalog.startingState);
   if (category === "companions") return {
     id: "new_companion",
     name: "New Companion",
@@ -2975,7 +3059,7 @@ function uniqueId(base, map) {
 }
 
 function addEntry() {
-  if (["paths", "playerCharacter"].includes(state.category)) return;
+  if (["paths", "playerCharacter", "startingState"].includes(state.category)) return;
   commitDraftToCatalog();
   const map = state.catalog[state.category];
   const entry = defaultEntry(state.category);
@@ -2989,7 +3073,7 @@ function addEntry() {
 }
 
 function duplicateEntry() {
-  if (!state.draft || ["paths", "playerCharacter"].includes(state.category)) return;
+  if (!state.draft || ["paths", "playerCharacter", "startingState"].includes(state.category)) return;
   commitDraftToCatalog();
   const map = state.catalog[state.category];
   const entry = clone(state.draft);
@@ -3011,7 +3095,7 @@ function duplicateEntry() {
 }
 
 function deleteEntry() {
-  if (!state.draft || !state.catalog || ["paths", "playerCharacter"].includes(state.category)) return;
+  if (!state.draft || !state.catalog || ["paths", "playerCharacter", "startingState"].includes(state.category)) return;
   const id = state.draft.id || state.originalSelectedId;
   const refType = state.category === "companions" ? "companions" : state.category === "shops" ? "shops" : state.category === "items" ? "items" : state.category === "combats" ? "combats" : state.category === "enemyDefinitions" ? "enemies" : state.category === "enemyActions" ? "enemyActions" : state.category === "abilities" ? "abilities" : state.category === "combatStatuses" ? "combatStatuses" : state.category === "injuries" ? "injuries" : state.category === "campEvents" ? "campEvents" : state.category === "dialogues" ? "dialogues" : state.category === "npcs" ? "npcs" : state.category === "destinations" ? "destinations" : state.category === "locations" ? "locations" : state.category === "lootTables" ? "lootTables" : state.category === "expeditions" ? "expeditions" : state.category === "recipes" ? "recipes" : state.category === "materials" ? "materials" : state.category === "craftingProviders" ? "craftingProviders" : "encounters";
   const refs = (liveReferences()[refType] || []).filter((reference) => reference.id === id);
@@ -3102,6 +3186,19 @@ function handleInput(input) {
   }
   if (input.dataset.townHotspotInput) return;
   if (!state.draft) return;
+  if (input.dataset.startingMapField) {
+    state.draft[input.dataset.startingMapField] ||= {};
+    const value = input.value === "" ? undefined : Number(input.value);
+    if (value === undefined) delete state.draft[input.dataset.startingMapField][input.dataset.startingMapId];
+    else state.draft[input.dataset.startingMapField][input.dataset.startingMapId] = value;
+    markDirty();
+    return;
+  }
+  if (input.dataset.startingField) {
+    setNested(state.draft, input.dataset.startingField, parseInputValue(input, input.dataset.startingField));
+    markDirty();
+    return;
+  }
   if (input.dataset.abilityTags !== undefined) {
     state.draft.tags = splitList(input.value);
     markDirty();
@@ -3595,12 +3692,12 @@ function switchCategory(category, id = null) {
   state.draftDirty = false;
   state.category = category;
   state.search = state.searchByCategory[category] || "";
-  const nextId = category === "playerCharacter"
-    ? state.catalog.playerCharacter?.id || "arthur"
+  const nextId = ["playerCharacter", "startingState"].includes(category)
+    ? (category === "playerCharacter" ? state.catalog.playerCharacter?.id || "arthur" : "startingState")
     : id && state.catalog[category][id] ? id : Object.keys(state.catalog[category])[0] || null;
   state.selectedId = nextId;
   state.originalSelectedId = nextId;
-  state.draft = nextId ? clone(category === "playerCharacter" ? state.catalog.playerCharacter : state.catalog[category][nextId]) : null;
+  state.draft = nextId ? clone(["playerCharacter", "startingState"].includes(category) ? state.catalog[category] : state.catalog[category][nextId]) : null;
   state.validation = state.catalog.validation;
   render();
 }
@@ -4026,6 +4123,19 @@ function handleAction(button) {
     encounter.pathIds = toggleArray(encounter.pathIds, pathId, false);
     markDirty();
     render();
+  } else if (action === "add-starting-map-entry") {
+    const field = button.dataset.startingMapField;
+    const id = document.querySelector("#starting-" + field + "-add")?.value;
+    const quantity = Number(document.querySelector("#starting-" + field + "-quantity")?.value);
+    if (!id || !Number.isInteger(quantity) || quantity <= 0) return window.alert("Choose an entry and enter a positive integer quantity.");
+    state.draft[field] ||= {};
+    state.draft[field][id] = quantity;
+    markDirty();
+    render();
+  } else if (action === "remove-starting-map-entry") {
+    delete state.draft[button.dataset.startingMapField]?.[button.dataset.startingMapId];
+    markDirty();
+    render();
   } else if (action === "add") addEntry();
   else if (action === "duplicate") duplicateEntry();
   else if (action === "delete") deleteEntry();
@@ -4291,11 +4401,11 @@ async function saveChanges() {
     const selectedAfterSave = state.draft?.id || state.selectedId;
     state.catalog = payload;
     state.category = state.category;
-    state.selectedId = state.category === "playerCharacter"
-      ? state.catalog.playerCharacter?.id || "arthur"
+    state.selectedId = ["playerCharacter", "startingState"].includes(state.category)
+      ? (state.category === "playerCharacter" ? state.catalog.playerCharacter?.id || "arthur" : "startingState")
       : selectedAfterSave && state.catalog[state.category][selectedAfterSave] ? selectedAfterSave : Object.keys(state.catalog[state.category])[0] || null;
     state.originalSelectedId = state.selectedId;
-    state.draft = state.selectedId ? clone(state.category === "playerCharacter" ? state.catalog.playerCharacter : state.catalog[state.category][state.selectedId]) : null;
+    state.draft = state.selectedId ? clone(["playerCharacter", "startingState"].includes(state.category) ? state.catalog[state.category] : state.catalog[state.category][state.selectedId]) : null;
     state.dirty = false;
     state.draftDirty = false;
     state.validation = state.catalog.validation;

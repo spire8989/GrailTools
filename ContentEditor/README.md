@@ -57,6 +57,11 @@ The default project is discovered as the sibling `../../Grail` relative to
   Sprite Sheet uploads use a transparent, full-source, no-crop import profile;
   static combat visuals continue to use the Combat Cutout profile.
 
+- Starting State: the singleton edits the canonical new-campaign defaults for
+  faith, gold, provisions, position, owned/equipped/packed items, materials,
+  learned abilities and recipes, knowledge, and companion unlock/selection.
+  Arthur and companion health remain runtime-derived from their live definitions.
+
 - Encounters: metadata, path and direction filters, requirements, stages,
   choices, costs, outcomes/effects, pending actions, and advanced raw JSON.
   The list supports combinable text search, path/region/direction/distance,
