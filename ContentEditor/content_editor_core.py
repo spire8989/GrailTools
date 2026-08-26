@@ -2228,6 +2228,37 @@ def _validate_expeditions(expeditions: Any, known: dict[str, list[str]], errors:
                         errors.append(_issue("error", "Travel scene motion must be 'loop' or 'pan'.", source, f"{scene_path}.motion"))
                     if "showSeamForegroundBetweenLoops" in scene and not isinstance(scene.get("showSeamForegroundBetweenLoops"), bool):
                         errors.append(_issue("error", "Travel scene showSeamForegroundBetweenLoops must be true or false.", source, f"{scene_path}.showSeamForegroundBetweenLoops"))
+        if "routeBranches" in expedition:
+            branches = expedition.get("routeBranches")
+            if not isinstance(branches, dict):
+                errors.append(_issue("error", "Expedition routeBranches must be an object keyed by stable branch IDs.", source, "routeBranches"))
+            else:
+                path_ids = set(known.get("paths", []))
+                for branch_id, branch in branches.items():
+                    branch_source = f"{source}.routeBranches.{branch_id}"
+                    if not isinstance(branch, dict):
+                        errors.append(_issue("error", "Route branch must be an object.", branch_source))
+                        continue
+                    if branch.get("id") != branch_id:
+                        errors.append(_issue("error", f"Route branch key {branch_id!r} must match its id field.", branch_source, "id"))
+                    for field_name in ("entryPathId", "rejoinPathId"):
+                        path_id = branch.get(field_name)
+                        if not isinstance(path_id, str) or not path_id:
+                            errors.append(_issue("error", f"Route branch {field_name} is required.", branch_source, field_name))
+                        elif path_id not in path_ids:
+                            errors.append(_issue("error", f"Route branch references unknown path {path_id!r}.", branch_source, field_name))
+                    for field_name in ("entryDistance", "rejoinDistance"):
+                        distance = branch.get(field_name)
+                        if not _is_number(distance) or distance < 0:
+                            errors.append(_issue("error", f"Route branch {field_name} must be a non-negative number.", branch_source, field_name))
+                    entry_distance = branch.get("entryDistance")
+                    rejoin_distance = branch.get("rejoinDistance")
+                    if _is_number(entry_distance) and _is_number(rejoin_distance) and rejoin_distance <= entry_distance:
+                        errors.append(_issue("error", "Route branch rejoinDistance must be greater than entryDistance.", branch_source, "rejoinDistance"))
+                    if "mapEntryDistance" in branch:
+                        map_distance = branch.get("mapEntryDistance")
+                        if not _is_number(map_distance) or map_distance < 0:
+                            errors.append(_issue("error", "Route branch mapEntryDistance must be a non-negative number.", branch_source, "mapEntryDistance"))
         if isinstance(expedition.get("kind"), str) and not expedition["kind"]:
             errors.append(_issue("error", "Expedition kind cannot be empty.", source, "kind"))
 

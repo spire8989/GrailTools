@@ -33,7 +33,7 @@ class ContentEditorTests(unittest.TestCase):
     def test_current_real_definitions_load(self) -> None:
         catalog = load_catalog(GRAIL)
         self.assertGreaterEqual(len(catalog["encounters"]), 50)
-        self.assertEqual(len(catalog["shops"]), 3)
+        self.assertEqual(len(catalog["shops"]), 5)
         self.assertGreaterEqual(len(catalog["known"]["items"]), 40)
         self.assertEqual(len(catalog["injuries"]), 6)
         self.assertGreaterEqual(len(catalog["campEvents"]), 6)
@@ -763,7 +763,7 @@ class ContentEditorTests(unittest.TestCase):
         catalog = load_catalog(GRAIL)
         self.assertGreaterEqual(len(catalog["combats"]), 7)
         self.assertEqual(len(catalog["abilities"]), 18)
-        self.assertEqual(len(catalog["lootTables"]), 15)
+        self.assertEqual(len(catalog["lootTables"]), 18)
         self.assertIn("bandit_leader", catalog["combats"])
         self.assertIn("pommel_strike", catalog["abilities"])
         self.assertIn("bandit_leader_loot", catalog["lootTables"])
