@@ -337,6 +337,20 @@ class Phase6FilterBrowserTests(unittest.TestCase):
         self.click_category("items")
         self.browser.evaluate("document.querySelector('[data-action=select][data-id=old_coin]').click()")
         self.assertTrue(self.browser.evaluate("Boolean(document.querySelector('[data-action=open-reference][data-reference-category=lootTables][data-reference-id=bandit_ambush_loot]'))"))
+        self.assertTrue(self.browser.evaluate("""
+            (() => {
+                const row = [...document.querySelectorAll('.loot-row')].find((candidate) =>
+                    candidate.querySelector('[data-reference-id="bandit_ambush_loot"]')
+                );
+                const actions = row?.querySelector('.loot-row-actions');
+                return Boolean(
+                    actions
+                    && actions.querySelector('[data-loot-field="weight"]')
+                    && actions.querySelector('[data-action="remove-loot-item"]')
+                    && actions.querySelector('[data-action="remove-loot-item"]').parentElement === actions
+                );
+            })()
+        """))
         self.browser.evaluate("document.querySelector('[data-action=open-reference][data-reference-category=lootTables][data-reference-id=bandit_ambush_loot]').click()")
         self.assertEqual(self.browser.evaluate("document.querySelector('#entry-heading').textContent.trim()"), "Loot Tables")
         self.assertEqual(self.browser.evaluate("document.querySelector('#editor-root h2').textContent.trim()"), "bandit_ambush_loot")
