@@ -41,7 +41,7 @@ const CONTENT_CATEGORIES = [
   ["abilities", "Abilities"],
   ["combatStatuses", "Combat Statuses"],
   ["lootTables", "Loot Tables"],
-];
+].sort(([, leftLabel], [, rightLabel]) => leftLabel.localeCompare(rightLabel));
 
 const EDITABLE_REFERENCE_SOURCES = new Set([
   "playerCharacter", "startingState", "companions", "encounters", "injuries", "campEvents", "dialogues", "expeditions", "recipes", "materials", "craftingProviders", "shops", "npcs", "destinations", "locations", "items", "combats", "abilities", "combatStatuses", "enemyDefinitions", "enemyActions", "lootTables",
@@ -288,6 +288,37 @@ function renderTravelScenes(expedition) {
     </div>`;
   }).join("");
   return `<section class="section travel-scenes-editor"><div class="section-heading"><div><h3>Travel Scenes</h3><p>Recommended: 3:1 panoramic artwork. Optional distance-based artwork is selected by current distance and must stay sorted from nearest to farthest.</p></div><button type="button" class="small-button" data-action="add-travel-scene">Add Scene</button></div><div class="travel-scene-editor-list">${rows || `<p class="hint">No distance-based scenes. The legacy Travel visual is used for the whole route.</p>`}</div></section>`;
+}
+
+function routeBranchPathOptions(current) {
+  const pathIds = [...new Set([...(state.catalog?.known?.paths || []), current].filter(Boolean))].sort();
+  const labels = Object.fromEntries(pathIds.map((pathId) => [pathId, pathLabel(pathId)]));
+  return `<option value="">Select path...</option>${selectOptions(pathIds, current, labels)}`;
+}
+
+function renderRouteBranches(expedition) {
+  const branches = Object.values(expedition.routeBranches || {});
+  const rows = branches.map((branch, index) => {
+    const entryPathOpen = branch.entryPathId
+      ? `<button type="button" class="small-button inline-open" data-action="open-reference" data-reference-category="paths" data-reference-id="${escapeHtml(branch.entryPathId)}">Open Path</button>`
+      : "";
+    const rejoinPathOpen = branch.rejoinPathId
+      ? `<button type="button" class="small-button inline-open" data-action="open-reference" data-reference-category="paths" data-reference-id="${escapeHtml(branch.rejoinPathId)}">Open Path</button>`
+      : "";
+    return `<div class="route-branch-editor-row" data-route-branch-row data-route-branch-id="${escapeHtml(branch.id || "")}">
+      <div class="route-branch-heading"><strong>Branch ${index + 1}</strong><span class="panel-count">${escapeHtml(branch.id || "Unsaved ID")}</span><span class="button-row"><button type="button" class="small-button" data-action="move-route-branch" data-route-branch-index="${index}" data-direction="up"${index === 0 ? " disabled" : ""}>↑</button><button type="button" class="small-button" data-action="move-route-branch" data-route-branch-index="${index}" data-direction="down"${index === branches.length - 1 ? " disabled" : ""}>↓</button><button type="button" class="small-button danger-outline" data-action="remove-route-branch" data-route-branch-index="${index}">Remove</button></span></div>
+      <div class="form-grid route-branch-fields">
+        <label>Branch ID<input data-route-branch-id-field data-route-branch-id="${escapeHtml(branch.id || "")}" value="${escapeHtml(branch.id || "")}"></label>
+        <label>Name<input data-route-branch-field="name" data-route-branch-id="${escapeHtml(branch.id || "")}" value="${escapeHtml(branch.name || "")}" placeholder="Optional display name"></label>
+        <label>Entry path<span class="reference-inline"><select data-route-branch-field="entryPathId" data-route-branch-id="${escapeHtml(branch.id || "")}">${routeBranchPathOptions(branch.entryPathId)}</select>${entryPathOpen}</span></label>
+        <label>Entry distance<input type="number" min="0" step="any" data-route-branch-field="entryDistance" data-route-branch-id="${escapeHtml(branch.id || "")}" value="${escapeHtml(branch.entryDistance ?? "")}"></label>
+        <label>Map entry distance<input type="number" min="0" step="any" data-route-branch-field="mapEntryDistance" data-route-branch-id="${escapeHtml(branch.id || "")}" value="${escapeHtml(branch.mapEntryDistance ?? "")}" placeholder="Optional"></label>
+        <label>Rejoin path<span class="reference-inline"><select data-route-branch-field="rejoinPathId" data-route-branch-id="${escapeHtml(branch.id || "")}">${routeBranchPathOptions(branch.rejoinPathId)}</select>${rejoinPathOpen}</span></label>
+        <label>Rejoin distance<input type="number" min="0" step="any" data-route-branch-field="rejoinDistance" data-route-branch-id="${escapeHtml(branch.id || "")}" value="${escapeHtml(branch.rejoinDistance ?? "")}"></label>
+      </div>
+    </div>`;
+  }).join("");
+  return `<section class="section route-branches-editor"><div class="section-heading"><div><h3>Bounded route branches</h3><p>These structural route fields belong to the expedition schema. Encounter-specific distances stay on encounters.</p></div><button type="button" class="small-button" data-action="add-route-branch">Add Branch</button></div>${rows || `<p class="hint">No bounded route branches.</p>`}</section>`;
 }
 
 const TOWN_LAYOUT_FALLBACKS = Object.freeze({
@@ -1345,15 +1376,10 @@ function renderExpedition() {
   const kinds = [...new Set([...(Object.values(state.catalog.expeditions || {}).map((value) => value.kind).filter(Boolean)), expedition.kind].filter(Boolean))].sort();
   const references = (liveReferences().expeditions || []).filter((reference) => reference.id === expedition.id);
   const campEventLinks = [...new Set((expedition.campEventTableIds || []).flatMap((tableId) => (state.catalog.campEventTables?.[tableId]?.entries || []).map((entry) => entry.eventId)).filter((eventId) => state.catalog.campEvents?.[eventId]))].map((eventId) => `<button type="button" class="small-button inline-open" data-action="open-reference" data-reference-category="campEvents" data-reference-id="${escapeHtml(eventId)}">Open ${escapeHtml(campEventLabel(eventId))}</button>`).join(" ");
-  const routeBranches = Object.values(expedition.routeBranches || {});
-  const routeBranchRows = routeBranches.map((branch) => `<tr><th>${escapeHtml(branch.name || branch.id)}</th><td><code>${escapeHtml(branch.entryPathId || "—")}</code> at ${escapeHtml(branch.entryDistance ?? "—")}${branch.mapEntryDistance !== undefined ? ` (map: ${escapeHtml(branch.mapEntryDistance)})` : ""}</td><td><code>${escapeHtml(branch.rejoinPathId || "—")}</code> at ${escapeHtml(branch.rejoinDistance ?? "—")}</td></tr>`).join("");
-  const routeBranchEditor = routeBranches.length
-    ? `<section class="section"><div class="section-heading"><div><h3>Bounded route branches</h3><p>Entry, map shortcut, and rejoin distances are part of the expedition schema. Edit exact values in the raw JSON editor below; the validator checks stable path IDs and ordering.</p></div></div><table class="data-table"><thead><tr><th>Branch</th><th>Entry</th><th>Rejoin</th></tr></thead><tbody>${routeBranchRows}</tbody></table></section>`
-    : "";
   return `<div class="editor-title"><div><h2>${escapeHtml(expedition.name || expedition.id || "New expedition")}</h2><p>${escapeHtml(expedition.id || "Unsaved ID")}</p></div><span class="schema-badge">Expedition schema</span></div>
      <section class="section"><div class="section-heading"><div><h3>Expedition metadata</h3><p>These fields are authored in <code>js/expedition-data.js</code> and remain the canonical expedition definition.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(expedition.id || "")}"></label><label>Name<input data-field="name" value="${escapeHtml(expedition.name || "")}"></label><label class="wide">Description<textarea data-field="description">${escapeHtml(expedition.description || "")}</textarea></label><label>Danger<input type="number" min="0" step="any" data-field="danger" value="${escapeHtml(expedition.danger ?? "")}"></label><label>Minimum objective distance<input type="number" min="0" step="any" data-field="minimumObjectiveDistance" value="${escapeHtml(expedition.minimumObjectiveDistance ?? "")}"></label><label>Region<select data-field="regionId"><option value="">Select region...</option>${selectOptions(known.regions || [], expedition.regionId)}</select></label><label>Kind<select data-field="kind"><option value="">Select kind...</option>${selectOptions(kinds, expedition.kind)}</select></label><label class="wide">Path${referenceInput("pathId", expedition.pathId, true)}</label></div>${renderAssetSelector("Travel visual", "travelVisualAssetId", expedition.travelVisualAssetId, "image", "expedition", expedition.name || expedition.id, "travel_panorama")}${renderAssetSelector("Travel foreground (aligned)", "travelParallaxAssetId", expedition.travelParallaxAssetId, "image", "expedition", expedition.name || expedition.id, "travel_panorama")}${renderAssetSelector("Travel Transition", "travelTransitionAssetId", expedition.travelTransitionAssetId, "image", "expedition", expedition.name || expedition.id)}${renderAssetSelector("Camp visual", "campVisualAssetId", expedition.campVisualAssetId, "image", "expedition", expedition.name || expedition.id)}${renderAssetSelector("Default Combat Background", "combatVisualAssetId", expedition.combatVisualAssetId, "image", "combat_scene", expedition.name || expedition.id, "scene")}${renderAssetSelector("Travel ambience", "travelAmbienceAssetId", expedition.travelAmbienceAssetId, "audio", "ambience", expedition.name || expedition.id)}${renderAssetSelector("Camp ambience", "campAmbienceAssetId", expedition.campAmbienceAssetId, "audio", "ambience", expedition.name || expedition.id)}</section>
     ${renderTravelScenes(expedition)}
-    ${routeBranchEditor}
+    ${renderRouteBranches(expedition)}
     ${renderAssetSelector("Travel Seam Foreground", "travelSeamForegroundAssetId", expedition.travelSeamForegroundAssetId, "image", "expedition", expedition.name || expedition.id, "none")}
     <section class="section"><div class="section-heading"><div><h3>Camp event tables</h3><p>Choose reusable table IDs from <code>CAMP_EVENT_TABLE_DEFINITIONS</code>.</p></div></div>${renderReferenceChecks("campEventTableIds", expedition.campEventTableIds || [], known.campEventTables || [])}<div class="button-row">${campEventLinks || `<span class="hint">Selected tables have no editable camp-event entries.</span>`}</div></section>
     <section class="section"><div class="section-heading"><div><h3>Prerequisites</h3><p>These are item IDs required by the existing expedition runtime.</p></div></div>${renderReferenceChecks("prerequisites", expedition.prerequisites || [], known.items || [], Object.fromEntries((known.items || []).map((id) => [id, itemLabel(id)])))}</section>
@@ -1622,6 +1648,7 @@ function renderItemLegacy() {
 function renderShop() {
   const shop = state.draft;
   if (!shop) return `<div class="empty-state">Choose a shop to edit.</div>`;
+  const provisionOffer = shop.provisionsForSale && typeof shop.provisionsForSale === "object" ? shop.provisionsForSale : null;
   const stockRows = Object.entries(shop.itemsForSale || {}).map(([itemId, listing]) => `<div class="shop-row" data-shop-row data-item-id="${escapeHtml(itemId)}">
     <label>Item<input list="item-options" data-shop-item-field="itemId" value="${escapeHtml(itemId)}"></label>
     <label>Buy price<input type="number" min="0" step="1" data-shop-item-field="price" value="${escapeHtml(listing?.price ?? "")}"></label>
@@ -1636,6 +1663,7 @@ function renderShop() {
   </div>`).join("");
   return `<div class="editor-title"><div><h2>${escapeHtml(shop.displayName || shop.id || "New shop")}</h2><p>${escapeHtml(shop.id || "Unsaved ID")}</p></div><span class="schema-badge">Shop schema</span></div>
     <section class="section"><div class="section-heading"><div><h3>Shop metadata</h3><p>Shop IDs are stable references from location-data.js.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(shop.id || "")}"></label><label>Display name<input data-field="displayName" value="${escapeHtml(shop.displayName || "")}"></label><label class="wide">Accepted categories<input data-array-field="acceptedCategories" value="${escapeHtml((shop.acceptedCategories || []).join(", "))}" placeholder="supply, consumable"></label><label class="wide">Accepted tags<input data-array-field="acceptedTags" value="${escapeHtml((shop.acceptedTags || []).join(", "))}" placeholder="medical, tool"></label></div></section>
+    <section class="section provision-service-editor"><div class="section-heading"><div><h3>Provision service</h3><p>This is the runtime's separate provision offer, not an inventory item. Omit the offer to disable provision purchasing.</p></div></div><label class="check-chip"><input type="checkbox" data-shop-provision-field="enabled"${checked(Boolean(provisionOffer))}> Enable provision purchasing</label>${provisionOffer ? `<div class="form-grid"><label>Provision buy price<input type="number" min="0" step="any" data-shop-provision-field="price" value="${escapeHtml(provisionOffer.price ?? "")}"></label><label>Finite provision stock<input type="number" min="0" step="1" data-shop-provision-field="stock" value="${escapeHtml(provisionOffer.stock ?? "")}"></label></div><p class="hint">The current runtime models provision stock as finite; unlimited provision stock is not an authored option.</p>` : `<p class="hint">Provision purchasing is disabled for this shop.</p>`}</section>
     <section class="section"><div class="section-heading"><div><h3>Items for sale</h3><p>Selectors are populated from the live ITEM_DEFINITIONS catalog. Omit stock for unlimited inventory.</p></div></div>
       ${stockRows || `<div class="empty-state">This shop has no item stock.</div>`}
       <div class="button-row"><input id="new-stock-item" list="item-options" placeholder="Search existing item…"><button type="button" class="small-button" data-action="add-shop-item">Add stock item</button></div>
@@ -2569,7 +2597,13 @@ function renderNpc() {
   return `<div class="editor-title"><div><h2>${escapeHtml(npc.name || npc.id || "New NPC")}</h2><p>${escapeHtml(npc.id || "Unsaved ID")}</p></div><span class="schema-badge">NPC schema</span></div><section class="section"><div class="section-heading"><div><h3>NPC identity</h3><p>NPCs are authored in <code>js/location-data.js</code> and referenced by stable ID.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(npc.id || "")}"></label><label>Name<input data-field="name" value="${escapeHtml(npc.name || "")}"></label><label>Role<input data-field="role" value="${escapeHtml(npc.role || "")}"></label><label class="wide">Description<textarea data-field="description">${escapeHtml(npc.description || "")}</textarea></label><label>Dialogue sequence${referenceInput("dialogueSequenceId", npc.dialogueSequenceId, true)}</label><label>Intro sequence${referenceInput("introDialogueSequenceId", npc.introDialogueSequenceId, true)}</label>${renderAssetSelector("Portrait asset", "portraitAssetId", npc.portraitAssetId, "image", "portrait", npc.name || npc.id)}</div></section><section class="section"><div class="form-grid"><label class="wide">Simple dialogue lines<textarea data-lines-field="dialogue" placeholder="One line per entry">${escapeHtml((npc.dialogue || []).join("\n"))}</textarea></label><label class="wide">Rumor lines<textarea data-lines-field="rumors" placeholder="One line per entry">${escapeHtml((npc.rumors || []).join("\n"))}</textarea></label></div><div class="nested-heading"><span>Locations</span></div><div class="check-grid">${locations.map((id) => `<div class="reference-array-row"><label class="check-chip"><input type="checkbox" data-reference-toggle-field="locationIds" data-reference-toggle-value="${escapeHtml(id)}"${checked((npc.locationIds || []).includes(id))}>${escapeHtml(locationLabel(id))}</label><button type="button" class="small-button inline-open" data-action="open-reference" data-reference-category="locations" data-reference-id="${escapeHtml(id)}">Open Location</button></div>`).join("")}</div></section><section class="section"><div class="section-heading"><div><h3>Used by</h3><p>Destinations, locations, and dialogue references.</p></div></div><div class="reference-list">${renderReferenceRows(references, "No current references.")}</div></section><section class="section"><details><summary>Raw NPC JSON (advanced)</summary><textarea id="raw-json" class="raw-editor">${jsonText(npc)}</textarea><div class="button-row"><button type="button" class="small-button" data-action="apply-raw">Apply raw JSON</button></div></details></section>`;
 }
 
-function renderDestination() {
+function renderDestinationRestConfig(destination) {
+  if (destination.type !== "inn" && !destination.restConfig) return "";
+  const rest = destination.restConfig && typeof destination.restConfig === "object" ? destination.restConfig : null;
+  return `<section class="section destination-rest-editor"><div class="section-heading"><div><h3>Inn / rest service tuning</h3><p>These are destination-specific overrides. When disabled or absent, the runtime uses its shared inn defaults.</p></div></div><label class="check-chip"><input type="checkbox" data-destination-rest-enabled${checked(Boolean(rest))}> Use destination-specific rest tuning</label>${rest ? `<div class="form-grid"><label>Healing / restoration<input type="number" min="0" step="any" data-destination-rest-field="restoration" value="${escapeHtml(rest.restoration ?? "")}"></label><label>Rest gold cost<input type="number" min="0" step="any" data-destination-rest-field="goldCost" value="${escapeHtml(rest.goldCost ?? "")}"></label><label>Recovery distance reduction<input type="number" min="0" step="any" data-destination-rest-field="recoveryDistanceReduction" value="${escapeHtml(rest.recoveryDistanceReduction ?? "")}"></label></div>` : `<p class="hint">Enable this override to author restoration, gold cost, and recovery distance reduction for this inn.</p>`}</section>`;
+}
+
+function renderDestinationBase() {
   const destination = state.draft;
   if (!destination) return `<div class="empty-state">Choose a destination to edit.</div>`;
   const npcIds = Array.isArray(destination.npcIds) ? destination.npcIds : [];
@@ -2577,11 +2611,35 @@ function renderDestination() {
   return `<div class="editor-title"><div><h2>${escapeHtml(destination.name || destination.id || "New destination")}</h2><p>${escapeHtml(destination.id || "Unsaved ID")}</p></div><span class="schema-badge">Destination schema</span></div><section class="section"><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(destination.id || "")}"></label><label>Name<input data-field="name" value="${escapeHtml(destination.name || "")}"></label><label>Type<input data-field="type" value="${escapeHtml(destination.type || "")}"></label><label>Visual key<input data-field="visualKey" value="${escapeHtml(destination.visualKey || "")}"></label><label>Scene position<input data-field="scenePosition" value="${escapeHtml(destination.scenePosition || "")}"></label><label>Shop${referenceInput("shopId", destination.shopId, true)}</label><label>Crafting provider${referenceInput("craftingProviderId", destination.craftingProviderId, true)}</label><label class="wide">Description<textarea data-field="description">${escapeHtml(destination.description || "")}</textarea></label><label class="check-chip"><input type="checkbox" data-field="requiresIntro"${checked(destination.requiresIntro)}> Requires intro</label></div></section><section class="section"><div class="nested-heading"><span>NPCs <span class="panel-count">${npcIds.length}</span></span><button type="button" class="small-button" data-action="add-destination-npc">Add NPC</button></div>${npcIds.map((id, index) => `<div class="reference-array-row"><select data-destination-npc-index="${index}">${referenceArrayOptions("npcs", id)}</select><button type="button" class="small-button inline-open" data-action="open-reference" data-reference-category="npcs" data-reference-id="${escapeHtml(id)}">Open NPC</button><button type="button" class="small-button danger-outline" data-action="remove-destination-npc" data-destination-npc-index="${index}">Remove</button></div>`).join("") || `<p class="hint">No NPC assigned.</p>`}</section><section class="section"><div class="nested-heading"><span>Actions <span class="panel-count">${actions.length}</span></span><button type="button" class="small-button" data-action="add-destination-action">Add action</button></div>${actions.map((action, index) => `<div class="reference-array-row"><input data-destination-action-index="${index}" value="${escapeHtml(action)}"><button type="button" class="small-button danger-outline" data-action="remove-destination-action" data-destination-action-index="${index}">Remove</button></div>`).join("") || `<p class="hint">No actions assigned.</p>`}</section><section class="section"><details><summary>Raw destination JSON (advanced)</summary><textarea id="raw-json" class="raw-editor">${jsonText(destination)}</textarea><div class="button-row"><button type="button" class="small-button" data-action="apply-raw">Apply raw JSON</button></div></details></section>`;
 }
 
-function renderLocation() {
+function renderLocationBase() {
   const location = state.draft;
   if (!location) return `<div class="empty-state">Choose a location to edit.</div>`;
   const references = (liveReferences().locations || []).filter((reference) => reference.id === location.id);
   return `<div class="editor-title"><div><h2>${escapeHtml(location.name || location.id || "New location")}</h2><p>${escapeHtml(location.id || "Unsaved ID")}</p></div><span class="schema-badge">Location schema</span></div><section class="section"><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(location.id || "")}"></label><label>Name<input data-field="name" value="${escapeHtml(location.name || "")}"></label><label>Type<input data-field="type" value="${escapeHtml(location.type || "")}"></label><label>Chapter ID<input data-field="chapterId" value="${escapeHtml(location.chapterId || "")}"></label><label>Region${referenceInput("regionId", location.regionId, true)}</label><label>Visual key<input data-field="visualKey" value="${escapeHtml(location.visualKey || "")}"></label><label class="wide">Description<textarea data-field="description">${escapeHtml(location.description || "")}</textarea></label></div></section><section class="section">${renderReferenceArray("Destinations", "destinations", location.destinations, "destinations")}${renderReferenceArray("NPCs", "npcs", location.npcs, "npcs")}${renderReferenceArray("Shops", "shops", location.shops, "shops")}${renderReferenceArray("Expeditions", "availableExpeditions", location.availableExpeditions, "expeditions")}${renderStringArray("Quests", "availableQuests", location.availableQuests)}${renderObjectCollection("Location requirements", location.requirements, "location-requirements", "", -1, "", true)}</section><section class="section"><div class="section-heading"><div><h3>Used by</h3><p>Known references to this location.</p></div></div><div class="reference-list">${renderReferenceRows(references, "No current references.")}</div></section><section class="section"><details><summary>Raw location JSON (advanced)</summary><textarea id="raw-json" class="raw-editor">${jsonText(location)}</textarea><div class="button-row"><button type="button" class="small-button" data-action="apply-raw">Apply raw JSON</button></div></details></section>`;
+}
+
+function renderDestination() {
+  const markup = renderDestinationBase();
+  const marker = '<section class="section"><div class="nested-heading"><span>NPCs';
+  return state.draft && markup.includes(marker)
+    ? markup.replace(marker, `${renderDestinationRestConfig(state.draft)}${marker}`)
+    : markup;
+}
+
+function renderLocationServiceConfig(location) {
+  const service = location.serviceConfig && typeof location.serviceConfig === "object" ? location.serviceConfig : null;
+  const shopIds = Object.keys(state.catalog?.shops || {}).sort();
+  const shopOptions = (current, allowNone = false) => `${allowNone ? `<option value="__none__"${current === null ? " selected" : ""}>No restock shop</option>` : `<option value="">Select shop...</option>`}${selectOptions(shopIds, current)}`;
+  if (!service) return `<section class="section location-service-editor"><div class="section-heading"><div><h3>Location service economy</h3><p>Enable this only for locations that author special provision grants or restocking.</p></div></div><label class="check-chip"><input type="checkbox" data-location-service-enabled> Enable location service config</label></section>`;
+  return `<section class="section location-service-editor"><div class="section-heading"><div><h3>Location service economy</h3><p>These fields are consumed by the location service rules and keep provision availability separate from item shops.</p></div></div><label class="check-chip"><input type="checkbox" data-location-service-enabled checked> Enable location service config</label><div class="form-grid"><label>Provision shop<span class="reference-inline"><select data-location-service-field="provisionShopId">${shopOptions(service.provisionShopId)}</select>${service.provisionShopId ? `<button type="button" class="small-button inline-open" data-action="open-reference" data-reference-category="shops" data-reference-id="${escapeHtml(service.provisionShopId)}">Open Shop</button>` : ""}</span></label><label>Restock provision shop<span class="reference-inline"><select data-location-service-field="restockProvisionShopId">${shopOptions(service.restockProvisionShopId, true)}</select>${service.restockProvisionShopId ? `<button type="button" class="small-button inline-open" data-action="open-reference" data-reference-category="shops" data-reference-id="${escapeHtml(service.restockProvisionShopId)}">Open Shop</button>` : ""}</span></label><label class="check-chip"><input type="checkbox" data-location-service-field="autoProvisionGrant"${checked(service.autoProvisionGrant)}> Auto-grant minimum provisions</label></div></section>`;
+}
+
+function renderLocation() {
+  const markup = renderLocationBase();
+  const marker = '<section class="section"><section class="reference-array">';
+  return state.draft && markup.includes(marker)
+    ? markup.replace(marker, `${renderLocationServiceConfig(state.draft)}${marker}`)
+    : markup;
 }
 
 function currentEntries() {
@@ -3169,6 +3227,26 @@ function splitList(value) {
   return value.split(",").map((item) => item.trim()).filter(Boolean);
 }
 
+function commitRouteBranchId(input) {
+  const oldId = input.dataset.routeBranchId;
+  const newId = input.value.trim();
+  const branches = state.draft?.routeBranches || {};
+  if (!newId || newId === oldId || Object.prototype.hasOwnProperty.call(branches, newId)) {
+    if (newId !== oldId) render();
+    return;
+  }
+  const nextBranches = {};
+  Object.entries(branches).forEach(([id, branch]) => {
+    if (id === oldId) {
+      branch.id = newId;
+      nextBranches[newId] = branch;
+    } else nextBranches[id] = branch;
+  });
+  state.draft.routeBranches = nextBranches;
+  markDirty();
+  render();
+}
+
 function handleInput(input) {
   if (input.dataset.pathFilter) {
     state.pathFilters[input.dataset.pathFilter] = input.value;
@@ -3193,6 +3271,66 @@ function handleInput(input) {
   }
   if (input.dataset.townHotspotInput) return;
   if (!state.draft) return;
+  if (input.dataset.routeBranchIdField) return;
+  if (input.dataset.shopProvisionField) {
+    if (input.dataset.shopProvisionField === "enabled") {
+      if (input.checked) state.draft.provisionsForSale ||= { price: 1, stock: 1 };
+      else delete state.draft.provisionsForSale;
+      markDirty();
+      render();
+      return;
+    }
+    state.draft.provisionsForSale ||= {};
+    const value = parseInputValue(input, input.dataset.shopProvisionField);
+    if (value === undefined || value === "") delete state.draft.provisionsForSale[input.dataset.shopProvisionField];
+    else state.draft.provisionsForSale[input.dataset.shopProvisionField] = value;
+    markDirty();
+    return;
+  }
+  if (input.dataset.destinationRestEnabled !== undefined) {
+    if (input.checked) state.draft.restConfig ||= {};
+    else delete state.draft.restConfig;
+    markDirty();
+    render();
+    return;
+  }
+  if (input.dataset.destinationRestField) {
+    state.draft.restConfig ||= {};
+    const value = parseInputValue(input, input.dataset.destinationRestField);
+    if (value === undefined || value === "") delete state.draft.restConfig[input.dataset.destinationRestField];
+    else state.draft.restConfig[input.dataset.destinationRestField] = value;
+    markDirty();
+    return;
+  }
+  if (input.dataset.locationServiceEnabled !== undefined) {
+    if (input.checked) state.draft.serviceConfig ||= { autoProvisionGrant: false };
+    else delete state.draft.serviceConfig;
+    markDirty();
+    render();
+    return;
+  }
+  if (input.dataset.locationServiceField) {
+    state.draft.serviceConfig ||= {};
+    const field = input.dataset.locationServiceField;
+    const value = field === "restockProvisionShopId" && input.value === "__none__"
+      ? null
+      : parseInputValue(input, field);
+    if (value === undefined || value === "") delete state.draft.serviceConfig[field];
+    else state.draft.serviceConfig[field] = value;
+    markDirty();
+    if (field !== "autoProvisionGrant") render();
+    return;
+  }
+  if (input.dataset.routeBranchField) {
+    const branch = state.draft.routeBranches?.[input.dataset.routeBranchId];
+    if (!branch) return;
+    const field = input.dataset.routeBranchField;
+    const value = parseInputValue(input, field);
+    if (value === undefined || value === "") delete branch[field];
+    else branch[field] = value;
+    markDirty();
+    return;
+  }
   if (input.dataset.startingMapField) {
     state.draft[input.dataset.startingMapField] ||= {};
     const value = input.value === "" ? undefined : Number(input.value);
@@ -3945,6 +4083,34 @@ function handleAction(button) {
     state.draft.travelScenes?.splice(Number(button.dataset.travelSceneIndex), 1);
     markDirty();
     render();
+  } else if (action === "add-route-branch") {
+    state.draft.routeBranches ||= {};
+    const branchId = uniqueId("new_branch", state.draft.routeBranches);
+    const pathId = state.catalog?.known?.paths?.[0] || Object.keys(state.catalog?.paths || {})[0] || "";
+    state.draft.routeBranches[branchId] = {
+      id: branchId,
+      name: "New route branch",
+      entryPathId: pathId,
+      entryDistance: 0,
+      rejoinPathId: pathId,
+      rejoinDistance: 1,
+    };
+    markDirty();
+    render();
+  } else if (action === "remove-route-branch") {
+    const branchId = Object.keys(state.draft.routeBranches || {})[Number(button.dataset.routeBranchIndex)];
+    if (branchId) delete state.draft.routeBranches[branchId];
+    markDirty();
+    render();
+  } else if (action === "move-route-branch") {
+    const entries = Object.entries(state.draft.routeBranches || {});
+    const index = Number(button.dataset.routeBranchIndex);
+    const nextIndex = button.dataset.direction === "up" ? index - 1 : index + 1;
+    if (nextIndex < 0 || nextIndex >= entries.length) return;
+    [entries[index], entries[nextIndex]] = [entries[nextIndex], entries[index]];
+    state.draft.routeBranches = Object.fromEntries(entries);
+    markDirty();
+    render();
   } else if (action === "add-dialogue-node") {
     state.draft.nodes ||= {};
     const id = uniqueId("new_node", state.draft.nodes);
@@ -4587,6 +4753,7 @@ document.addEventListener("change", (event) => {
     markDirty();
   }
   else if (event.target.matches("[data-town-hotspot-input]")) commitTownLayoutInput(event.target);
+  else if (event.target.matches("[data-route-branch-id-field]")) commitRouteBranchId(event.target);
   else if (event.target.matches("textarea[data-object-json]")) handleObjectJson(event.target);
   else if (event.target.matches("textarea[data-dialogue-choice-json]")) {
     try {

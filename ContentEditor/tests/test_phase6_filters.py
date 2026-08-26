@@ -624,6 +624,38 @@ class Phase6FilterBrowserTests(unittest.TestCase):
         self.assertEqual(self.browser.evaluate("state.catalog.destinations.inn.hotspot.x"), 0.333)
         self.assertIn("33.3", self.browser.evaluate("document.querySelector('[data-town-layout-marker][data-town-destination-id=inn]').style.left"))
 
+    def test_service_and_route_editors_surface_live_fields_and_sidebar_layout(self) -> None:
+        labels = self.browser.json_eval("[...document.querySelectorAll('#category-nav button')].map(button=>button.textContent.replace(/\\d+$/, '').trim())")
+        self.assertEqual(labels, sorted(labels, key=str.casefold))
+        layout = self.browser.json_eval("(() => { const category=document.querySelector('.category-panel').getBoundingClientRect(); const entry=document.querySelector('.entry-panel').getBoundingClientRect(); const editor=document.querySelector('.editor-panel').getBoundingClientRect(); return {category:category.width, entry:entry.width, separated:entry.right<=editor.left+1}; })()")
+        self.assertGreaterEqual(layout["category"], 190)
+        self.assertGreaterEqual(layout["entry"], 340)
+        self.assertTrue(layout["separated"])
+
+        self.click_category("shops")
+        self.browser.evaluate("selectEntry('forest_village_provisions')")
+        self.assertEqual(self.browser.evaluate("document.querySelector('[data-shop-provision-field=price]').value"), "2")
+        self.assertEqual(self.browser.evaluate("document.querySelector('[data-shop-provision-field=stock]').value"), "24")
+        self.browser.evaluate("(() => { const input=document.querySelector('[data-shop-provision-field=price]'); input.value='3'; input.dispatchEvent(new Event('input',{bubbles:true})); })()")
+        self.assertEqual(self.browser.evaluate("state.draft.provisionsForSale.price"), 3)
+
+        self.click_category("destinations")
+        self.browser.evaluate("selectEntry('hidden_inn')")
+        self.assertEqual(self.browser.evaluate("document.querySelector('[data-destination-rest-field=restoration]').value"), "8")
+        self.browser.evaluate("(() => { const input=document.querySelector('[data-destination-rest-field=goldCost]'); input.value='11'; input.dispatchEvent(new Event('input',{bubbles:true})); })()")
+        self.assertEqual(self.browser.evaluate("state.draft.restConfig.goldCost"), 11)
+
+        self.click_category("locations")
+        self.browser.evaluate("selectEntry('hidden_forest_village')")
+        self.assertTrue(self.browser.evaluate("Boolean(document.querySelector('[data-location-service-field=restockProvisionShopId]'))"))
+
+        self.click_category("expeditions")
+        self.browser.evaluate("selectEntry('old_forest_road')")
+        self.assertEqual(self.browser.evaluate("document.querySelector('[data-route-branch-field=entryDistance]').value"), "40")
+        self.assertEqual(self.browser.evaluate("document.querySelector('[data-route-branch-field=mapEntryDistance]').value"), "20")
+        self.browser.evaluate("(() => { const input=document.querySelector('[data-route-branch-field=rejoinDistance]'); input.value='81'; input.dispatchEvent(new Event('input',{bubbles:true})); })()")
+        self.assertEqual(self.browser.evaluate("state.draft.routeBranches.overgrown_trail.rejoinDistance"), 81)
+
     def test_encounter_layout_editor_renders_and_updates_normalized_party_slots(self) -> None:
         self.click_category("encounters")
         self.browser.evaluate("document.querySelector('[data-action=select][data-id=abandoned_camp]').click()")

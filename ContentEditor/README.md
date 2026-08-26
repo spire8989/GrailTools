@@ -73,7 +73,10 @@ The default project is discovered as the sibling `../../Grail` relative to
   rewards, and the current weighted/random reward shapes without requiring
   Advanced JSON for ordinary edits.
 - Shops: display name, item stock, buy prices, finite or unlimited stock, sell
-  values, accepted categories, accepted tags, and raw JSON.
+  values, accepted categories, accepted tags, the separate finite provision
+  purchasing offer, and raw JSON. Provision pricing and stock use the live
+  `provisionsForSale.price` / `provisionsForSale.stock` fields; they are not
+  modeled as an inventory item.
 - Items: identity, category, rarity, tags, inventory flags, equipment slots,
   stack limits, weapon damage, armor defense, granted combat abilities,
   current combat-use and treatment fields, used-by references, and raw effect
@@ -104,7 +107,8 @@ The default project is discovered as the sibling `../../Grail` relative to
   operations without creating a duplicate path database.
 - Expeditions: the canonical `EXPEDITION_DEFINITIONS` editor, including ID,
   name, description, danger, region, path, kind, camp-event table IDs,
-  prerequisites, used-by references, and advanced raw JSON.
+  prerequisites, repeatable bounded route branches with entry/map/rejoin path
+  and distance fields, used-by references, and advanced raw JSON.
 - Recipes: canonical `RECIPE_DEFINITIONS` editing with typed item/material
   ingredient rows, quantities, selectors, duplicate/reorder/remove controls,
   item or provisions outputs, provider, rarity, starter flag, gold cost,
@@ -129,10 +133,16 @@ The default project is discovered as the sibling `../../Grail` relative to
 - NPCs: the canonical `NPC_DEFINITIONS` editor for identity, simple dialogue,
   rumors, dialogue-sequence hooks, and location membership with Open buttons.
 - Destinations: the canonical `DESTINATION_DEFINITIONS` editor for scene
-  metadata, shops, crafting providers, NPCs, actions, and intro gating.
+  metadata, shops, crafting providers, NPCs, actions, intro gating, and
+  destination-specific inn/rest overrides.
 - Locations: the canonical `LOCATION_DEFINITIONS` editor for chapter/region
-  metadata, visual keys, destination/NPC/shop/expedition/quest lists, and
-  shared requirements.
+  metadata, visual keys, destination/NPC/shop/expedition/quest lists, shared
+  requirements, and the runtime `serviceConfig` provision-shop, restock-shop,
+  and auto-grant fields.
+
+The left content category list is alphabetized by display label and the
+workspace keeps a wider category column so longer authoring categories remain
+readable.
 
 Encounter, camp-event, and combat-ability effects/requirements use the same recursive,
 schema-aware editor at supported nesting depths. This includes conditional

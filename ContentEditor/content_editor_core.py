@@ -1324,6 +1324,17 @@ def _validate_shops(shops: Any, known: dict[str, list[str]], errors: list[dict[s
             seen_ids.add(entry_id)
         if not isinstance(shop.get("displayName"), str) or not shop.get("displayName"):
             errors.append(_issue("error", "Shop displayName is required.", source, "displayName"))
+        if "provisionsForSale" in shop:
+            provision_offer = shop.get("provisionsForSale")
+            if not isinstance(provision_offer, dict):
+                errors.append(_issue("error", "provisionsForSale must be an object when provision purchasing is enabled.", source, "provisionsForSale"))
+            else:
+                price = provision_offer.get("price")
+                if not _is_number(price) or price < 0:
+                    errors.append(_issue("error", "Provision buy price must be a non-negative number.", source, "provisionsForSale.price"))
+                stock = provision_offer.get("stock")
+                if not _is_number(stock) or not isinstance(stock, int) or stock < 0:
+                    errors.append(_issue("error", "Provision stock must be a non-negative integer.", source, "provisionsForSale.stock"))
         stock = shop.get("itemsForSale")
         if not isinstance(stock, dict):
             errors.append(_issue("error", "itemsForSale must be an object.", source, "itemsForSale"))
@@ -2529,6 +2540,14 @@ def _validate_destinations(destinations: Any, known: dict[str, list[str]], error
         for field_name in ("npcIds", "actions"):
             if field_name in destination and not isinstance(destination[field_name], list):
                 errors.append(_issue("error", f"Destination {field_name} must be an array.", source, field_name))
+        if "restConfig" in destination:
+            rest_config = destination.get("restConfig")
+            if not isinstance(rest_config, dict):
+                errors.append(_issue("error", "Destination restConfig must be an object.", source, "restConfig"))
+            else:
+                for field_name in ("restoration", "goldCost", "recoveryDistanceReduction"):
+                    if field_name in rest_config and (not _is_number(rest_config[field_name]) or rest_config[field_name] < 0):
+                        errors.append(_issue("error", f"Destination restConfig {field_name} must be a non-negative number.", source, f"restConfig.{field_name}"))
 
 
 def _validate_locations(locations: Any, known: dict[str, list[str]], errors: list[dict[str, str]]) -> None:
@@ -2550,6 +2569,19 @@ def _validate_locations(locations: Any, known: dict[str, list[str]], errors: lis
         for field_name in ("destinations", "npcs", "shops", "availableExpeditions", "availableQuests", "requirements"):
             if field_name in location and not isinstance(location[field_name], list):
                 errors.append(_issue("error", f"Location {field_name} must be an array.", source, field_name))
+        if "serviceConfig" in location:
+            service_config = location.get("serviceConfig")
+            if not isinstance(service_config, dict):
+                errors.append(_issue("error", "Location serviceConfig must be an object.", source, "serviceConfig"))
+            else:
+                if "autoProvisionGrant" in service_config and not isinstance(service_config["autoProvisionGrant"], bool):
+                    errors.append(_issue("error", "Location autoProvisionGrant must be true or false.", source, "serviceConfig.autoProvisionGrant"))
+                for field_name in ("provisionShopId", "restockProvisionShopId"):
+                    if field_name not in service_config or service_config[field_name] is None:
+                        continue
+                    shop_id = service_config[field_name]
+                    if not isinstance(shop_id, str) or shop_id not in set(known.get("shops", [])):
+                        errors.append(_issue("error", f"Location {field_name} references unknown shop ID {shop_id!r}.", source, f"serviceConfig.{field_name}"))
 
 
 def _validate_asset_map(

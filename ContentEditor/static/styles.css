@@ -44,7 +44,7 @@ h2, h3, h4 { margin: 0; }
 .save-state.dirty { color: var(--accent); }
 .save-state.saved { color: var(--success); }
 
-.workspace { flex: 1; min-height: 690px; display: grid; grid-template-columns: 170px 390px minmax(520px, 1fr); gap: 1px; background: var(--border); }
+.workspace { flex: 1; min-height: 690px; display: grid; grid-template-columns: 195px 380px minmax(505px, 1fr); gap: 1px; background: var(--border); }
 .panel { background: var(--panel); }
 .category-panel, .entry-panel { min-height: 0; display: flex; flex-direction: column; }
 .editor-panel { min-width: 0; min-height: 0; }
@@ -116,6 +116,12 @@ h2, h3, h4 { margin: 0; }
 .character-scale-comparison .character-preview-fallback { font-size: 9px; }
 .travel-scene-editor-list { display: grid; gap: 8px; }
 .travel-scene-editor-row { display: grid; grid-template-columns: minmax(120px, 0.45fr) minmax(260px, 1fr) auto; gap: 9px; align-items: start; padding: 9px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 5px; }
+.route-branch-editor-row { margin-bottom: 9px; padding: 9px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 5px; }
+.route-branch-heading { display: flex; align-items: center; gap: 9px; margin-bottom: 8px; }
+.route-branch-heading .button-row { margin-left: auto; }
+.route-branch-fields { gap: 8px 10px; }
+.route-branch-fields .reference-inline { align-items: end; }
+.provision-service-editor, .destination-rest-editor, .location-service-editor { border-left: 3px solid #80653b; }
 .travel-scene-editor-row .asset-field-preview-wrap { grid-column: 2; }
 .travel-scene-editor-row .danger-outline { align-self: end; }
 .travel-seam-loop-toggle { display: flex; align-items: center; gap: 5px; margin-top: 7px; font-size: 0.78rem; }
@@ -296,7 +302,7 @@ h2, h3, h4 { margin: 0; }
 
 @media (max-width: 1250px) {
   body { min-width: 980px; }
-  .workspace { grid-template-columns: 145px 360px minmax(575px, 1fr); }
+  .workspace { grid-template-columns: 190px 350px minmax(560px, 1fr); }
   .quick-fields { grid-template-columns: repeat(2, minmax(100px, 1fr)); }
   .asset-import-grid { grid-template-columns: 1fr; }
 }

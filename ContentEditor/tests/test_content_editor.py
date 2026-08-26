@@ -210,6 +210,13 @@ class ContentEditorTests(unittest.TestCase):
         self.assertIn("Recommended: 3:1 panoramic artwork", app)
         self.assertIn('renderAssetSelector("Camp visual"', app)
 
+    def test_category_navigation_is_label_sorted_and_sidebar_has_room_for_long_labels(self) -> None:
+        app = (CONTENT_EDITOR / "static" / "app.js").read_text(encoding="utf-8")
+        styles = (CONTENT_EDITOR / "static" / "styles.css").read_text(encoding="utf-8")
+        self.assertIn("].sort(([, leftLabel], [, rightLabel]) => leftLabel.localeCompare(rightLabel))", app)
+        self.assertIn("grid-template-columns: 195px 380px minmax(505px, 1fr)", styles)
+        self.assertIn("grid-template-columns: 190px 350px minmax(560px, 1fr)", styles)
+
     def test_combat_background_selectors_use_static_scene_assets(self) -> None:
         app = (CONTENT_EDITOR / "static" / "app.js").read_text(encoding="utf-8")
         self.assertIn('renderAssetSelector("Default Combat Background", "combatVisualAssetId"', app)
@@ -538,6 +545,37 @@ class ContentEditorTests(unittest.TestCase):
         save_catalog(project, incoming, before["sourceHashes"], Path(temp.name) / "backups")
         after = load_catalog(project)
         self.assertEqual(after["shops"]["village_general_goods"]["itemsForSale"]["bandages"], {"price": 17, "stock": 3})
+
+    def test_provision_and_inn_service_fields_round_trip_and_reject_invalid_numbers(self) -> None:
+        temp, project = self.temporary_grail()
+        self.addCleanup(temp.cleanup)
+        before = load_catalog(project)
+        app = (CONTENT_EDITOR / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("data-shop-provision-field", app)
+        self.assertIn("data-destination-rest-field", app)
+        self.assertIn("data-location-service-field", app)
+        shops = clone(before["shops"])
+        shops["forest_village_provisions"]["provisionsForSale"] = {"price": 3.5, "stock": 11}
+        destinations = clone(before["destinations"])
+        destinations["hidden_inn"]["restConfig"] = {"restoration": 12, "goldCost": 9, "recoveryDistanceReduction": 10}
+        locations = clone(before["locations"])
+        locations["hidden_forest_village"]["serviceConfig"]["autoProvisionGrant"] = True
+        locations["hidden_forest_village"]["serviceConfig"]["restockProvisionShopId"] = None
+        incoming = {"shops": shops, "destinations": destinations, "locations": locations}
+        self.assertFalse(validate_catalog(incoming, before["known"], before["references"])["errors"])
+        save_catalog(project, incoming, before["sourceHashes"], Path(temp.name) / "backups")
+        after = load_catalog(project)
+        self.assertEqual(after["shops"]["forest_village_provisions"]["provisionsForSale"], {"price": 3.5, "stock": 11})
+        self.assertEqual(after["destinations"]["hidden_inn"]["restConfig"], destinations["hidden_inn"]["restConfig"])
+        self.assertEqual(after["locations"]["hidden_forest_village"]["serviceConfig"], locations["hidden_forest_village"]["serviceConfig"])
+        invalid = clone(after["shops"])
+        invalid["forest_village_provisions"]["provisionsForSale"]["stock"] = 1.5
+        errors = validate_catalog({"shops": invalid}, after["known"], after["references"])["errors"]
+        self.assertTrue(any("Provision stock must be a non-negative integer" in issue["message"] for issue in errors))
+        invalid_destinations = clone(after["destinations"])
+        invalid_destinations["hidden_inn"]["restConfig"]["goldCost"] = -1
+        errors = validate_catalog({"destinations": invalid_destinations}, after["known"], after["references"])["errors"]
+        self.assertTrue(any("restConfig goldCost must be a non-negative number" in issue["message"] for issue in errors))
 
     def test_invalid_item_reference_is_reported(self) -> None:
         catalog = load_catalog(GRAIL)
@@ -1117,6 +1155,30 @@ class ContentEditorTests(unittest.TestCase):
         for key in before_blocks:
             if key != "fountain_of_barenton":
                 self.assertEqual(after_blocks[key], before_blocks[key], key)
+
+    def test_route_branch_fields_round_trip_and_validate_without_moving_encounter_distances(self) -> None:
+        temp, project = self.temporary_grail()
+        self.addCleanup(temp.cleanup)
+        before = load_catalog(project)
+        app = (CONTENT_EDITOR / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("data-route-branch-field", app)
+        self.assertIn('data-action="add-route-branch"', app)
+        expeditions = clone(before["expeditions"])
+        expeditions["old_forest_road"]["routeBranches"]["overgrown_trail"].update({
+            "entryDistance": 41,
+            "mapEntryDistance": 21,
+            "rejoinDistance": 81,
+        })
+        self.assertFalse(validate_catalog({"expeditions": expeditions}, before["known"], before["references"])["errors"])
+        save_catalog(project, {"expeditions": expeditions}, before["sourceHashes"], Path(temp.name) / "backups")
+        after = load_catalog(project)
+        self.assertEqual(after["expeditions"]["old_forest_road"]["routeBranches"]["overgrown_trail"]["entryDistance"], 41)
+        self.assertEqual(after["expeditions"]["old_forest_road"]["routeBranches"]["overgrown_trail"]["mapEntryDistance"], 21)
+        self.assertEqual(after["expeditions"]["old_forest_road"]["routeBranches"]["overgrown_trail"]["rejoinDistance"], 81)
+        invalid = clone(after["expeditions"])
+        invalid["old_forest_road"]["routeBranches"]["overgrown_trail"]["rejoinDistance"] = 20
+        errors = validate_catalog({"expeditions": invalid}, after["known"], after["references"])["errors"]
+        self.assertTrue(any("rejoinDistance must be greater than entryDistance" in issue["message"] for issue in errors))
 
     def test_distance_based_travel_scenes_validate_and_round_trip(self) -> None:
         temp, project = self.temporary_grail()
