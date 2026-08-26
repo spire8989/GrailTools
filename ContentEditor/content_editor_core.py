@@ -576,7 +576,7 @@ def collect_references(value: Any, source: str, references: dict[str, list[dict[
                 ref_type = _ref_type_for_key(key)
                 if ref_type and isinstance(child, str) and not (key == "speakerId" and child == "arthur"):
                     references.setdefault(ref_type, []).append({"source": source, "path": child_path, "id": child})
-                elif key in {"pathIds", "shopIds", "shops", "expeditionIds", "availableExpeditions", "recipeIds", "npcIds", "locationIds", "destinationIds", "destinations", "npcs", "locations"} and isinstance(child, list):
+                elif key in {"pathIds", "shopIds", "shops", "expeditionIds", "availableExpeditions", "recipeIds", "npcIds", "locationIds", "destinationIds", "destinations", "npcs", "locations"} and isinstance(child, list) and not (source == "encounters" and key == "expeditionIds"):
                     ref_type = {
                         "pathIds": "paths", "shopIds": "shops", "shops": "shops",
                         "expeditionIds": "expeditions", "availableExpeditions": "expeditions",
@@ -2769,6 +2769,9 @@ def validate_catalog(values: dict[str, Any], known: dict[str, list[str]], refere
         errors.append(_issue("error", f"Duplicate object key {duplicate['id']!r}.", duplicate["source"]))
     if "encounters" in values:
         _validate_encounters(values.get("encounters"), effective_known, errors)
+        for entry_id, encounter in _id_map(values.get("encounters")).items():
+            if isinstance(encounter, dict) and "expeditionIds" in encounter:
+                warnings.append(_issue("warning", "Legacy encounter expeditionIds field is ignored; use pathIds instead.", f"encounter:{entry_id}", "expeditionIds"))
     if "injuries" in values:
         _validate_injuries(values.get("injuries"), effective_known, errors)
     if "campEvents" in values:

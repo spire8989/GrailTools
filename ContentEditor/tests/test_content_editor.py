@@ -38,6 +38,7 @@ class ContentEditorTests(unittest.TestCase):
         self.assertEqual(len(catalog["injuries"]), 6)
         self.assertGreaterEqual(len(catalog["campEvents"]), 6)
         self.assertEqual(catalog["validation"]["errors"], [])
+        self.assertEqual(catalog["validation"]["warnings"], [])
 
     def test_enemy_and_combat_loot_sources_round_trip_and_validate(self) -> None:
         catalog = load_catalog(GRAIL)
@@ -1162,7 +1163,7 @@ class ContentEditorTests(unittest.TestCase):
         self.assertEqual(set(catalog["paths"]), {"old_forest_road", "overgrown_trail", "fountain_of_barenton", "val_sans_retour", "search_for_merlin", "legacy_fountain"})
         fountain = catalog["paths"]["fountain_of_barenton"]
         self.assertTrue(fountain["derived"])
-        self.assertEqual(fountain["encounterCount"], 21)
+        self.assertEqual(fountain["encounterCount"], 19)
         self.assertEqual(fountain["expeditionIds"], ["fountain_of_barenton"])
         self.assertEqual(catalog["expeditions"]["fountain_of_barenton"]["pathId"], "fountain_of_barenton")
         self.assertFalse(catalog["validation"]["errors"])
@@ -1177,14 +1178,14 @@ class ContentEditorTests(unittest.TestCase):
         save_catalog(project, incoming, before["sourceHashes"], Path(temp.name) / "backups")
         after_add = load_catalog(project)
         self.assertEqual(after_add["encounters"]["abandoned_camp"]["pathIds"], ["old_forest_road", "overgrown_trail", "fountain_of_barenton"])
-        self.assertEqual(after_add["paths"]["fountain_of_barenton"]["encounterCount"], 22)
+        self.assertEqual(after_add["paths"]["fountain_of_barenton"]["encounterCount"], 20)
 
         removing = {"encounters": clone(after_add["encounters"])}
         removing["encounters"]["abandoned_camp"]["pathIds"].remove("fountain_of_barenton")
         save_catalog(project, removing, after_add["sourceHashes"], Path(temp.name) / "backups")
         after_remove = load_catalog(project)
         self.assertEqual(after_remove["encounters"]["abandoned_camp"]["pathIds"], ["old_forest_road", "overgrown_trail"])
-        self.assertEqual(after_remove["paths"]["fountain_of_barenton"]["encounterCount"], 21)
+        self.assertEqual(after_remove["paths"]["fountain_of_barenton"]["encounterCount"], 19)
 
     def test_phase4_expedition_scalar_edit_is_surgical_and_preserves_unknown_fields(self) -> None:
         temp, project = self.temporary_grail()
@@ -1290,6 +1291,16 @@ class ContentEditorTests(unittest.TestCase):
         validation = validate_catalog(invalid_expeditions, catalog["known"], catalog["references"])
         self.assertTrue(any("Unknown path ID 'missing_path'" in issue["message"] for issue in validation["errors"]))
 
+        legacy = clone(catalog["encounters"]["lost_purse"])
+        legacy["id"] = "legacy_encounter_fixture"
+        legacy["expeditionIds"] = ["missing_expedition"]
+        legacy_validation = validate_catalog({"encounters": {legacy["id"]: legacy}}, catalog["known"], catalog["references"])
+        self.assertFalse(any("Unknown expedition ID 'missing_expedition'" in issue["message"] for issue in legacy_validation["errors"]))
+        self.assertTrue(any(issue["message"] == "Legacy encounter expeditionIds field is ignored; use pathIds instead." for issue in legacy_validation["warnings"]))
+        collected: dict[str, list[dict[str, str]]] = {}
+        collect_references({legacy["id"]: legacy}, "encounters", collected)
+        self.assertFalse(any(reference["id"] == "missing_expedition" for reference in collected.get("expeditions", [])))
+
         without_expedition = {"expeditions": clone(catalog["expeditions"])}
         del without_expedition["expeditions"]["fountain_of_barenton"]
         validation = validate_catalog(without_expedition, catalog["known"], catalog["references"])
@@ -1300,7 +1311,7 @@ class ContentEditorTests(unittest.TestCase):
         first = build_path_index(catalog["encounters"], catalog["expeditions"])
         second = build_path_index(catalog["encounters"], catalog["expeditions"])
         self.assertEqual(first, second)
-        self.assertEqual(first["fountain_of_barenton"]["encounterCount"], 21)
+        self.assertEqual(first["fountain_of_barenton"]["encounterCount"], 19)
 
     def test_phase5_current_recipe_and_provider_shapes_load(self) -> None:
         catalog = load_catalog(GRAIL)

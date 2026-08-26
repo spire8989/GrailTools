@@ -64,6 +64,8 @@ The default project is discovered as the sibling `../../Grail` relative to
 
 - Encounters: metadata, path and direction filters, requirements, stages,
   choices, costs, outcomes/effects, pending actions, and advanced raw JSON.
+  Encounter applicability is path-based through `pathIds`; legacy encounter
+  `expeditionIds` fields are ignored and surfaced as deprecation warnings.
   The list supports combinable text search, path/region/direction/distance,
   repeatable, tag, combat, and requirement-presence filters with in-memory
   unsaved edits reflected immediately.

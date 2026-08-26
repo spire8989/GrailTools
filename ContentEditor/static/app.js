@@ -1413,7 +1413,7 @@ function collectClientReferences(value, source, references) {
         (references[scalarType] ||= []).push({ source, path: childPath, id: child });
       }
       const listType = listTypes[key];
-      if (listType && Array.isArray(child)) {
+      if (listType && Array.isArray(child) && !(source === "encounters" && key === "expeditionIds")) {
         child.forEach((id, index) => {
           if (typeof id === "string") (references[listType] ||= []).push({ source, path: `${childPath}[${index}]`, id });
         });
