@@ -165,6 +165,14 @@ until Save is explicitly clicked. Loot Tables expose the existing direct
 `type: "recipe"` unlock entries with recipe selectors and Open Recipe links;
 the editor does not invent recipe-scroll items.
 
+Enemy definitions expose optional `Loot Sources` rows for per-instance drops;
+combat definitions expose optional `Victory Loot` rows for rewards resolved
+once per won combat. Each row selects a loot-table display name and stable ID,
+roll count, and 0–1 chance, and can be reordered or removed. The editor also
+shows the referenced tables and their entry counts. Encounter-authored victory
+outcomes remain separate and are additional to enemy and combat loot, making
+the three ownership layers visible to content authors.
+
 ## Loading and saving
 
 The server reads the current JavaScript constants directly from:
@@ -203,7 +211,8 @@ invalid recipe ingredient and output quantities, malformed recipe/provider
 definitions, malformed dialogue node links and choice branches,
 invalid chance values, malformed combat-resolution branches, invalid combat
 ability trigger/condition/effect fields, invalid loot
-rolls and direct reward quantities, invalid combat damage and stat ranges,
+rolls, loot-source table references, loot-source chance values, and direct
+reward quantities, invalid combat damage and stat ranges,
 invalid loot weights/quantities, invalid distance ranges, invalid shop
 prices/stock, and deletions that remain referenced by understood definitions.
 The editor never silently repairs authored content.

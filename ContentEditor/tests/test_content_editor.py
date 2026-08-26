@@ -39,6 +39,52 @@ class ContentEditorTests(unittest.TestCase):
         self.assertGreaterEqual(len(catalog["campEvents"]), 6)
         self.assertEqual(catalog["validation"]["errors"], [])
 
+    def test_enemy_and_combat_loot_sources_round_trip_and_validate(self) -> None:
+        catalog = load_catalog(GRAIL)
+        app = (CONTENT_EDITOR / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("function renderLootSourceRows", app)
+        self.assertIn("Intrinsic drops resolve once per defeated enemy instance", app)
+        self.assertIn("These sources resolve once for the whole combat", app)
+        self.assertIn('data-action="add-loot-source"', app)
+        self.assertIn('data-action="remove-loot-source"', app)
+
+        temp, project = self.temporary_grail()
+        self.addCleanup(temp.cleanup)
+        before = load_catalog(project)
+        enemies = clone(before["enemyDefinitions"])
+        combats = clone(before["combats"])
+        enemies["briar_knight"]["lootSources"] = [
+            {"tableId": "briar_knight_loot", "rolls": 1, "chance": 0.3},
+        ]
+        combats["briar_knight"]["victoryLootSources"] = [
+            {"tableId": "forest_materials", "rolls": 2},
+        ]
+        incoming = {
+            "enemyDefinitions": enemies,
+            "combats": combats,
+            "imageAssets": clone(before["imageAssets"]),
+        }
+        self.assertEqual(validate_catalog(incoming, before["known"], before["references"])["errors"], [])
+        save_catalog(project, incoming, before["sourceHashes"], Path(temp.name) / "backups")
+        after = load_catalog(project)
+        self.assertEqual(after["enemyDefinitions"]["briar_knight"]["lootSources"], enemies["briar_knight"]["lootSources"])
+        self.assertEqual(after["combats"]["briar_knight"]["victoryLootSources"], combats["briar_knight"]["victoryLootSources"])
+        loot_refs = after["references"]["lootTables"]
+        self.assertTrue(any(reference["source"] == "enemyDefinitions" and "lootSources" in reference["path"] for reference in loot_refs))
+        self.assertTrue(any(reference["source"] == "combats" and "victoryLootSources" in reference["path"] for reference in loot_refs))
+
+        invalid_enemy = clone(after["enemyDefinitions"])
+        invalid_enemy["briar_knight"]["lootSources"] = [{"tableId": "missing_loot", "rolls": 0, "chance": 1.1}]
+        errors = validate_catalog({"enemyDefinitions": invalid_enemy}, after["known"], after["references"])["errors"]
+        self.assertTrue(any("Unknown loot table ID 'missing_loot'" in issue["message"] for issue in errors))
+        self.assertTrue(any("Loot source rolls must be a positive integer" in issue["message"] for issue in errors))
+        self.assertTrue(any("Loot source chance must be between 0 and 1" in issue["message"] for issue in errors))
+
+        invalid_combat = clone(after["combats"])
+        invalid_combat["briar_knight"]["victoryLootSources"] = ["malformed"]
+        errors = validate_catalog({"combats": invalid_combat}, after["known"], after["references"])["errors"]
+        self.assertTrue(any("Loot sources must be objects" in issue["message"] for issue in errors))
+
     def test_character_sources_load_and_player_singleton_save_is_surgical(self) -> None:
         temp, project = self.temporary_grail()
         self.addCleanup(temp.cleanup)
@@ -801,7 +847,7 @@ class ContentEditorTests(unittest.TestCase):
         catalog = load_catalog(GRAIL)
         self.assertGreaterEqual(len(catalog["combats"]), 7)
         self.assertEqual(len(catalog["abilities"]), 18)
-        self.assertEqual(len(catalog["lootTables"]), 19)
+        self.assertEqual(len(catalog["lootTables"]), 20)
         self.assertIn("bandit_leader", catalog["combats"])
         self.assertIn("pommel_strike", catalog["abilities"])
         self.assertIn("bandit_leader_loot", catalog["lootTables"])

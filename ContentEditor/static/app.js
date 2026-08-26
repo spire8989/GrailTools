@@ -1789,6 +1789,35 @@ function renderEnemyTraitRows(enemy) {
   </div>`).join("");
 }
 
+function lootTableLabel(tableId) {
+  const table = state.catalog?.lootTables?.[tableId];
+  const name = table?.name || tableId.replaceAll("_", " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+  const entryCount = Array.isArray(table?.entries) ? table.entries.length : null;
+  return `${name} (${tableId})${entryCount === null ? "" : ` · ${entryCount} entr${entryCount === 1 ? "y" : "ies"}`}`;
+}
+
+function lootTableSourceOptions(current) {
+  const ids = Object.keys(state.catalog?.lootTables || {}).sort();
+  const currentOption = current && !ids.includes(current)
+    ? `<option value="${escapeHtml(current)}" selected>Missing table: ${escapeHtml(current)}</option>`
+    : "";
+  return `<option value="">Select loot table...</option>${currentOption}${selectOptions(ids, current, Object.fromEntries(ids.map((id) => [id, lootTableLabel(id)])))}`;
+}
+
+function renderLootSourceRows(sources, field, emptyText) {
+  const entries = Array.isArray(sources) ? sources : [];
+  return entries.map((source, index) => {
+    const table = state.catalog?.lootTables?.[source?.tableId];
+    const tableStatus = table
+      ? `${Array.isArray(table.entries) ? table.entries.length : 0} possible entr${table.entries?.length === 1 ? "y" : "ies"}`
+      : source?.tableId ? "Referenced table is missing" : "Choose a table";
+    return `<div class="section-card loot-source-card" data-loot-source-row>
+      <div class="loot-entry-heading"><strong>Source ${index + 1}</strong><span class="hint">${escapeHtml(tableStatus)}</span><button type="button" class="small-button" data-action="move-loot-source" data-loot-source-field="${field}" data-loot-source-index="${index}" data-direction="up"${index === 0 ? " disabled" : ""}>↑</button><button type="button" class="small-button" data-action="move-loot-source" data-loot-source-field="${field}" data-loot-source-index="${index}" data-direction="down"${index === entries.length - 1 ? " disabled" : ""}>↓</button><button type="button" class="small-button danger-outline" data-action="remove-loot-source" data-loot-source-field="${field}" data-loot-source-index="${index}">Remove</button></div>
+      <div class="form-grid three"><label class="wide">Loot table<select data-loot-source-field="tableId" data-loot-source-collection="${field}" data-loot-source-index="${index}">${lootTableSourceOptions(source?.tableId)}</select></label><label>Rolls<input type="number" min="1" step="1" data-loot-source-field="rolls" data-loot-source-collection="${field}" data-loot-source-index="${index}" value="${escapeHtml(source?.rolls ?? 1)}"></label><label>Chance<input type="number" min="0" max="1" step="0.05" data-loot-source-field="chance" data-loot-source-collection="${field}" data-loot-source-index="${index}" value="${escapeHtml(source?.chance ?? "")}" placeholder="1"></label></div>
+    </div>`;
+  }).join("") || `<p class="hint">${escapeHtml(emptyText)}</p>`;
+}
+
 const characterPreviewInstances = new Set();
 const characterPreviewMetadataCache = new Map();
 const characterPreviewMetadataPromises = new Map();
@@ -2242,11 +2271,17 @@ function renderEnemy() {
   const enemy = state.draft;
   if (!enemy) return `<div class="empty-state">Choose an enemy to edit.</div>`;
   const references = (liveReferences().enemies || []).filter((reference) => reference.id === enemy.id);
+  const lootReferences = (liveReferences().lootTables || []).filter((reference) => (
+    reference.source === "enemyDefinitions"
+    && reference.path.startsWith(`${enemy.id}.lootSources`)
+  ));
   return `<div class="editor-title"><div><h2>${escapeHtml(enemy.name || enemy.id || "New enemy")}</h2><p>${escapeHtml(enemy.id || "Unsaved ID")}</p></div><span class="schema-badge">Enemy schema</span></div>
     <section class="section"><div class="section-heading"><div><h3>Enemy identity and combat stats</h3><p>Enemies are reusable definitions authored in <code>COMBAT_ENEMY_DEFINITIONS</code>.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(enemy.id || "")}"></label><label>Name<input data-enemy-field="name" value="${escapeHtml(enemy.name || "")}"></label><label>Maximum HP<input type="number" min="1" step="1" data-enemy-field="maxHp" value="${escapeHtml(enemy.maxHp ?? "")}"></label><label>Speed<input type="number" min="1" step="any" data-enemy-field="speed" value="${escapeHtml(enemy.speed ?? "")}"></label><label>Defense<input type="number" min="0" step="any" data-enemy-field="defense" value="${escapeHtml(enemy.defense ?? "")}"></label><label>Visual scale<input type="number" min="0.25" max="3" step="0.05" data-field="visualScale" value="${escapeHtml(enemy.visualScale ?? 1)}"></label><label>Combat visual scale<input type="number" min="0.25" max="3" step="0.05" data-field="combatVisualScale" value="${escapeHtml(enemy.combatVisualScale ?? "")}" placeholder="optional"></label>${renderAssetSelector("Combat visual", "combatVisualAssetId", enemy.combatVisualAssetId ?? enemy.visualAssetId, "image", "combat", enemy.name || enemy.id, "combat")}</div></section>
     ${renderCharacterVisuals(enemy, enemy.name || enemy.id)}
     <section class="section"><div class="section-heading"><div><h3>Action pattern</h3><p>Choose reusable Enemy Actions in their authored order. Repeated action IDs remain meaningful.</p></div><button type="button" class="small-button" data-action="add-enemy-action-pattern">Add action</button></div>${renderEnemyPatternRows(enemy) || `<p class="hint">No actions. Add an action to author this enemy's pattern.</p>`}</section>
     <section class="section"><div class="section-heading"><div><h3>Traits</h3><p>Traits are generic runtime behaviors. Regeneration may be suppressed by authored combat statuses.</p></div><button type="button" class="small-button" data-action="add-enemy-trait">Add trait</button></div>${renderEnemyTraitRows(enemy) || `<p class="hint">No traits. Add one to author a reusable enemy behavior.</p>`}</section>
+    <section class="section"><div class="section-heading"><div><h3>Loot Sources</h3><p>Intrinsic drops resolve once per defeated enemy instance after the entire combat is won.</p></div><button type="button" class="small-button" data-action="add-loot-source" data-loot-source-field="lootSources">Add source</button></div>${renderLootSourceRows(enemy.lootSources, "lootSources", "No intrinsic loot sources. Add a loot table when this enemy should carry a drop.")}</section>
+    <section class="section"><div class="section-heading"><div><h3>Referenced loot tables</h3><p>These are the tables currently used by this enemy.</p></div></div><div class="reference-list">${renderReferenceRows(lootReferences, "No loot tables referenced by this enemy.")}</div></section>
     <section class="section"><div class="section-heading"><div><h3>Used by</h3><p>Combat definitions that include this enemy.</p></div></div><div class="reference-list">${renderReferenceRows(references, "No combat currently uses this enemy.")}</div></section>
     <section class="section"><details><summary>Raw enemy JSON (advanced)</summary><p class="hint">Use this for future enemy presentation or runtime fields not yet present in the canonical definitions.</p><textarea id="raw-json" class="raw-editor">${jsonText(enemy)}</textarea><div class="button-row"><button type="button" class="small-button" data-action="apply-raw">Apply raw JSON</button></div></details></section>`;
 }
@@ -2272,9 +2307,15 @@ function renderCombat() {
   const enemyOptions = Object.fromEntries((state.catalog.known?.enemies || []).map((id) => [id, enemyLabel(id)]));
   const enemyMarkup = enemyIds.map((enemyId, index) => `<div class="reference-row" data-combat-enemy-row><span class="panel-count">${index + 1}</span><select data-combat-enemy-field="id" data-enemy-index="${index}">${selectOptions(state.catalog.known?.enemies || [], enemyId, enemyOptions)}</select><button type="button" class="small-button inline-open" data-action="open-reference" data-reference-category="enemyDefinitions" data-reference-id="${escapeHtml(enemyId)}">Open Enemy</button><button type="button" class="small-button" data-action="move-combat-enemy" data-enemy-index="${index}" data-direction="up"${index === 0 ? " disabled" : ""}>↑</button><button type="button" class="small-button" data-action="move-combat-enemy" data-enemy-index="${index}" data-direction="down"${index === enemyIds.length - 1 ? " disabled" : ""}>↓</button><button type="button" class="small-button danger-outline" data-action="remove-enemy" data-enemy-index="${index}">Remove</button></div>`).join("");
   const references = (liveReferences().combats || []).filter((reference) => reference.id === combat.id);
+  const lootReferences = (liveReferences().lootTables || []).filter((reference) => (
+    reference.source === "combats"
+    && reference.path.startsWith(`${combat.id}.victoryLootSources`)
+  ));
   return `<div class="editor-title"><div><h2>${escapeHtml(combat.name || combat.title || combat.id || "New combat")}</h2><p>${enemyIds.length} enemy occurrence${enemyIds.length === 1 ? "" : "s"}</p></div><span class="schema-badge">Combat composition schema</span></div>
     <section class="section"><div class="section-heading"><div><h3>Combat metadata</h3><p>Combat definitions compose reusable Enemy IDs; enemy stats and action patterns are edited in their first-class categories.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(combat.id || "")}"></label><label>Title / display name<input data-field="name" value="${escapeHtml(combat.name || combat.title || "")}" placeholder="optional authored field"></label></div></section>
     <section class="section"><div class="section-heading"><div><h3>Enemy roster</h3><p>Repeated IDs remain independent occurrences in the combat lineup.</p></div><button type="button" class="small-button" data-action="add-enemy">Add enemy</button></div>${enemyMarkup || `<div class="empty-state">Add an enemy to begin authoring this combat.</div>`}</section>
+    <section class="section"><div class="section-heading"><div><h3>Victory Loot</h3><p>These sources resolve once for the whole combat after all enemies are defeated. They are additional to enemy loot and encounter victory rewards.</p></div><button type="button" class="small-button" data-action="add-loot-source" data-loot-source-field="victoryLootSources">Add source</button></div>${renderLootSourceRows(combat.victoryLootSources, "victoryLootSources", "No combat-level victory loot. Add a source for a reward belonging to the fight setup.")}</section>
+    <section class="section"><div class="section-heading"><div><h3>Referenced loot tables</h3><p>These are the tables currently used by this combat's victory loot.</p></div></div><div class="reference-list">${renderReferenceRows(lootReferences, "No combat-level loot tables referenced.")}</div></section>
     <section class="section"><div class="section-heading"><div><h3>Used by</h3><p>Known encounter and camp-event references to this combat.</p></div></div><div class="reference-list">${renderReferenceRows(references)}</div></section>
     <section class="section"><details><summary>Raw combat JSON (advanced)</summary><p class="hint">Use raw JSON only for uncommon combat-level fields owned by the runtime.</p><textarea id="raw-json" class="raw-editor">${jsonText(combat)}</textarea><div class="button-row"><button type="button" class="small-button" data-action="apply-raw">Apply raw JSON</button></div></details></section>`;
 }
@@ -2450,7 +2491,7 @@ function renderLootTable() {
   return `<div class="editor-title"><div><h2>${escapeHtml(table.id || "New loot table")}</h2><p>${entries.length} entr${entries.length === 1 ? "y" : "ies"}</p></div><span class="schema-badge">Loot table schema</span></div>
     <section class="section"><div class="section-heading"><div><h3>Table metadata</h3><p>Weighted entries are kept in authored order. Nested table entries are reference-aware.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(table.id || "")}"></label><label>Rolls<input type="number" min="1" step="1" data-field="rolls" value="${escapeHtml(table.rolls ?? "")}" placeholder="optional"></label></div></section>
     <section class="section"><div class="section-heading"><div><h3>Entries</h3><p>Edit item, material, gold, recipe, and nested loot-table entries.</p></div><button type="button" class="small-button" data-action="add-loot-entry">Add entry</button></div>${entries.map((entry, index) => renderLootEntry(entry, index)).join("") || `<div class="empty-state">This table has no entries.</div>`}</section>
-    <section class="section"><div class="section-heading"><div><h3>Used by</h3><p>Encounters and other loot tables that reference this table.</p></div></div><div class="reference-list">${renderReferenceRows(references)}</div></section>
+    <section class="section"><div class="section-heading"><div><h3>Used by</h3><p>Enemies, combats, encounters, and other loot tables that reference this table.</p></div></div><div class="reference-list">${renderReferenceRows(references)}</div></section>
     <section class="section"><details><summary>Raw loot table JSON (advanced)</summary><p class="hint">Use raw JSON for uncommon entry shapes while keeping validation enabled.</p><textarea id="raw-json" class="raw-editor">${jsonText(table)}</textarea><div class="button-row"><button type="button" class="small-button" data-action="apply-raw">Apply raw JSON</button></div></details></section>`;
 }
 
@@ -3042,7 +3083,7 @@ function defaultEntry(category) {
     questItem: false,
     unique: false,
   };
-  if (category === "combats") return { id: "new_combat", enemyIds: [] };
+  if (category === "combats") return { id: "new_combat", enemyIds: [], victoryLootSources: [] };
   if (category === "abilities") return { id: "new_ability", name: "New Ability", description: "", kind: "active", tags: [], target: "enemy", targetMode: "singleEnemy", effects: [] };
   if (category === "combatStatuses") return {
     id: "new_status",
@@ -3082,6 +3123,7 @@ function defaultEntry(category) {
     defense: 0,
     actionPattern: [Object.keys(state.catalog.enemyActions || {}).sort()[0] || ""],
     traits: [],
+    lootSources: [],
   };
   if (category === "enemyActions") return {
     id: "new_enemy_action",
@@ -3572,6 +3614,17 @@ function handleInput(input) {
     if (value === undefined || value === "") delete entry[input.dataset.lootEntryField];
     else entry[input.dataset.lootEntryField] = value;
     markDirty();
+    return;
+  }
+  if (input.dataset.lootSourceField) {
+    const collection = state.draft[input.dataset.lootSourceCollection] ||= [];
+    const source = collection[Number(input.dataset.lootSourceIndex)];
+    if (!source) return;
+    const value = parseInputValue(input, input.dataset.lootSourceField);
+    if (value === undefined || value === "") delete source[input.dataset.lootSourceField];
+    else source[input.dataset.lootSourceField] = value;
+    markDirty();
+    if (input.dataset.lootSourceField === "tableId") render();
     return;
   }
   if (input.dataset.combatEnemyField) {
@@ -4359,6 +4412,29 @@ function handleAction(button) {
     render();
   } else if (action === "remove-enemy") {
     state.draft.enemyIds.splice(Number(button.dataset.enemyIndex), 1);
+    markDirty();
+    render();
+  } else if (action === "add-loot-source") {
+    const field = button.dataset.lootSourceField;
+    if (!field) return;
+    state.draft[field] ||= [];
+    const tableId = state.catalog.known?.lootTables?.[0] || Object.keys(state.catalog.lootTables || {}).sort()[0] || "";
+    state.draft[field].push({ tableId, rolls: 1 });
+    markDirty();
+    render();
+  } else if (action === "move-loot-source") {
+    const field = button.dataset.lootSourceField;
+    const entries = state.draft[field];
+    const index = Number(button.dataset.lootSourceIndex);
+    const nextIndex = button.dataset.direction === "up" ? index - 1 : index + 1;
+    if (!Array.isArray(entries) || nextIndex < 0 || nextIndex >= entries.length) return;
+    [entries[index], entries[nextIndex]] = [entries[nextIndex], entries[index]];
+    markDirty();
+    render();
+  } else if (action === "remove-loot-source") {
+    const entries = state.draft[button.dataset.lootSourceField];
+    if (!Array.isArray(entries)) return;
+    entries.splice(Number(button.dataset.lootSourceIndex), 1);
     markDirty();
     render();
   } else if (action === "add-loot-entry") {

@@ -935,6 +935,33 @@ def _validate_positive_integer(value: Any, label: str, source: str, path: str, e
         errors.append(_issue("error", f"{label} must be a positive integer.", source, path))
 
 
+def _validate_loot_sources(sources: Any, known: dict[str, list[str]], source: str, path: str, errors: list[dict[str, str]], label: str) -> None:
+    if sources is None:
+        return
+    if not isinstance(sources, list):
+        errors.append(_issue("error", f"{label} must be an array of loot sources.", source, path))
+        return
+    known_tables = set(known.get("lootTables", []))
+    for index, loot_source in enumerate(sources):
+        source_path = f"{path}[{index}]"
+        if not isinstance(loot_source, dict):
+            errors.append(_issue("error", "Loot sources must be objects.", source, source_path))
+            continue
+        table_id = loot_source.get("tableId")
+        if not isinstance(table_id, str) or not table_id:
+            errors.append(_issue("error", "Loot sources require a tableId.", source, f"{source_path}.tableId"))
+        elif table_id not in known_tables:
+            errors.append(_issue("error", f"Unknown loot table ID {table_id!r}.", source, f"{source_path}.tableId"))
+        if "rolls" not in loot_source:
+            errors.append(_issue("error", "Loot sources require positive integer rolls.", source, f"{source_path}.rolls"))
+        else:
+            _validate_positive_integer(loot_source.get("rolls"), "Loot source rolls", source, f"{source_path}.rolls", errors)
+        if "chance" in loot_source:
+            chance = loot_source.get("chance")
+            if not _is_number(chance) or not math.isfinite(chance) or not 0 <= chance <= 1:
+                errors.append(_issue("error", "Loot source chance must be between 0 and 1.", source, f"{source_path}.chance"))
+
+
 def _validate_resolution_outcomes(outcomes: Any, known: dict[str, list[str]], source: str, path: str, errors: list[dict[str, str]]) -> None:
     if not isinstance(outcomes, list):
         errors.append(_issue("error", "Combat resolution outcomes must be an array.", source, path))
@@ -1566,6 +1593,14 @@ def _validate_combat_definitions(combats: Any, known: dict[str, list[str]], erro
         enemy_ids = combat.get("enemyIds")
         if not isinstance(enemy_ids, list) or not enemy_ids or not all(isinstance(enemy_id, str) and enemy_id for enemy_id in enemy_ids):
             errors.append(_issue("error", "enemyIds must be a non-empty array of enemy IDs.", source, "enemyIds"))
+        _validate_loot_sources(
+            combat.get("victoryLootSources"),
+            known,
+            source,
+            "victoryLootSources",
+            errors,
+            "Combat victoryLootSources",
+        )
 
 
 CHARACTER_VISUAL_SLOTS = ("idle", "walk", "attack")
@@ -1860,6 +1895,7 @@ def _validate_enemy_definitions(enemies: Any, known: dict[str, list[str]], error
         pattern = enemy.get("actionPattern")
         if not isinstance(pattern, list) or not pattern or not all(isinstance(action_id, str) and action_id for action_id in pattern):
             errors.append(_issue("error", "Enemy actionPattern must be a non-empty array of action IDs.", source, "actionPattern"))
+        _validate_loot_sources(enemy.get("lootSources"), known, source, "lootSources", errors, "Enemy lootSources")
         _validate_character_asset_fields(enemy, known, source, errors)
         _validate_character_visuals(enemy, known, source, errors)
         _validate_character_scale(enemy, source, errors)
