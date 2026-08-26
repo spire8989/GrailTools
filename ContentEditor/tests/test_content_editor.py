@@ -763,7 +763,7 @@ class ContentEditorTests(unittest.TestCase):
         catalog = load_catalog(GRAIL)
         self.assertGreaterEqual(len(catalog["combats"]), 7)
         self.assertEqual(len(catalog["abilities"]), 18)
-        self.assertEqual(len(catalog["lootTables"]), 18)
+        self.assertEqual(len(catalog["lootTables"]), 19)
         self.assertIn("bandit_leader", catalog["combats"])
         self.assertIn("pommel_strike", catalog["abilities"])
         self.assertIn("bandit_leader_loot", catalog["lootTables"])
@@ -994,6 +994,22 @@ class ContentEditorTests(unittest.TestCase):
         messages = [issue["message"] for issue in validation["errors"]]
         self.assertTrue(any("Unknown item ID 'missing_item'" in message for message in messages))
         self.assertTrue(any("Item quantity must be a positive integer" in message for message in messages))
+
+    def test_encounter_material_rewards_use_material_loot_entries(self) -> None:
+        catalog = load_catalog(GRAIL)
+        self.assertEqual(catalog["validation"]["errors"], [])
+        material_table = catalog["lootTables"]["rare_herb_find"]
+        self.assertEqual(material_table["entries"], [{"type": "material", "materialId": "rare_herbs", "quantity": 1, "weight": 1}])
+        for encounter_id in ("woodland_foraging", "beneath_the_roots", "ancient_spring"):
+            encounter = catalog["encounters"][encounter_id]
+            serialized = str(encounter)
+            self.assertIn("rare_herb_find", serialized, encounter_id)
+            self.assertNotIn("itemId': 'rare_herbs", serialized, encounter_id)
+
+        invalid = {"encounters": clone(catalog["encounters"]), "lootTables": clone(catalog["lootTables"])}
+        invalid["lootTables"]["rare_herb_find"]["entries"][0]["materialId"] = "missing_material"
+        validation = validate_catalog(invalid, catalog["known"], catalog["references"])
+        self.assertTrue(any("Unknown material ID 'missing_material'" in issue["message"] for issue in validation["errors"]))
 
     def test_nested_combat_resolution_references_are_used_by_and_preserve_unknown_fields(self) -> None:
         catalog = load_catalog(GRAIL)
