@@ -47,6 +47,9 @@ class ContentEditorTests(unittest.TestCase):
         self.assertIn("These sources resolve once for the whole combat", app)
         self.assertIn('data-action="add-loot-source"', app)
         self.assertIn('data-action="remove-loot-source"', app)
+        self.assertIn("function renderLootTableReferenceRows", app)
+        self.assertIn('data-reference-category="lootTables"', app)
+        self.assertIn(">Open Loot Table</button>", app)
 
         temp, project = self.temporary_grail()
         self.addCleanup(temp.cleanup)
