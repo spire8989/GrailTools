@@ -1065,8 +1065,8 @@ function quickObjectFields(object) {
   if ("knowledgeId" in object || type === "knowledge") add("knowledgeId", "Knowledge", "reference");
   if ("companionId" in object || ["companion", "unlockedCompanion", "notUnlockedCompanion", "unlockCompanion"].includes(type)) add("companionId", "Companion", "reference");
   if ("value" in object || ["runFlag", "notRunFlag", "setRunFlag", "setCampaignFlag", "setCampaignFlagOnSafeReturn", "campaignFlag"].includes(type)) add("value", "Value");
-  if ("resultText" in object || ["randomChance", "conditional"].includes(type)) add("resultText", "Result text");
-  if ("elseResultText" in object || type === "randomChance") add("elseResultText", "Else result text");
+  if ("resultText" in object || ["randomChance", "conditional"].includes(type)) add("resultText", type === "randomChance" ? "Success result text" : "Result text");
+  if ("elseResultText" in object || type === "randomChance") add("elseResultText", type === "randomChance" ? "Failure result text" : "Else result text");
   if ("lockedLabel" in object) add("lockedLabel", "Locked label");
   if ("source" in object) add("source", "Source");
   return fields;
@@ -1120,8 +1120,9 @@ function renderResolutionItemList(object, objectPath) {
 }
 
 function renderResolutionOptions(object, objectPath) {
-  if (!Array.isArray(object.options)) return "";
-  return `<div class="resolution-options"><div class="nested-heading"><span>Random options <span class="panel-count">${object.options.length}</span></span><button type="button" class="small-button" data-action="add-resolution-option" data-resolution-path="${escapeHtml(objectPath)}">Add option</button></div>${object.options.map((option, index) => {
+  if (object.type !== "randomOne" && !Array.isArray(object.options)) return "";
+  const options = Array.isArray(object.options) ? object.options : [];
+  return `<div class="resolution-options"><div class="nested-heading"><span>Random options <span class="panel-count">${options.length}</span></span><button type="button" class="small-button" data-action="add-resolution-option" data-resolution-path="${escapeHtml(objectPath)}">Add option</button></div>${options.map((option, index) => {
     const optionPath = `${objectPath}.options[${index}]`;
     return `<div class="resolution-option"><div class="object-top"><strong>Option ${index + 1}</strong><button type="button" class="small-button danger-outline" data-action="remove-resolution-option" data-resolution-path="${escapeHtml(objectPath)}" data-resolution-option-index="${index}">Remove</button></div><div class="form-grid"><label>Weight<input type="number" step="any" data-resolution-field="weight" data-resolution-path="${escapeHtml(optionPath)}" value="${escapeHtml(option?.weight ?? "")}"></label><label class="wide">Result text<textarea data-resolution-field="resultText" data-resolution-path="${escapeHtml(optionPath)}">${escapeHtml(option?.resultText || "")}</textarea></label><label class="wide">Else result text<textarea data-resolution-field="elseResultText" data-resolution-path="${escapeHtml(optionPath)}">${escapeHtml(option?.elseResultText || "")}</textarea></label></div>${renderObjectCollection("Option requirements", option?.requirements, "resolution-requirements", "", -1, optionPath, true)}${renderObjectCollection("Option effects", option?.effects, "resolution-effects", "", -1, optionPath, true)}${renderObjectCollection("Option else effects", option?.elseEffects, "resolution-elseEffects", "", -1, optionPath, true)}</div>`;
   }).join("") || `<p class="hint">No options. Add an option to author the random branch.</p>`}</div>`;
@@ -1131,8 +1132,20 @@ function renderResolutionNestedCollections(object, objectPath) {
   if (!objectPath) return "";
   const nested = [];
   if (Array.isArray(object.requirements)) nested.push(renderObjectCollection("Nested requirements", object.requirements, "resolution-requirements", "", -1, objectPath, true));
-  if (Array.isArray(object.effects)) nested.push(renderObjectCollection("Nested effects", object.effects, "resolution-effects", "", -1, objectPath, true));
-  if (Array.isArray(object.elseEffects)) nested.push(renderObjectCollection("Else effects", object.elseEffects, "resolution-elseEffects", "", -1, objectPath, true));
+  const branchLabels = object.type === "randomChance"
+    ? { effects: "On Success", elseEffects: "On Failure" }
+    : object.type === "conditional"
+      ? { effects: "If True", elseEffects: "If False" }
+      : { effects: "Nested effects", elseEffects: "Else effects" };
+  const branchTypes = new Set(["randomChance", "conditional"]);
+  ["effects", "elseEffects"].forEach((collectionName) => {
+    if (Array.isArray(object[collectionName]) || branchTypes.has(object.type)) {
+      nested.push(renderObjectCollection(branchLabels[collectionName], object[collectionName], `resolution-${collectionName}`, "", -1, objectPath, true));
+    }
+  });
+  if (object.type === "randomChance") {
+    nested.unshift(`<p class="hint random-chance-hint">Effects in On Success run when the chance succeeds. On Failure is optional.</p>`);
+  }
   if (object.secondaryOutcome && typeof object.secondaryOutcome === "object") {
     const secondaryPath = `${objectPath}.secondaryOutcome`;
     if (Array.isArray(object.secondaryOutcome.effects)) nested.push(renderObjectCollection("Secondary outcome effects", object.secondaryOutcome.effects, "resolution-effects", "", -1, secondaryPath, true));
@@ -3822,6 +3835,10 @@ function handleInput(input) {
     else collection[index][input.dataset.objectField] = value;
     if (input.dataset.objectField === "type" && ["anyOf", "allOf"].includes(value)) {
       collection[index].requirements ||= [];
+    }
+    if (input.dataset.objectField === "type" && value === "randomChance"
+      && !Object.prototype.hasOwnProperty.call(collection[index], "chance")) {
+      collection[index].chance = 0.5;
     }
     markDirty();
     if (input.dataset.objectField === "type") render();

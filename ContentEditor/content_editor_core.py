@@ -1061,6 +1061,8 @@ def _validate_resolution_outcome(outcome: Any, known: dict[str, list[str]], sour
     if outcome_type == "rollLootTable":
         if not isinstance(outcome.get("tableId"), str) or not outcome.get("tableId"):
             errors.append(_issue("error", "rollLootTable requires a tableId.", source, f"{path}.tableId"))
+        elif outcome.get("tableId") not in set(known.get("lootTables", [])):
+            errors.append(_issue("error", f"Unknown loot table ID {outcome['tableId']!r}.", source, f"{path}.tableId"))
         if "rolls" in outcome:
             _validate_positive_integer(outcome.get("rolls"), "Loot table rolls", source, f"{path}.rolls", errors)
     elif outcome_type in {"gainUnsecuredItem", "gainUniqueUnsecuredItem", "gainRandomUnsecuredItem", "consumeExpeditionItem"}:
@@ -1089,6 +1091,12 @@ def _validate_resolution_outcome(outcome: Any, known: dict[str, list[str]], sour
         chance = outcome.get("chance")
         if not _is_number(chance) or not 0 <= chance <= 1:
             errors.append(_issue("error", "Chance must be between 0 and 1.", source, f"{path}.chance"))
+        success_effects = outcome.get("effects")
+        failure_effects = outcome.get("elseEffects")
+        has_success_effects = isinstance(success_effects, list) and bool(success_effects)
+        has_failure_effects = isinstance(failure_effects, list) and bool(failure_effects)
+        if not has_success_effects and not has_failure_effects:
+            errors.append(_issue("error", "randomChance must contain at least one success or failure effect.", source, path))
     elif outcome_type == "randomOne":
         options = outcome.get("options")
         if not isinstance(options, list) or not options:
@@ -2868,6 +2876,43 @@ def merged_state(current: dict[str, Any], incoming: dict[str, Any]) -> dict[str,
     return result
 
 
+def _validation_issue_key(issue: dict[str, str]) -> tuple[str, str, str, str]:
+    return (
+        issue.get("severity", ""),
+        issue.get("message", ""),
+        issue.get("source", ""),
+        issue.get("path", ""),
+    )
+
+
+def _validation_issue_scope(issue: dict[str, str]) -> tuple[str, str | None] | None:
+    source = issue.get("source", "")
+    prefixes = {
+        "encounter:": "encounters",
+        "campEvent:": "campEvents",
+        "dialogue:": "dialogues",
+        "npc:": "npcs",
+        "destination:": "destinations",
+        "location:": "locations",
+        "expedition:": "expeditions",
+        "recipe:": "recipes",
+        "material:": "materials",
+        "craftingProvider:": "craftingProviders",
+        "shop:": "shops",
+        "item:": "items",
+        "combat:": "combats",
+        "enemyDefinition:": "enemyDefinitions",
+        "enemyAction:": "enemyActions",
+        "ability:": "abilities",
+        "injury:": "injuries",
+        "lootTable:": "lootTables",
+        "companion:": "companions",
+    }
+    for prefix, category in prefixes.items():
+        if source.startswith(prefix):
+            return category, source[len(prefix):]
+    return (source, None) if source in CONTENT_FILES else None
+
 def _line_indent(source: str, position: int, fallback: int = 2) -> int:
     line_start = source.rfind("\n", 0, position) + 1
     prefix = source[line_start:position]
@@ -3032,10 +3077,23 @@ def save_catalog(project_root: Path, incoming: dict[str, Any], expected_hashes: 
 
     merged = merged_state(current, incoming)
     validation = validate_catalog(merged, current["known"], current["references"], project_root=project_root)
-    if validation["errors"]:
-        raise ValueError(json.dumps(validation))
-
     changed_categories = [category for category in CONTENT_FILES if category in incoming and incoming[category] != current[category]]
+    current_error_keys = {_validation_issue_key(issue) for issue in current["validation"].get("errors", [])}
+    blocking_errors = [
+        issue for issue in validation["errors"]
+        if _validation_issue_key(issue) not in current_error_keys
+        or (
+            (scope := _validation_issue_scope(issue))
+            and scope[0] in changed_categories
+            and (
+                scope[1] is None
+                or current.get(scope[0], {}).get(scope[1]) != incoming.get(scope[0], {}).get(scope[1])
+            )
+        )
+    ]
+    if blocking_errors:
+        raise ValueError(json.dumps({"errors": blocking_errors, "warnings": validation["warnings"]}))
+
     results = []
     backup_dir = backup_dir or (Path(__file__).resolve().parent / ".backups")
     updates_by_file: dict[str, dict[str, Any]] = {}

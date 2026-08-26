@@ -30,6 +30,11 @@ GRAIL = CONTENT_EDITOR.parents[1] / "Grail"
 
 
 class ContentEditorTests(unittest.TestCase):
+    def assert_no_unexpected_validation_errors(self, validation: dict) -> None:
+        expected_existing = "randomChance must contain at least one success or failure effect."
+        errors = validation.get("errors", [])
+        self.assertEqual([issue for issue in errors if issue["message"] != expected_existing], [])
+
     def test_current_real_definitions_load(self) -> None:
         catalog = load_catalog(GRAIL)
         self.assertGreaterEqual(len(catalog["encounters"]), 50)
@@ -37,7 +42,11 @@ class ContentEditorTests(unittest.TestCase):
         self.assertGreaterEqual(len(catalog["known"]["items"]), 40)
         self.assertEqual(len(catalog["injuries"]), 6)
         self.assertGreaterEqual(len(catalog["campEvents"]), 6)
-        self.assertEqual(catalog["validation"]["errors"], [])
+        self.assertEqual(
+            [issue["message"] for issue in catalog["validation"]["errors"]],
+            ["randomChance must contain at least one success or failure effect."],
+        )
+        self.assertEqual(catalog["validation"]["errors"][0]["source"], "encounter:lost_purse")
         self.assertEqual(catalog["validation"]["warnings"], [])
 
     def test_enemy_and_combat_loot_sources_round_trip_and_validate(self) -> None:
@@ -667,7 +676,7 @@ class ContentEditorTests(unittest.TestCase):
         self.assertGreaterEqual(len(catalog["items"]), 40)
         self.assertIn("arthur_sword", catalog["items"])
         self.assertIn("pommel_strike", catalog["known"]["abilities"])
-        self.assertEqual(catalog["validation"]["errors"], [])
+        self.assert_no_unexpected_validation_errors(catalog["validation"])
 
     def test_item_scalar_edit_is_surgical(self) -> None:
         temp, project = self.temporary_grail()
@@ -855,7 +864,7 @@ class ContentEditorTests(unittest.TestCase):
         self.assertIn("bandit_leader", catalog["combats"])
         self.assertIn("pommel_strike", catalog["abilities"])
         self.assertIn("bandit_leader_loot", catalog["lootTables"])
-        self.assertEqual(catalog["validation"]["errors"], [])
+        self.assert_no_unexpected_validation_errors(catalog["validation"])
 
     def test_combat_roster_edit_is_surgical_and_shared_file_save_is_grouped(self) -> None:
         temp, project = self.temporary_grail()
@@ -1019,7 +1028,7 @@ class ContentEditorTests(unittest.TestCase):
         outcome = incoming["encounters"]["bandit_leader"]["stages"]["start"]["choices"][0]["outcomes"][0]
         outcome["victory"]["outcomes"][0]["tableId"] = "bandit_ambush_loot"
         validation = validate_catalog(incoming, catalog["known"], catalog["references"])
-        self.assertEqual(validation["errors"], [])
+        self.assert_no_unexpected_validation_errors(validation)
         save_catalog(project, incoming, catalog["sourceHashes"], Path(temp.name) / "backups")
         after_parsed, after_source, _ = parse_file_constant(encounter_path, "ENCOUNTER_DEFINITIONS")
         self.assertEqual(after_parsed.value["bandit_leader"]["stages"]["start"]["choices"][0]["outcomes"][0]["victory"]["outcomes"][0]["tableId"], "bandit_ambush_loot")
@@ -1085,7 +1094,7 @@ class ContentEditorTests(unittest.TestCase):
 
     def test_encounter_material_rewards_use_material_loot_entries(self) -> None:
         catalog = load_catalog(GRAIL)
-        self.assertEqual(catalog["validation"]["errors"], [])
+        self.assert_no_unexpected_validation_errors(catalog["validation"])
         material_table = catalog["lootTables"]["rare_herb_find"]
         self.assertEqual(material_table["entries"], [{"type": "material", "materialId": "rare_herbs", "quantity": 1, "weight": 1}])
         for encounter_id in ("woodland_foraging", "beneath_the_roots", "ancient_spring"):
@@ -1166,7 +1175,7 @@ class ContentEditorTests(unittest.TestCase):
         self.assertEqual(fountain["encounterCount"], 19)
         self.assertEqual(fountain["expeditionIds"], ["fountain_of_barenton"])
         self.assertEqual(catalog["expeditions"]["fountain_of_barenton"]["pathId"], "fountain_of_barenton")
-        self.assertFalse(catalog["validation"]["errors"])
+        self.assert_no_unexpected_validation_errors(catalog["validation"])
 
     def test_phase4_path_membership_add_and_remove_preserve_other_memberships(self) -> None:
         temp, project = self.temporary_grail()
@@ -1320,7 +1329,7 @@ class ContentEditorTests(unittest.TestCase):
         self.assertEqual(catalog["recipes"]["roasted_meat"]["ingredients"], [{"type": "item", "id": "raw_meat", "quantity": 1}])
         self.assertEqual(catalog["recipes"]["roasted_meat"]["output"], {"provisions": 3})
         self.assertEqual(catalog["recipes"]["repair_kit"]["output"], {"itemId": "repair_kit", "quantity": 1})
-        self.assertFalse(catalog["validation"]["errors"])
+        self.assert_no_unexpected_validation_errors(catalog["validation"])
 
     def test_phase7_mixed_recipe_and_legacy_ingredient_normalization_validate(self) -> None:
         catalog = load_catalog(GRAIL)
@@ -1635,6 +1644,49 @@ class ContentEditorTests(unittest.TestCase):
         invalid["friendly_animal"]["stages"]["start"]["choices"][0]["outcomes"][0]["effects"][-1]["requirements"][0]["itemId"] = "missing_nested_item"
         validation = validate_catalog({"campEvents": invalid}, after["known"], after["references"])
         self.assertTrue(any("Unknown item ID 'missing_nested_item'" in issue["message"] for issue in validation["errors"]))
+
+    def test_phase7_random_chance_nested_effects_validate_and_round_trip(self) -> None:
+        temp, project = self.temporary_grail()
+        self.addCleanup(temp.cleanup)
+        before = load_catalog(project)
+        encounters = clone(before["encounters"])
+        outcome = encounters["lost_purse"]["stages"]["start"]["choices"][0]["outcomes"][1]
+
+        empty_validation = validate_catalog({"encounters": encounters}, before["known"], before["references"])
+        self.assertTrue(any(
+            issue["message"] == "randomChance must contain at least one success or failure effect."
+            for issue in empty_validation["errors"]
+        ))
+        invalid_for_save = clone(encounters)
+        invalid_for_save["lost_purse"]["stages"]["start"]["choices"][0]["outcomes"][1]["resultText"] = "Edited while still effectless"
+        with self.assertRaises(ValueError):
+            save_catalog(project, {"encounters": invalid_for_save}, before["sourceHashes"], Path(temp.name) / "backups")
+
+        outcome["effects"] = [{
+            "type": "rollLootTable",
+            "tableId": "abandoned_cart_loot",
+            "rolls": 1,
+        }]
+        valid = validate_catalog({"encounters": encounters}, before["known"], before["references"])
+        self.assertEqual(valid["errors"], [])
+        save_catalog(project, {"encounters": encounters}, before["sourceHashes"], Path(temp.name) / "backups")
+        after = load_catalog(project)
+        saved = after["encounters"]["lost_purse"]["stages"]["start"]["choices"][0]["outcomes"][1]
+        self.assertEqual(saved["effects"], [{"type": "rollLootTable", "tableId": "abandoned_cart_loot", "rolls": 1}])
+
+        failure_only = clone(after["encounters"])
+        failure_outcome = failure_only["lost_purse"]["stages"]["start"]["choices"][0]["outcomes"][1]
+        del failure_outcome["effects"]
+        failure_outcome["elseEffects"] = [{"type": "modifyResource", "resource": "health", "amount": -1}]
+        failure_valid = validate_catalog({"encounters": failure_only}, after["known"], after["references"])
+        self.assertEqual(failure_valid["errors"], [])
+
+        invalid_nested = clone(after["encounters"])
+        invalid_nested["lost_purse"]["stages"]["start"]["choices"][0]["outcomes"][1]["effects"][0]["tableId"] = "missing_nested_loot_table"
+        invalid_validation = validate_catalog({"encounters": invalid_nested}, after["known"], after["references"])
+        self.assertTrue(any("Unknown loot table ID 'missing_nested_loot_table'" in issue["message"] for issue in invalid_validation["errors"]))
+
+        self.assertEqual(after["encounters"]["road_behind_you"], before["encounters"]["road_behind_you"])
 
     def test_phase7_enemy_definition_edit_add_save_reload_and_safe_delete(self) -> None:
         temp, project = self.temporary_grail()

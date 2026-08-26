@@ -495,6 +495,99 @@ class Phase6FilterBrowserTests(unittest.TestCase):
               row.dataset.collectionName === 'requirements' && row.dataset.parentPath?.includes('victory.outcomes'))
         """))
 
+    def test_phase7_random_chance_branches_are_authorable_in_shared_effect_contexts(self) -> None:
+        self.click_category("encounters")
+        self.browser.evaluate("document.querySelector('[data-action=select][data-id=lost_purse]').click()")
+        self.assertTrue(self.browser.evaluate("""
+            (() => {
+              const outcome = state.draft.stages.start.choices[0].outcomes[1];
+              const row = [...document.querySelectorAll('[data-object-row]')].find(node =>
+                node.querySelector('select[data-object-field="type"]')?.value === 'randomChance');
+              return Boolean(!Array.isArray(outcome.effects)
+                && !Array.isArray(outcome.elseEffects)
+                && row?.innerText.includes('On Success')
+                && row?.innerText.includes('On Failure')
+                && row?.querySelector('button[data-action="add-object"][data-collection-name="effects"]')
+                && row?.querySelector('button[data-action="add-object"][data-collection-name="elseEffects"]'));
+            })()
+        """))
+        self.browser.evaluate("""
+            (() => {
+              const row = [...document.querySelectorAll('[data-object-row]')].find(node =>
+                node.querySelector('select[data-object-field="type"]')?.value === 'randomChance');
+              row.querySelector('button[data-action="add-object"][data-collection-name="effects"]').click();
+            })()
+        """)
+        self.browser.evaluate("""
+            (() => {
+              const row = [...document.querySelectorAll('[data-object-row]')].find(node =>
+                node.dataset.collectionName === 'effects'
+                && node.querySelector('select[data-object-field="type"]')?.value === 'modifyResource');
+              const type = row.querySelector('select[data-object-field="type"]');
+              type.value = 'rollLootTable';
+              type.dispatchEvent(new Event('change', {bubbles: true}));
+              const updatedRow = [...document.querySelectorAll('[data-object-row]')].find(node =>
+                node.dataset.collectionName === 'effects'
+                && node.querySelector('select[data-object-field="type"]')?.value === 'rollLootTable');
+              const table = updatedRow.querySelector('[data-object-field="tableId"]');
+              table.value = 'abandoned_cart_loot';
+              table.dispatchEvent(new Event('change', {bubbles: true}));
+              const rolls = updatedRow.querySelector('[data-object-field="rolls"]');
+              rolls.value = '1';
+              rolls.dispatchEvent(new Event('change', {bubbles: true}));
+            })()
+        """)
+        self.browser.evaluate("""
+            (() => {
+              const row = [...document.querySelectorAll('[data-object-row]')].find(node =>
+                node.querySelector('select[data-object-field="type"]')?.value === 'randomChance');
+              row.querySelector('button[data-action="add-object"][data-collection-name="elseEffects"]').click();
+            })()
+        """)
+        self.assertTrue(self.browser.evaluate("""
+            (() => {
+              const outcome = state.draft.stages.start.choices[0].outcomes[1];
+              return outcome.chance === 0.25
+                && outcome.effects?.[0]?.type === 'rollLootTable'
+                && outcome.effects[0].tableId === 'abandoned_cart_loot'
+                && outcome.effects[0].rolls === 1
+                && outcome.elseEffects?.[0]?.type === 'modifyResource';
+            })()
+        """))
+
+        self.click_category("campEvents")
+        self.browser.evaluate("document.querySelector('[data-action=select][data-id=friendly_animal]').click()")
+        self.assertTrue(self.browser.evaluate("""
+            (() => {
+              const row = [...document.querySelectorAll('[data-object-row]')].find(node =>
+                node.querySelector('select[data-object-field="type"]')?.value === 'randomChance');
+              return Boolean(row?.innerText.includes('On Success')
+                && row?.querySelector('button[data-action="add-object"][data-collection-name="elseEffects"]'));
+            })()
+        """))
+
+        self.click_category("dialogues")
+        self.browser.evaluate("document.querySelector('[data-action=select][data-id=reeve_after_intro]').click()")
+        self.browser.evaluate("document.querySelector('[data-action=add-object][data-owner=dialogue-effects]').click()")
+        self.browser.evaluate("""
+            (() => {
+              const type = [...document.querySelectorAll('[data-object-row] select[data-object-field="type"]')]
+                .find(select => select.value === 'modifyResource');
+              type.value = 'randomChance';
+              type.dispatchEvent(new Event('change', {bubbles: true}));
+            })()
+        """)
+        self.assertTrue(self.browser.evaluate("""
+            (() => {
+              const row = [...document.querySelectorAll('[data-object-row]')].find(node =>
+                node.querySelector('select[data-object-field="type"]')?.value === 'randomChance'
+                && node.dataset.parentPath?.startsWith('nodes.'));
+              return Boolean(row?.querySelector('[data-object-field="chance"]')?.value === '0.5'
+                && row?.querySelector('button[data-action="add-object"][data-collection-name="effects"]')
+                && row?.querySelector('button[data-action="add-object"][data-collection-name="elseEffects"]'));
+            })()
+        """))
+
     def test_phase7_injury_and_camp_event_editors_expose_live_nested_data(self) -> None:
         self.click_category("injuries")
         self.browser.evaluate("document.querySelector('[data-action=select][data-id=poisoned]').click()")
