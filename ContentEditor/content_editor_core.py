@@ -476,6 +476,7 @@ CONTENT_FILES = {
     "enemyDefinitions": ("js/combat-data.js", "COMBAT_ENEMY_DEFINITIONS"),
     "enemyActions": ("js/combat-data.js", "COMBAT_ENEMY_ACTION_DEFINITIONS"),
     "lootTables": ("js/loot-data.js", "LOOT_TABLE_DEFINITIONS"),
+    "returnRewards": ("js/loot-data.js", "EXPEDITION_RETURN_REWARD_TIERS"),
 }
 
 ASSET_IMAGE_CATEGORIES = ("location", "town", "expedition", "encounter", "combat", "combat_scene", "portrait", "ui")
@@ -865,6 +866,7 @@ def load_catalog(project_root: Path) -> dict[str, Any]:
         "enemyDefinitions": values["enemyDefinitions"],
         "enemyActions": values["enemyActions"],
         "lootTables": values["lootTables"],
+        "returnRewards": values["returnRewards"],
         "known": {key: sorted(set(items)) for key, items in known.items()},
         "campEventTables": reference_values.get("campEventTables", {}),
         "paths": build_path_index(values["encounters"], values["expeditions"]),
@@ -2218,6 +2220,61 @@ def _validate_loot_tables(tables: Any, known: dict[str, list[str]], errors: list
                 errors.append(_issue("error", "Loot table cannot reference itself.", f"lootTable:{table_id}", f"entries[{index}].tableId"))
 
 
+def _validate_return_reward_tiers(tiers: Any, known: dict[str, list[str]], errors: list[dict[str, str]]) -> None:
+    """Validate the ordered expedition return reward tier array."""
+    source = "returnRewards"
+    if not isinstance(tiers, list):
+        errors.append(_issue("error", "Return reward tiers must be an array.", source))
+        return
+
+    table_ids = set(known.get("lootTables", []))
+    seen_ids: set[str] = set()
+    previous_distance: int | float | None = None
+    for index, tier in enumerate(tiers):
+        tier_path = f"tiers[{index}]"
+        if not isinstance(tier, dict):
+            errors.append(_issue("error", "Return reward tier must be an object.", source, tier_path))
+            continue
+
+        tier_id = tier.get("id")
+        if not isinstance(tier_id, str) or not tier_id:
+            errors.append(_issue("error", "Return reward tier ID is required.", source, f"{tier_path}.id"))
+        elif tier_id in seen_ids:
+            errors.append(_issue("error", f"Duplicate return reward tier ID {tier_id!r}.", source, f"{tier_path}.id"))
+        else:
+            seen_ids.add(tier_id)
+
+        minimum_distance = tier.get("minimumDistance")
+        if not _is_number(minimum_distance) or minimum_distance < 0:
+            errors.append(_issue("error", "Return reward minimumDistance must be non-negative.", source, f"{tier_path}.minimumDistance"))
+        elif previous_distance is not None and minimum_distance < previous_distance:
+            errors.append(_issue("error", "Return reward tiers must be sorted by ascending minimumDistance.", source, f"{tier_path}.minimumDistance"))
+        if _is_number(minimum_distance):
+            previous_distance = minimum_distance
+
+        sources = tier.get("sources")
+        if not isinstance(sources, list):
+            errors.append(_issue("error", "Return reward tier sources must be an array.", source, f"{tier_path}.sources"))
+            continue
+        for source_index, reward_source in enumerate(sources):
+            source_path = f"{tier_path}.sources[{source_index}]"
+            if not isinstance(reward_source, dict):
+                errors.append(_issue("error", "Return reward source must be an object.", source, source_path))
+                continue
+            table_id = reward_source.get("tableId")
+            if not isinstance(table_id, str) or not table_id:
+                errors.append(_issue("error", "Return reward source tableId is required.", source, f"{source_path}.tableId"))
+            elif table_id not in table_ids:
+                errors.append(_issue("error", f"Return reward source references unknown loot table {table_id!r}.", source, f"{source_path}.tableId"))
+            rolls = reward_source.get("rolls")
+            if not isinstance(rolls, int) or isinstance(rolls, bool) or rolls < 1:
+                errors.append(_issue("error", "Return reward source rolls must be a positive integer.", source, f"{source_path}.rolls"))
+            if "chance" in reward_source:
+                chance = reward_source.get("chance")
+                if not _is_number(chance) or not 0 <= chance <= 1:
+                    errors.append(_issue("error", "Return reward source chance must be a number from 0 to 1.", source, f"{source_path}.chance"))
+
+
 def _validate_expeditions(expeditions: Any, known: dict[str, list[str]], errors: list[dict[str, str]]) -> None:
     """Validate the actual fields in EXPEDITION_DEFINITIONS."""
     if not isinstance(expeditions, dict):
@@ -2822,6 +2879,8 @@ def validate_catalog(values: dict[str, Any], known: dict[str, list[str]], refere
         _validate_abilities(values.get("abilities"), effective_known, errors)
     if "lootTables" in values:
         _validate_loot_tables(values.get("lootTables"), effective_known, errors)
+    if "returnRewards" in values:
+        _validate_return_reward_tiers(values.get("returnRewards"), effective_known, errors)
     if "imageAssets" in values:
         _validate_asset_map(values.get("imageAssets"), "image", project_root, errors)
     if "audioAssets" in values:
@@ -2980,9 +3039,17 @@ def _insert_property(source: str, constant_name: str, key: str, value: Any, newl
     return source[:parsed.value_start + 1] + newline + rendered + newline + source[object_end:]
 
 
-def _surgical_source_update(source: str, constant_name: str, incoming: dict[str, Any], newline: str) -> str:
+def _surgical_source_update(source: str, constant_name: str, incoming: Any, newline: str) -> str:
     parsed = extract_constant(source, constant_name)
     current = parsed.value
+    if isinstance(current, list):
+        if not isinstance(incoming, list):
+            raise JsParseError(f"{constant_name} must remain an array")
+        # Ordered arrays have no stable property keys to patch individually.
+        # Replace only the literal span, keeping the surrounding declaration
+        # and every other constant in the source file byte-for-byte intact.
+        indent = _line_indent(source, parsed.value_start)
+        return _apply_source_edits(source, [(parsed.value_start, parsed.value_end, serialize_js(incoming, indent=indent, newline=newline))])
     if not isinstance(current, dict):
         raise JsParseError(f"{constant_name} must be an object definition map")
 

@@ -41,10 +41,11 @@ const CONTENT_CATEGORIES = [
   ["abilities", "Abilities"],
   ["combatStatuses", "Combat Statuses"],
   ["lootTables", "Loot Tables"],
+  ["returnRewards", "Return Rewards"],
 ].sort(([, leftLabel], [, rightLabel]) => leftLabel.localeCompare(rightLabel));
 
 const EDITABLE_REFERENCE_SOURCES = new Set([
-  "playerCharacter", "startingState", "companions", "encounters", "injuries", "campEvents", "dialogues", "expeditions", "recipes", "materials", "craftingProviders", "shops", "npcs", "destinations", "locations", "items", "combats", "abilities", "combatStatuses", "enemyDefinitions", "enemyActions", "lootTables",
+  "playerCharacter", "startingState", "companions", "encounters", "injuries", "campEvents", "dialogues", "expeditions", "recipes", "materials", "craftingProviders", "shops", "npcs", "destinations", "locations", "items", "combats", "abilities", "combatStatuses", "enemyDefinitions", "enemyActions", "lootTables", "returnRewards",
 ]);
 
 const state = {
@@ -1459,7 +1460,7 @@ function liveReferences() {
   if (!state.catalog) return {};
   const references = {};
   const snapshot = draftSnapshot();
-  ["playerCharacter", "startingState", "companions", "encounters", "injuries", "campEvents", "dialogues", "expeditions", "recipes", "materials", "craftingProviders", "shops", "npcs", "destinations", "locations", "items", "combats", "abilities", "enemyDefinitions", "enemyActions", "lootTables"].forEach((source) => {
+  ["playerCharacter", "startingState", "companions", "encounters", "injuries", "campEvents", "dialogues", "expeditions", "recipes", "materials", "craftingProviders", "shops", "npcs", "destinations", "locations", "items", "combats", "abilities", "enemyDefinitions", "enemyActions", "lootTables", "returnRewards"].forEach((source) => {
     collectClientReferences(snapshot[source], source, references);
   });
   Object.entries(state.catalog.references || {}).forEach(([type, entries]) => {
@@ -1837,6 +1838,35 @@ function renderLootSourceRows(sources, field, emptyText) {
       <div class="form-grid three"><label class="wide">Loot table<select data-loot-source-field="tableId" data-loot-source-collection="${field}" data-loot-source-index="${index}">${lootTableSourceOptions(source?.tableId)}</select></label><label>Rolls<input type="number" min="1" step="1" data-loot-source-field="rolls" data-loot-source-collection="${field}" data-loot-source-index="${index}" value="${escapeHtml(source?.rolls ?? 1)}"></label><label>Chance<input type="number" min="0" max="1" step="0.05" data-loot-source-field="chance" data-loot-source-collection="${field}" data-loot-source-index="${index}" value="${escapeHtml(source?.chance ?? "")}" placeholder="1"></label></div>
     </div>`;
   }).join("") || `<p class="hint">${escapeHtml(emptyText)}</p>`;
+}
+
+function renderReturnRewardSourceRows(sources) {
+  const entries = Array.isArray(sources) ? sources : [];
+  return entries.map((source, index) => {
+    const table = state.catalog?.lootTables?.[source?.tableId];
+    const tableStatus = table
+      ? `${Array.isArray(table.entries) ? table.entries.length : 0} possible entr${table.entries?.length === 1 ? "y" : "ies"}`
+      : source?.tableId ? "Referenced table is missing" : "Choose a table";
+    const openTable = table && source?.tableId
+      ? `<button type="button" class="small-button inline-open" data-action="open-reference" data-reference-category="lootTables" data-reference-id="${escapeHtml(source.tableId)}">Open Loot Table</button>`
+      : "";
+    return `<div class="section-card loot-source-card" data-return-reward-source-row>
+      <div class="loot-entry-heading"><strong>Source ${index + 1}</strong><span class="hint">${escapeHtml(tableStatus)}</span>${openTable}<button type="button" class="small-button" data-action="move-return-reward-source" data-return-reward-source-index="${index}" data-direction="up"${index === 0 ? " disabled" : ""}>↑</button><button type="button" class="small-button" data-action="move-return-reward-source" data-return-reward-source-index="${index}" data-direction="down"${index === entries.length - 1 ? " disabled" : ""}>↓</button><button type="button" class="small-button danger-outline" data-action="remove-return-reward-source" data-return-reward-source-index="${index}">Remove</button></div>
+      <div class="form-grid three"><label class="wide">Loot table<select data-return-reward-source-field="tableId" data-return-reward-source-index="${index}">${lootTableSourceOptions(source?.tableId)}</select></label><label>Rolls<input type="number" min="1" step="1" data-return-reward-source-field="rolls" data-return-reward-source-index="${index}" value="${escapeHtml(source?.rolls ?? 1)}"></label><label>Chance<input type="number" min="0" max="1" step="0.05" data-return-reward-source-field="chance" data-return-reward-source-index="${index}" value="${escapeHtml(source?.chance ?? "")}" placeholder="optional"></label></div>
+    </div>`;
+  }).join("") || `<p class="hint">No reward sources. Add one to make this tier grant loot.</p>`;
+}
+
+function renderReturnRewards() {
+  const tier = state.draft;
+  if (!tier) return `<div class="empty-state">Choose a return reward tier to edit.</div>`;
+  const sources = Array.isArray(tier.sources) ? tier.sources : [];
+  const tierIndex = (state.catalog.returnRewards || []).findIndex((entry) => entry?.id === state.originalSelectedId);
+  const tierCount = (state.catalog.returnRewards || []).length;
+  return `<div class="editor-title"><div><h2>${escapeHtml(tier.id || "New return reward tier")}</h2><p>${sources.length} reward source${sources.length === 1 ? "" : "s"}</p></div><span class="schema-badge">Return reward tier schema</span></div>
+    <section class="section"><div class="section-heading"><div><h3>Tier metadata</h3><p>Tiers are evaluated in ascending minimum distance order.</p></div><div class="button-row"><button type="button" class="small-button" data-action="move-return-reward-tier" data-direction="up"${tierIndex <= 0 ? " disabled" : ""}>↑</button><button type="button" class="small-button" data-action="move-return-reward-tier" data-direction="down"${tierIndex < 0 || tierIndex >= tierCount - 1 ? " disabled" : ""}>↓</button></div></div><div class="form-grid"><label>Tier ID<input data-return-reward-tier-field="id" value="${escapeHtml(tier.id || "")}"></label><label>Minimum Distance<input type="number" min="0" step="1" data-return-reward-tier-field="minimumDistance" value="${escapeHtml(tier.minimumDistance ?? "")}"></label></div></section>
+    <section class="section"><div class="section-heading"><div><h3>Reward Sources</h3><p>Each source rolls a loot table. Chance is optional and must be between 0 and 1.</p></div><button type="button" class="small-button" data-action="add-return-reward-source">Add source</button></div>${renderReturnRewardSourceRows(sources)}</section>
+    <section class="section"><details><summary>Raw return reward JSON (advanced)</summary><textarea id="raw-json" class="raw-editor">${jsonText(tier)}</textarea><div class="button-row"><button type="button" class="small-button" data-action="apply-raw">Apply raw JSON</button></div></details></section>`;
 }
 
 const characterPreviewInstances = new Set();
@@ -2711,6 +2741,20 @@ function currentEntries() {
     const id = state.category === "playerCharacter" ? singleton?.id || "arthur" : "startingState";
     return singleton ? { [id]: singleton } : {};
   }
+  if (state.category === "returnRewards") {
+    const entries = Object.fromEntries((state.catalog.returnRewards || []).map((tier, index) => [tier?.id || `__invalid_tier_${index}`, tier]));
+    if (state.draft) {
+      const originalIndex = (state.catalog.returnRewards || []).findIndex((tier) => tier?.id === state.originalSelectedId);
+      const draftId = state.draft.id || state.originalSelectedId;
+      if (originalIndex >= 0) {
+        delete entries[state.originalSelectedId];
+        entries[draftId] = state.draft;
+      } else if (!Object.prototype.hasOwnProperty.call(entries, draftId)) {
+        entries[draftId] = state.draft;
+      }
+    }
+    return entries;
+  }
   const entries = { ...state.catalog[state.category] };
   if (state.draft && !["paths", "imageAssets", "audioAssets"].includes(state.category)) {
     delete entries[state.originalSelectedId];
@@ -2724,6 +2768,8 @@ function currentEntries() {
 function categoryCount(category) {
   return ["playerCharacter", "startingState"].includes(category)
     ? (state.catalog?.[category] ? 1 : 0)
+    : category === "returnRewards"
+      ? (state.catalog?.returnRewards || []).length
     : Object.keys(state.catalog?.[category] || {}).length;
 }
 
@@ -2882,7 +2928,9 @@ function render() {
           : state.category === "abilities"
              ? renderAbility()
              : state.category === "combatStatuses"
-               ? renderCombatStatus()
+             ? renderCombatStatus()
+             : state.category === "returnRewards"
+               ? renderReturnRewards()
              : renderLootTable();
    if (state.navigationHistory.length) $("#editor-root").insertAdjacentHTML("afterbegin", renderNavigationControls());
    injectAssetEditors();
@@ -2957,6 +3005,7 @@ function draftSnapshot() {
     enemyDefinitions: clone(state.catalog.enemyDefinitions),
     enemyActions: clone(state.catalog.enemyActions),
     lootTables: clone(state.catalog.lootTables),
+    returnRewards: clone(state.catalog.returnRewards),
   };
   Object.values(snapshot.recipes || {}).forEach((recipe) => {
     if (!recipe || Array.isArray(recipe.ingredients)) return;
@@ -2965,6 +3014,11 @@ function draftSnapshot() {
   });
   if (state.draft && ["playerCharacter", "startingState"].includes(state.category)) {
     snapshot[state.category] = clone(state.draft);
+  } else if (state.draft && state.category === "returnRewards") {
+    const tiers = snapshot.returnRewards || [];
+    const originalIndex = tiers.findIndex((tier) => tier?.id === state.originalSelectedId);
+    if (originalIndex >= 0) tiers[originalIndex] = clone(state.draft);
+    else tiers.push(clone(state.draft));
   } else if (state.draft && !["paths", "imageAssets", "audioAssets"].includes(state.category)) {
     const map = snapshot[state.category];
     const draftId = state.draft.id || state.originalSelectedId;
@@ -3021,6 +3075,16 @@ function commitDraftToCatalog() {
     state.originalSelectedId = state.selectedId;
     return;
   }
+  if (state.category === "returnRewards") {
+    const tiers = state.catalog.returnRewards || (state.catalog.returnRewards = []);
+    const index = tiers.findIndex((tier) => tier?.id === state.originalSelectedId);
+    if (index >= 0) tiers[index] = clone(state.draft);
+    else tiers.push(clone(state.draft));
+    state.selectedId = state.draft.id || state.originalSelectedId;
+    state.originalSelectedId = state.selectedId;
+    state.draft = clone(tiers[index >= 0 ? index : tiers.length - 1]);
+    return;
+  }
   const map = state.catalog[state.category];
   const draftId = state.draft.id || state.originalSelectedId;
   delete map[state.originalSelectedId];
@@ -3035,7 +3099,9 @@ function selectEntry(id, discard = false) {
   if (state.draftDirty && state.category !== "paths" && !discard && !window.confirm("Discard unsaved changes?")) return;
   const entry = ["playerCharacter", "startingState"].includes(state.category)
     ? state.catalog[state.category]
-    : state.catalog[state.category]?.[id];
+    : state.category === "returnRewards"
+      ? state.catalog.returnRewards?.find((tier) => tier?.id === id)
+      : state.catalog[state.category]?.[id];
   if (!entry) return;
   state.selectedId = id;
   state.originalSelectedId = id;
@@ -3115,6 +3181,7 @@ function defaultEntry(category) {
     refreshBehavior: "refresh",
   };
   if (category === "lootTables") return { id: "new_loot_table", entries: [] };
+  if (category === "returnRewards") return { id: "new_return_reward_tier", minimumDistance: 0, sources: [] };
   if (category === "materials") return {
     id: "new_material",
     name: "New Material",
@@ -3189,6 +3256,20 @@ function uniqueId(base, map) {
 function addEntry() {
   if (["paths", "playerCharacter", "startingState"].includes(state.category)) return;
   commitDraftToCatalog();
+  if (state.category === "returnRewards") {
+    const tiers = state.catalog.returnRewards || (state.catalog.returnRewards = []);
+    const entry = defaultEntry(state.category);
+    entry.id = uniqueId(entry.id, Object.fromEntries(tiers.map((tier) => [tier?.id, true])));
+    const lastDistance = Number(tiers.at(-1)?.minimumDistance);
+    entry.minimumDistance = Number.isFinite(lastDistance) ? lastDistance + 1 : 0;
+    tiers.push(entry);
+    state.selectedId = entry.id;
+    state.originalSelectedId = entry.id;
+    state.draft = clone(entry);
+    markDirty();
+    render();
+    return;
+  }
   const map = state.catalog[state.category];
   const entry = defaultEntry(state.category);
   entry.id = uniqueId(entry.id, map);
@@ -3203,6 +3284,19 @@ function addEntry() {
 function duplicateEntry() {
   if (!state.draft || ["paths", "playerCharacter", "startingState"].includes(state.category)) return;
   commitDraftToCatalog();
+  if (state.category === "returnRewards") {
+    const tiers = state.catalog.returnRewards || (state.catalog.returnRewards = []);
+    const entry = clone(state.draft);
+    entry.id = uniqueId(`${entry.id || "tier"}_copy`, Object.fromEntries(tiers.map((tier) => [tier?.id, true])));
+    const sourceIndex = tiers.findIndex((tier) => tier?.id === state.originalSelectedId);
+    tiers.splice(sourceIndex + 1, 0, entry);
+    state.selectedId = entry.id;
+    state.originalSelectedId = entry.id;
+    state.draft = clone(entry);
+    markDirty();
+    render();
+    return;
+  }
   const map = state.catalog[state.category];
   const entry = clone(state.draft);
   entry.id = uniqueId(`${entry.id || "entry"}_copy`, map);
@@ -3224,6 +3318,21 @@ function duplicateEntry() {
 
 function deleteEntry() {
   if (!state.draft || !state.catalog || ["paths", "playerCharacter", "startingState"].includes(state.category)) return;
+  if (state.category === "returnRewards") {
+    const id = state.draft.id || state.originalSelectedId;
+    if (!window.confirm(`Delete ${id}? This is an in-memory deletion until you explicitly save.`)) return;
+    commitDraftToCatalog();
+    const tiers = state.catalog.returnRewards || [];
+    const index = tiers.findIndex((tier) => tier?.id === id);
+    if (index >= 0) tiers.splice(index, 1);
+    const nextTier = tiers[Math.min(index, tiers.length - 1)];
+    state.selectedId = nextTier?.id || null;
+    state.originalSelectedId = state.selectedId;
+    state.draft = nextTier ? clone(nextTier) : null;
+    markDirty();
+    render();
+    return;
+  }
   const id = state.draft.id || state.originalSelectedId;
   const refType = state.category === "companions" ? "companions" : state.category === "shops" ? "shops" : state.category === "items" ? "items" : state.category === "combats" ? "combats" : state.category === "enemyDefinitions" ? "enemies" : state.category === "enemyActions" ? "enemyActions" : state.category === "abilities" ? "abilities" : state.category === "combatStatuses" ? "combatStatuses" : state.category === "injuries" ? "injuries" : state.category === "campEvents" ? "campEvents" : state.category === "dialogues" ? "dialogues" : state.category === "npcs" ? "npcs" : state.category === "destinations" ? "destinations" : state.category === "locations" ? "locations" : state.category === "lootTables" ? "lootTables" : state.category === "expeditions" ? "expeditions" : state.category === "recipes" ? "recipes" : state.category === "materials" ? "materials" : state.category === "craftingProviders" ? "craftingProviders" : "encounters";
   const refs = (liveReferences()[refType] || []).filter((reference) => reference.id === id);
@@ -3334,6 +3443,26 @@ function handleInput(input) {
   }
   if (input.dataset.townHotspotInput) return;
   if (!state.draft) return;
+  if (input.dataset.returnRewardTierField) {
+    const field = input.dataset.returnRewardTierField;
+    const value = parseInputValue(input, field);
+    if (value === undefined || value === "") delete state.draft[field];
+    else state.draft[field] = value;
+    markDirty();
+    if (field === "id") render();
+    return;
+  }
+  if (input.dataset.returnRewardSourceField) {
+    const source = state.draft.sources?.[Number(input.dataset.returnRewardSourceIndex)];
+    if (!source) return;
+    const field = input.dataset.returnRewardSourceField;
+    const value = parseInputValue(input, field);
+    if (value === undefined || value === "") delete source[field];
+    else source[field] = value;
+    markDirty();
+    if (field === "tableId") render();
+    return;
+  }
   if (input.dataset.routeBranchIdField) return;
   if (input.dataset.shopProvisionField) {
     if (input.dataset.shopProvisionField === "enabled") {
@@ -3917,10 +4046,18 @@ function switchCategory(category, id = null) {
   state.search = state.searchByCategory[category] || "";
   const nextId = ["playerCharacter", "startingState"].includes(category)
     ? (category === "playerCharacter" ? state.catalog.playerCharacter?.id || "arthur" : "startingState")
-    : id && state.catalog[category][id] ? id : Object.keys(state.catalog[category])[0] || null;
+    : category === "returnRewards"
+      ? (id && state.catalog.returnRewards.some((tier) => tier?.id === id) ? id : state.catalog.returnRewards[0]?.id || null)
+      : id && state.catalog[category][id] ? id : Object.keys(state.catalog[category])[0] || null;
   state.selectedId = nextId;
   state.originalSelectedId = nextId;
-  state.draft = nextId ? clone(["playerCharacter", "startingState"].includes(category) ? state.catalog[category] : state.catalog[category][nextId]) : null;
+  state.draft = nextId ? clone(
+    ["playerCharacter", "startingState"].includes(category)
+      ? state.catalog[category]
+      : category === "returnRewards"
+        ? state.catalog.returnRewards.find((tier) => tier?.id === nextId)
+        : state.catalog[category][nextId],
+  ) : null;
   state.validation = state.catalog.validation;
   render();
 }
@@ -4437,6 +4574,38 @@ function handleAction(button) {
     render();
   } else if (action === "remove-enemy") {
     state.draft.enemyIds.splice(Number(button.dataset.enemyIndex), 1);
+    markDirty();
+    render();
+  } else if (action === "move-return-reward-tier") {
+    const tiers = state.catalog.returnRewards;
+    const index = tiers?.findIndex((tier) => tier?.id === state.originalSelectedId) ?? -1;
+    const nextIndex = button.dataset.direction === "up" ? index - 1 : index + 1;
+    if (!Array.isArray(tiers) || index < 0 || nextIndex < 0 || nextIndex >= tiers.length) return;
+    tiers[index] = clone(state.draft);
+    [tiers[index], tiers[nextIndex]] = [tiers[nextIndex], tiers[index]];
+    state.draft = clone(tiers[index]);
+    state.selectedId = state.draft.id;
+    state.originalSelectedId = state.selectedId;
+    markDirty();
+    render();
+  } else if (action === "add-return-reward-source") {
+    state.draft.sources ||= [];
+    const tableId = state.catalog.known?.lootTables?.[0] || Object.keys(state.catalog.lootTables || {}).sort()[0] || "";
+    state.draft.sources.push({ tableId, rolls: 1 });
+    markDirty();
+    render();
+  } else if (action === "move-return-reward-source") {
+    const sources = state.draft.sources;
+    const index = Number(button.dataset.returnRewardSourceIndex);
+    const nextIndex = button.dataset.direction === "up" ? index - 1 : index + 1;
+    if (!Array.isArray(sources) || nextIndex < 0 || nextIndex >= sources.length) return;
+    [sources[index], sources[nextIndex]] = [sources[nextIndex], sources[index]];
+    markDirty();
+    render();
+  } else if (action === "remove-return-reward-source") {
+    const sources = state.draft.sources;
+    if (!Array.isArray(sources)) return;
+    sources.splice(Number(button.dataset.returnRewardSourceIndex), 1);
     markDirty();
     render();
   } else if (action === "add-loot-source") {

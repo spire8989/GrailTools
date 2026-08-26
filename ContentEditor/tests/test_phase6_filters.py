@@ -285,6 +285,25 @@ class Phase6FilterBrowserTests(unittest.TestCase):
               && !card.querySelector('[data-loot-entry-field="itemId"]'))
         """))
 
+    def test_return_reward_tier_editor_supports_sources_and_tier_ordering(self) -> None:
+        self.click_category("returnRewards")
+        self.assertEqual(self.browser.evaluate("document.querySelector('#entry-heading').textContent.trim()"), "Return Rewards")
+        self.assertEqual(self.browser.evaluate("document.querySelector('#entry-count').textContent"), "8 / 8")
+        self.browser.evaluate("document.querySelector('[data-action=select][data-id=minor]').click()")
+        self.assertTrue(self.browser.evaluate("Boolean(document.querySelector('#editor-root [data-return-reward-tier-field=id]'))"))
+        self.assertTrue(self.browser.evaluate("Boolean(document.querySelector('#editor-root [data-return-reward-source-field=tableId]'))"))
+        self.browser.evaluate("document.querySelector('[data-action=add-return-reward-source]').click()")
+        self.assertEqual(self.browser.evaluate("document.querySelectorAll('[data-return-reward-source-row]').length"), 2)
+        self.browser.evaluate("(() => { const source=document.querySelectorAll('[data-return-reward-source-row]')[1]; const table=source.querySelector('[data-return-reward-source-field=tableId]'); table.value='common_materials'; table.dispatchEvent(new Event('change',{bubbles:true})); const rolls=source.querySelector('[data-return-reward-source-field=rolls]'); rolls.value='2'; rolls.dispatchEvent(new Event('input',{bubbles:true})); const chance=source.querySelector('[data-return-reward-source-field=chance]'); chance.value='0.4'; chance.dispatchEvent(new Event('input',{bubbles:true})); })()")
+        self.browser.evaluate("document.querySelectorAll('[data-action=move-return-reward-source][data-direction=up]')[1].click()")
+        self.assertEqual(self.browser.evaluate("state.draft.sources[0].tableId"), "common_materials")
+        self.browser.evaluate("document.querySelector('[data-action=add]').click()")
+        self.assertEqual(self.browser.evaluate("state.catalog.returnRewards.length"), 9)
+        self.browser.evaluate("document.querySelector('[data-action=move-return-reward-tier][data-direction=up]').click()")
+        self.assertEqual(self.browser.evaluate("state.catalog.returnRewards[7].id"), "new_return_reward_tier")
+        self.browser.evaluate("window.confirm=()=>true; document.querySelector('[data-action=delete]').click()")
+        self.assertEqual(self.browser.evaluate("state.catalog.returnRewards.length"), 8)
+
     def test_recipe_output_type_refreshes_output_fields(self) -> None:
         self.click_category("recipes")
         self.browser.evaluate("document.querySelector('[data-action=select][data-id=repair_kit]').click()")

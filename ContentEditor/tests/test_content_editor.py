@@ -866,6 +866,45 @@ class ContentEditorTests(unittest.TestCase):
         self.assertIn("bandit_leader_loot", catalog["lootTables"])
         self.assert_no_unexpected_validation_errors(catalog["validation"])
 
+    def test_return_reward_tiers_load_edit_save_reload_and_validate(self) -> None:
+        catalog = load_catalog(GRAIL)
+        self.assertEqual([tier["id"] for tier in catalog["returnRewards"]], ["minor", "low", "medium", "high", "deep", "late", "endgame", "optional"])
+        self.assert_no_unexpected_validation_errors(catalog["validation"])
+
+        temp, project = self.temporary_grail()
+        self.addCleanup(temp.cleanup)
+        before = load_catalog(project)
+        loot_path = project / "js" / "loot-data.js"
+        before_source = loot_path.read_text(encoding="utf-8")
+        return_rewards_start = before_source.index("const EXPEDITION_RETURN_REWARD_TIERS")
+        tiers = clone(before["returnRewards"])
+        tiers[0]["minimumDistance"] = 1
+        tiers.insert(1, {"id": "early", "minimumDistance": 10, "sources": [{"tableId": "common_materials", "rolls": 1, "chance": 0.2}]})
+        tiers[2]["sources"].append({"tableId": "forest_materials", "rolls": 2})
+        tiers[2]["sources"][0], tiers[2]["sources"][1] = tiers[2]["sources"][1], tiers[2]["sources"][0]
+        validation = validate_catalog({"returnRewards": tiers}, before["known"], before["references"])
+        self.assertEqual(validation["errors"], [])
+        save_catalog(project, {"returnRewards": tiers}, before["sourceHashes"], Path(temp.name) / "backups")
+        after = load_catalog(project)
+        self.assertEqual(after["returnRewards"], tiers)
+        after_source = loot_path.read_text(encoding="utf-8")
+        self.assertEqual(after_source[:return_rewards_start], before_source[:return_rewards_start])
+        self.assertEqual(after["lootTables"], before["lootTables"])
+
+        invalid_cases = [
+            (lambda value: value[1].update(id=value[0]["id"]), "Duplicate return reward tier ID"),
+            (lambda value: value[0].update(minimumDistance=-1), "minimumDistance must be non-negative"),
+            (lambda value: value.reverse(), "sorted by ascending minimumDistance"),
+            (lambda value: value[0]["sources"][0].update(tableId="missing_table"), "unknown loot table"),
+            (lambda value: value[0]["sources"][0].update(rolls=0), "rolls must be a positive integer"),
+            (lambda value: value[0]["sources"][0].update(chance=1.1), "chance must be a number from 0 to 1"),
+        ]
+        for mutate, expected in invalid_cases:
+            invalid = clone(after["returnRewards"])
+            mutate(invalid)
+            errors = validate_catalog({"returnRewards": invalid}, after["known"], after["references"])["errors"]
+            self.assertTrue(any(expected in issue["message"] for issue in errors), expected)
+
     def test_combat_roster_edit_is_surgical_and_shared_file_save_is_grouped(self) -> None:
         temp, project = self.temporary_grail()
         self.addCleanup(temp.cleanup)

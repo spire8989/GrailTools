@@ -103,6 +103,9 @@ The default project is discovered as the sibling `../../Grail` relative to
   cover kind, resource, tags, and tag matching mode.
 - Loot Tables: rolls and ordered weighted gold, item, material, recipe, and
   nested loot-table entries, including fixed or min/max quantities.
+- Return Rewards: ordered expedition return reward tiers with editable minimum
+  distances, loot-table sources, rolls, optional chances, and tier/source
+  add, remove, and reorder controls.
 - Paths: a derived, read-only path index built from encounter `pathIds` and
   expedition `pathId` relationships. It shows linked metadata, reverse
   encounter membership, filtering/sorting, and safe add/remove membership
