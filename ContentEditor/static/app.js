@@ -1697,8 +1697,9 @@ function renderItem() {
   const lootMarkup = lootTables.map(([tableId, table]) => {
     const entries = Array.isArray(table?.entries) ? table.entries : [];
     const itemEntries = entries.map((entry, index) => ({ entry, index })).filter(({ entry }) => entry?.type === "item" && entry.itemId === item.id);
-    const rows = itemEntries.map(({ entry, index }) => `<div class="loot-row"><span>${escapeHtml(table?.id || tableId)}</span><label>Weight<input type="number" min="0" step="any" data-loot-field="weight" data-table-id="${escapeHtml(tableId)}" data-entry-index="${index}" value="${escapeHtml(entry.weight ?? "")}"></label><button type="button" class="small-button danger-outline" data-action="remove-loot-item" data-table-id="${escapeHtml(tableId)}" data-entry-index="${index}">Remove</button></div>`).join("");
-    return rows || `<div class="loot-row loot-row-empty"><span>${escapeHtml(table?.id || tableId)}</span><button type="button" class="small-button" data-action="add-loot-item" data-table-id="${escapeHtml(tableId)}">Add this item</button></div>`;
+    const openButton = `<button type="button" class="small-button inline-open" data-action="open-reference" data-reference-category="lootTables" data-reference-id="${escapeHtml(tableId)}">Open Loot Table</button>`;
+    const rows = itemEntries.map(({ entry, index }) => `<div class="loot-row"><span>${escapeHtml(table?.id || tableId)}</span><label>Weight<input type="number" min="0" step="any" data-loot-field="weight" data-table-id="${escapeHtml(tableId)}" data-entry-index="${index}" value="${escapeHtml(entry.weight ?? "")}"></label>${openButton}<button type="button" class="small-button danger-outline" data-action="remove-loot-item" data-table-id="${escapeHtml(tableId)}" data-entry-index="${index}">Remove</button></div>`).join("");
+    return rows || `<div class="loot-row loot-row-empty"><span>${escapeHtml(table?.id || tableId)}</span>${openButton}<button type="button" class="small-button" data-action="add-loot-item" data-table-id="${escapeHtml(tableId)}">Add this item</button></div>`;
   }).join("");
   const recipeEntries = Object.entries(state.catalog.recipes || {});
   const producedBy = recipeEntries.filter(([, recipe]) => recipe.output?.itemId === item.id);

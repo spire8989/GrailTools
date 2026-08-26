@@ -333,6 +333,18 @@ class Phase6FilterBrowserTests(unittest.TestCase):
             && Boolean(document.querySelector('[data-item-effect-field="combatDamage.maximum"]'))
         """))
 
+    def test_item_loot_table_rows_open_the_full_table_editor(self) -> None:
+        self.click_category("items")
+        self.browser.evaluate("document.querySelector('[data-action=select][data-id=old_coin]').click()")
+        self.assertTrue(self.browser.evaluate("Boolean(document.querySelector('[data-action=open-reference][data-reference-category=lootTables][data-reference-id=bandit_ambush_loot]'))"))
+        self.browser.evaluate("document.querySelector('[data-action=open-reference][data-reference-category=lootTables][data-reference-id=bandit_ambush_loot]').click()")
+        self.assertEqual(self.browser.evaluate("document.querySelector('#entry-heading').textContent.trim()"), "Loot Tables")
+        self.assertEqual(self.browser.evaluate("document.querySelector('#editor-root h2').textContent.trim()"), "bandit_ambush_loot")
+        self.assertTrue(self.browser.evaluate("Boolean(document.querySelector('#editor-root [data-loot-entry-field]'))"))
+        self.browser.evaluate("document.querySelector('[data-action=back-reference]').click()")
+        self.assertEqual(self.browser.evaluate("document.querySelector('#entry-heading').textContent.trim()"), "Items")
+        self.assertEqual(self.browser.evaluate("document.querySelector('#editor-root h2').textContent.trim()"), "Old Silver Coins")
+
     def test_item_filters_stack_search_and_update_from_unsaved_draft(self) -> None:
         self.click_category("items")
         self.open_filters()
