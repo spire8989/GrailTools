@@ -449,7 +449,7 @@ class ContentEditorTests(unittest.TestCase):
         catalog = load_catalog(GRAIL)
         inn_hotspot = catalog["destinations"]["inn"]["hotspot"]
         self.assertTrue(all(0 <= inn_hotspot[axis] <= 1 for axis in ("x", "y")))
-        self.assertIn(catalog["locations"]["broceliande_village"]["markerStyle"], {"tag", "ribbon", "ink"})
+        self.assertIn(catalog["locations"]["broceliande_village"]["markerStyle"], {"tag", "ribbon", "ink", "label"})
         app = (CONTENT_EDITOR / "static" / "app.js").read_text(encoding="utf-8")
         self.assertIn("data-town-layout-editor", app)
         self.assertIn("data-town-layout-marker", app)
@@ -468,10 +468,46 @@ class ContentEditorTests(unittest.TestCase):
         self.assertEqual(after["destinations"]["inn"]["hotspot"], {"x": 0.123, "y": 0.987})
         self.assertEqual(after["locations"]["broceliande_village"]["markerStyle"], "ink")
 
+        label_locations = clone(after["locations"])
+        label_locations["broceliande_village"]["markerStyle"] = "label"
+        self.assertEqual(validate_catalog({"locations": label_locations}, after["known"], after["references"])["errors"], [])
+
         invalid_locations = clone(after["locations"])
         invalid_locations["broceliande_village"]["markerStyle"] = "plaque"
         validation = validate_catalog({"locations": invalid_locations}, after["known"], after["references"])
         self.assertTrue(any("Location markerStyle must be one of" in issue["message"] for issue in validation["errors"]))
+
+    def test_global_settings_validate_save_surgically_and_surface_label_controls(self) -> None:
+        catalog = load_catalog(GRAIL)
+        settings = clone(catalog["globalSettings"])
+        settings["townDefaults"]["markerStyle"] = "label"
+        settings["rewardPresentation"]["majorLootSfxId"] = "pickup_confirm"
+        settings["unknownEditorField"] = {"preserve": True}
+        self.assertEqual(validate_catalog({"globalSettings": settings}, catalog["known"], catalog["references"])["errors"], [])
+
+        invalid = clone(settings)
+        invalid["rewardPresentation"]["majorLootSfxId"] = "missing_sfx"
+        invalid["townDefaults"]["markerStyle"] = "plaque"
+        errors = validate_catalog({"globalSettings": invalid}, catalog["known"], catalog["references"])["errors"]
+        self.assertTrue(any("Unknown SFX ID" in issue["message"] for issue in errors))
+        self.assertTrue(any("markerStyle must be tag, ribbon, ink, or label" in issue["message"] for issue in errors))
+
+        temp, project = self.temporary_grail()
+        self.addCleanup(temp.cleanup)
+        before = load_catalog(project)
+        incoming = clone(before["globalSettings"])
+        incoming["townDefaults"]["markerStyle"] = "label"
+        incoming["unknownEditorField"] = {"preserve": True}
+        result = save_catalog(project, {"globalSettings": incoming}, before["sourceHashes"], Path(temp.name) / "backups")
+        after = load_catalog(project)
+        self.assertEqual(after["globalSettings"]["townDefaults"]["markerStyle"], "label")
+        self.assertEqual(after["globalSettings"]["unknownEditorField"], {"preserve": True})
+        self.assertTrue(any(item["file"] == "js/global-settings-data.js" and item["status"] == "updated" for item in result["saveResults"]))
+        app = (CONTENT_EDITOR / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertIn('["globalSettings", "Global Settings"]', app)
+        self.assertIn("renderGlobalSettings", app)
+        self.assertIn('value="label"', app)
+        self.assertIn("data-global-array-field", app)
 
     def test_encounter_layout_round_trip_and_editor_surface(self) -> None:
         catalog = load_catalog(GRAIL)

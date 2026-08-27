@@ -453,6 +453,7 @@ def serialize_js(value: Any, indent: int = 0, newline: str = "\n") -> str:
 
 CONTENT_FILES = {
     "imageAssets": ("js/asset-data.js", "IMAGE_ASSET_DEFINITIONS"),
+    "globalSettings": ("js/global-settings-data.js", "GLOBAL_SETTINGS"),
     "playerCharacter": ("js/data.js", "PLAYER_CHARACTER_DEFINITION"),
     "startingState": ("js/storage.js", "STARTING_PLAYER_STATE"),
     "companions": ("js/data.js", "COMPANION_DEFINITIONS"),
@@ -572,7 +573,9 @@ def _ref_type_for_key(key: str) -> str | None:
         "combatVictorySfxId": "sfx",
         "useSfxId": "sfx",
         "impactSfxId": "sfx",
-        "sfxId": "sfx",
+         "sfxId": "sfx",
+         "defaultLootSfxId": "sfx",
+         "majorLootSfxId": "sfx",
         "speakerId": "npcs",
         "npcId": "npcs",
         "destinationId": "destinations",
@@ -888,6 +891,7 @@ def load_catalog(project_root: Path) -> dict[str, Any]:
         "sourceHashes": source_hashes,
         "tuning": tuning,
         "audioDefinitions": values["audioDefinitions"],
+        "globalSettings": values["globalSettings"],
         "imageAssets": values["imageAssets"],
         "playerCharacter": values["playerCharacter"],
         "startingState": values["startingState"],
@@ -2579,6 +2583,39 @@ def _validate_expeditions(expeditions: Any, known: dict[str, list[str]], errors:
             if not _is_number(objective_distance) or objective_distance < 0:
                 errors.append(_issue("error", "minimumObjectiveDistance must be a non-negative number.", source, "minimumObjectiveDistance"))
         _validate_expedition_cadence(expedition, source, errors)
+        if "dialogueTriggers" in expedition:
+            triggers = expedition.get("dialogueTriggers")
+            if not isinstance(triggers, list):
+                errors.append(_issue("error", "Expedition dialogueTriggers must be an array.", source, "dialogueTriggers"))
+            else:
+                seen_trigger_ids: set[str] = set()
+                for index, trigger in enumerate(triggers):
+                    trigger_path = f"dialogueTriggers[{index}]"
+                    if not isinstance(trigger, dict):
+                        errors.append(_issue("error", "Expedition dialogue trigger must be an object.", source, trigger_path))
+                        continue
+                    trigger_id = trigger.get("id")
+                    if not isinstance(trigger_id, str) or not trigger_id:
+                        errors.append(_issue("error", "Expedition dialogue trigger id is required.", source, f"{trigger_path}.id"))
+                    elif trigger_id in seen_trigger_ids:
+                        errors.append(_issue("error", f"Duplicate expedition dialogue trigger ID {trigger_id!r}.", source, f"{trigger_path}.id"))
+                    else:
+                        seen_trigger_ids.add(trigger_id)
+                    if trigger.get("trigger") not in {"distanceReached", "encounterOutcome", "combatVictory", "lowProvisionWarning", "beginReturn"}:
+                        errors.append(_issue("error", "Unknown expedition dialogue trigger event.", source, f"{trigger_path}.trigger"))
+                    dialogue_id = trigger.get("dialogueId")
+                    if not isinstance(dialogue_id, str) or dialogue_id not in set(known.get("dialogues", [])):
+                        errors.append(_issue("error", f"Unknown dialogue ID {dialogue_id!r}.", source, f"{trigger_path}.dialogueId"))
+                    direction = trigger.get("direction")
+                    if direction is not None and direction not in {"outbound", "returning"}:
+                        errors.append(_issue("error", "Expedition dialogue trigger direction must be outbound or returning.", source, f"{trigger_path}.direction"))
+                    if trigger.get("trigger") == "distanceReached":
+                        distance = trigger.get("distance")
+                        if not _is_number(distance) or distance < 0:
+                            errors.append(_issue("error", "Distance dialogue triggers require a non-negative distance.", source, f"{trigger_path}.distance"))
+                    if "repeatable" in trigger and not isinstance(trigger.get("repeatable"), bool):
+                        errors.append(_issue("error", "Expedition dialogue trigger repeatable must be boolean.", source, f"{trigger_path}.repeatable"))
+                    _validate_requirements(trigger.get("requirements"), source, f"{trigger_path}.requirements", errors)
         for field_name, label in (("campEventTableIds", "camp event table IDs"), ("prerequisites", "prerequisites")):
             value = expedition.get(field_name)
             if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
@@ -2940,8 +2977,8 @@ def _validate_locations(locations: Any, known: dict[str, list[str]], errors: lis
         for field_name in ("name", "type", "description"):
             if field_name in location and not isinstance(location[field_name], str):
                 errors.append(_issue("error", f"Location {field_name} must be a string.", source, field_name))
-        if "markerStyle" in location and location["markerStyle"] not in {"tag", "ribbon", "ink"}:
-            errors.append(_issue("error", "Location markerStyle must be one of: tag, ribbon, ink.", source, "markerStyle"))
+        if "markerStyle" in location and location["markerStyle"] not in {"tag", "ribbon", "ink", "label"}:
+            errors.append(_issue("error", "Location markerStyle must be one of: tag, ribbon, ink, or label.", source, "markerStyle"))
         if "musicTrackId" in location:
             track_id = location.get("musicTrackId")
             if track_id is not None and (not isinstance(track_id, str) or track_id not in set(known.get("musicTracks", []))):
@@ -3113,6 +3150,85 @@ def _validate_audio_definitions(audio_definitions: Any, errors: list[dict[str, s
                             value = layer.get(field_name)
                             if not _audio_number(value) or value <= 0:
                                 errors.append(_issue("error", f"SFX oscillator {field_name} must be a positive finite frequency.", source, f"{layer_path}.{field_name}"))
+
+
+def _validate_global_settings(value: Any, known: dict[str, list[str]], errors: list[dict[str, str]]) -> None:
+    source = "globalSettings"
+    if not isinstance(value, dict):
+        errors.append(_issue("error", "Global Settings must be an object.", source))
+        return
+
+    reward = value.get("rewardPresentation", {})
+    first = value.get("firstDiscovery", {})
+    warnings = value.get("expeditionWarnings", {})
+    town = value.get("townDefaults", {})
+    dialogue = value.get("dialogueDefaults", {})
+    for section_name, section in (("rewardPresentation", reward), ("firstDiscovery", first), ("expeditionWarnings", warnings), ("townDefaults", town), ("dialogueDefaults", dialogue)):
+        if not isinstance(section, dict):
+            errors.append(_issue("error", f"Global Settings {section_name} must be an object.", source, section_name))
+    reward = reward if isinstance(reward, dict) else {}
+    first = first if isinstance(first, dict) else {}
+    warnings = warnings if isinstance(warnings, dict) else {}
+    town = town if isinstance(town, dict) else {}
+    dialogue = dialogue if isinstance(dialogue, dict) else {}
+
+    rarity_ids = set(known.get("rarities", []))
+    for field_name in ("fullPopupMinimumRarity", "majorPopupMinimumRarity"):
+        rarity = reward.get(field_name)
+        if rarity not in rarity_ids:
+            errors.append(_issue("error", f"Unknown rarity {rarity!r}.", source, f"rewardPresentation.{field_name}"))
+
+    category_ids = set(known.get("itemCategories", [])) | {"quest", "relic", "valuable", "curiosity"}
+    for field_name in ("fullPopupCategories", "majorPopupCategories"):
+        entries = reward.get(field_name, [])
+        if not isinstance(entries, list) or not all(isinstance(entry, str) and entry in category_ids for entry in entries):
+            errors.append(_issue("error", f"{field_name} must contain known item categories.", source, f"rewardPresentation.{field_name}"))
+    reward_types = {"item", "material", "recipe", "ability", "knowledge", "gold"}
+    entries = first.get("eligibleTypes", [])
+    if not isinstance(entries, list) or not all(isinstance(entry, str) and entry in reward_types for entry in entries):
+        errors.append(_issue("error", "firstDiscovery.eligibleTypes must contain known reward types.", source, "firstDiscovery.eligibleTypes"))
+    entries = first.get("eligibleCategories", [])
+    if not isinstance(entries, list) or not all(isinstance(entry, str) and entry in category_ids for entry in entries):
+        errors.append(_issue("error", "firstDiscovery.eligibleCategories must contain known item categories.", source, "firstDiscovery.eligibleCategories"))
+    if first.get("minimumPresentation") not in {"normal", "major"}:
+        errors.append(_issue("error", "firstDiscovery.minimumPresentation must be normal or major.", source, "firstDiscovery.minimumPresentation"))
+    for field_name in ("defaultLootSfxId", "majorLootSfxId"):
+        sfx_id = reward.get(field_name)
+        if sfx_id is not None and sfx_id not in set(known.get("sfx", [])):
+            errors.append(_issue("error", f"Unknown SFX ID {sfx_id!r}.", source, f"rewardPresentation.{field_name}"))
+    sfx_id = first.get("sfxId")
+    if sfx_id is not None and sfx_id not in set(known.get("sfx", [])):
+        errors.append(_issue("error", f"Unknown SFX ID {sfx_id!r}.", source, "firstDiscovery.sfxId"))
+    for field_name in ("minorHoldDurationMs", "normalHoldDurationMs", "majorHoldDurationMs"):
+        duration = reward.get(field_name)
+        if not _is_number(duration) or not math.isfinite(duration) or not 0 <= duration <= 120000:
+            errors.append(_issue("error", f"{field_name} must be a duration from 0 to 120000 milliseconds.", source, f"rewardPresentation.{field_name}"))
+    for field_name in ("goldBehavior", "materialBehavior"):
+        if reward.get(field_name) not in {"minor", "normal"}:
+            errors.append(_issue("error", f"{field_name} must be minor or normal.", source, f"rewardPresentation.{field_name}"))
+    for field_name in ("lowEnabled", "criticalEnabled", "retriggerAfterSafe"):
+        if not isinstance(warnings.get(field_name), bool):
+            errors.append(_issue("error", f"{field_name} must be boolean.", source, f"expeditionWarnings.{field_name}"))
+    if not isinstance(warnings.get("lowText"), str) or not warnings.get("lowText"):
+        errors.append(_issue("error", "expeditionWarnings.lowText is required.", source, "expeditionWarnings.lowText"))
+    if not isinstance(warnings.get("criticalText"), str) or not warnings.get("criticalText"):
+        errors.append(_issue("error", "expeditionWarnings.criticalText is required.", source, "expeditionWarnings.criticalText"))
+    duration = warnings.get("bannerDurationMs")
+    if not _is_number(duration) or not math.isfinite(duration) or not 0 < duration <= 120000:
+        errors.append(_issue("error", "expeditionWarnings.bannerDurationMs must be from 1 to 120000 milliseconds.", source, "expeditionWarnings.bannerDurationMs"))
+    if town.get("markerStyle") not in {"tag", "ribbon", "ink", "label"}:
+        errors.append(_issue("error", "townDefaults.markerStyle must be tag, ribbon, ink, or label.", source, "townDefaults.markerStyle"))
+    if not isinstance(town.get("showMarkerIcons"), bool):
+        errors.append(_issue("error", "townDefaults.showMarkerIcons must be boolean.", source, "townDefaults.showMarkerIcons"))
+    for field_name, minimum, maximum in (("markerFontScale", 0.5, 2), ("markerHorizontalPadding", 0, 2), ("markerVerticalPadding", 0, 1)):
+        number = town.get(field_name)
+        if not _is_number(number) or not math.isfinite(number) or not minimum <= number <= maximum:
+            errors.append(_issue("error", f"townDefaults.{field_name} must be from {minimum} to {maximum}.", source, f"townDefaults.{field_name}"))
+    if dialogue.get("oneNodeBarkMode") not in {"tap", "auto"}:
+        errors.append(_issue("error", "dialogueDefaults.oneNodeBarkMode must be tap or auto.", source, "dialogueDefaults.oneNodeBarkMode"))
+    duration = dialogue.get("barkAutoDismissDurationMs")
+    if not _is_number(duration) or not math.isfinite(duration) or not 0 < duration <= 120000:
+        errors.append(_issue("error", "dialogueDefaults.barkAutoDismissDurationMs must be from 1 to 120000 milliseconds.", source, "dialogueDefaults.barkAutoDismissDurationMs"))
 
 
 def _validate_asset_map(
@@ -3297,6 +3413,8 @@ def validate_catalog(values: dict[str, Any], known: dict[str, list[str]], refere
         _validate_return_reward_tiers(values.get("returnRewards"), effective_known, errors)
     if "audioDefinitions" in values:
         _validate_audio_definitions(values.get("audioDefinitions"), errors)
+    if "globalSettings" in values:
+        _validate_global_settings(values.get("globalSettings"), effective_known, errors)
     if "imageAssets" in values:
         _validate_asset_map(values.get("imageAssets"), project_root, errors)
     _validate_asset_references(values, errors)

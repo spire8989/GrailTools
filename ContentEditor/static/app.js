@@ -18,6 +18,7 @@ const COMMON_EFFECT_TYPES = [
 const CONTENT_CATEGORIES = [
   ["imageAssets", "Images"],
   ["audio", "Audio"],
+  ["globalSettings", "Global Settings"],
   ["playerCharacter", "Player Character"],
   ["startingState", "Starting State"],
   ["companions", "Companions"],
@@ -45,7 +46,7 @@ const CONTENT_CATEGORIES = [
 ].sort(([, leftLabel], [, rightLabel]) => leftLabel.localeCompare(rightLabel));
 
 const EDITABLE_REFERENCE_SOURCES = new Set([
-  "playerCharacter", "startingState", "companions", "encounters", "injuries", "campEvents", "dialogues", "expeditions", "recipes", "materials", "craftingProviders", "shops", "npcs", "destinations", "locations", "items", "combats", "abilities", "combatStatuses", "enemyDefinitions", "enemyActions", "lootTables", "returnRewards",
+  "globalSettings", "playerCharacter", "startingState", "companions", "encounters", "injuries", "campEvents", "dialogues", "expeditions", "recipes", "materials", "craftingProviders", "shops", "npcs", "destinations", "locations", "items", "combats", "abilities", "combatStatuses", "enemyDefinitions", "enemyActions", "lootTables", "returnRewards",
 ]);
 
 const state = {
@@ -359,10 +360,16 @@ const TOWN_LAYOUT_FALLBACKS = Object.freeze({
   center: Object.freeze({ x: 0.50, y: 0.35 }),
 });
 
-const TOWN_MARKER_STYLES = Object.freeze(["tag", "ribbon", "ink"]);
+const TOWN_MARKER_STYLES = Object.freeze(["tag", "ribbon", "ink", "label"]);
 
 function townLayoutMarkerStyle(location) {
-  return TOWN_MARKER_STYLES.includes(location?.markerStyle) ? location.markerStyle : "tag";
+  const configured = location?.markerStyle ?? state.catalog?.globalSettings?.townDefaults?.markerStyle;
+  return TOWN_MARKER_STYLES.includes(configured) ? configured : "tag";
+}
+
+function townLayoutShowsIcon(location, style) {
+  if (style === "label") return false;
+  return (location?.showMarkerIcons ?? state.catalog?.globalSettings?.townDefaults?.showMarkerIcons) !== false;
 }
 
 function clampTownLayoutValue(value, fallback = 0.5) {
@@ -393,13 +400,14 @@ function renderTownLayoutEditor(location) {
   }
   const markers = destinations.map((destination) => {
     const hotspot = townLayoutHotspot(destination);
-    return `<button type="button" class="town-layout-marker town-hotspot-style-${style}" data-town-layout-marker data-town-destination-id="${escapeHtml(destination.id)}" style="left:${hotspot.x * 100}%;top:${hotspot.y * 100}%" title="Drag ${escapeHtml(destination.name || destination.id)}"><span class="town-layout-marker-icon" aria-hidden="true">◆</span><span>${escapeHtml(destination.name || destination.id)}</span></button>`;
+    const icon = townLayoutShowsIcon(location, style) ? `<span class="town-layout-marker-icon" aria-hidden="true">◆</span>` : "";
+    return `<button type="button" class="town-layout-marker town-hotspot-style-${style}" data-town-layout-marker data-town-destination-id="${escapeHtml(destination.id)}" style="left:${hotspot.x * 100}%;top:${hotspot.y * 100}%" title="Drag ${escapeHtml(destination.name || destination.id)}">${icon}<span>${escapeHtml(destination.name || destination.id)}</span></button>`;
   }).join("");
   const fields = destinations.map((destination) => {
     const hotspot = townLayoutHotspot(destination);
     return `<div class="town-layout-coordinate-row" data-town-destination-id="${escapeHtml(destination.id)}"><strong>${escapeHtml(destination.name || destination.id)}</strong><label>X<input type="number" min="0" max="1" step="0.001" data-town-hotspot-input data-town-destination-id="${escapeHtml(destination.id)}" data-town-hotspot-axis="x" value="${hotspot.x.toFixed(3)}"></label><label>Y<input type="number" min="0" max="1" step="0.001" data-town-hotspot-input data-town-destination-id="${escapeHtml(destination.id)}" data-town-hotspot-axis="y" value="${hotspot.y.toFixed(3)}"></label></div>`;
   }).join("");
-  return `<section class="section town-layout-editor" data-town-layout-editor><div class="section-heading"><div><h3>Town Layout</h3><p>Drag each destination marker onto the matching building. Coordinates are normalized to the 2:3 artwork.</p></div></div><label class="town-layout-style-selector">Marker style<select data-field="markerStyle" aria-label="Town marker style"><option value="tag"${style === "tag" ? " selected" : ""}>Tag</option><option value="ribbon"${style === "ribbon" ? " selected" : ""}>Ribbon</option><option value="ink"${style === "ink" ? " selected" : ""}>Ink</option></select></label><div class="town-layout-stage town-hotspot-style-${style}" data-town-layout-stage data-town-layout-style="${style}"><img class="town-layout-image" src="${assetPreviewUrl(asset.path)}" alt="${escapeHtml(location.name || "Town background")}" draggable="false"><div class="town-layout-marker-layer">${markers}</div></div><div class="town-layout-coordinate-list">${fields || `<p class="hint">This town has no destination references yet.</p>`}</div></section>`;
+  return `<section class="section town-layout-editor" data-town-layout-editor><div class="section-heading"><div><h3>Town Layout</h3><p>Drag each destination marker onto the matching building. Coordinates are normalized to the 2:3 artwork.</p></div></div><label class="town-layout-style-selector">Marker style<select data-field="markerStyle" aria-label="Town marker style"><option value="tag"${style === "tag" ? " selected" : ""}>Tag</option><option value="ribbon"${style === "ribbon" ? " selected" : ""}>Ribbon</option><option value="ink"${style === "ink" ? " selected" : ""}>Ink</option><option value="label"${style === "label" ? " selected" : ""}>Label (text only)</option></select></label><div class="town-layout-stage town-hotspot-style-${style}" data-town-layout-stage data-town-layout-style="${style}"><img class="town-layout-image" src="${assetPreviewUrl(asset.path)}" alt="${escapeHtml(location.name || "Town background")}" draggable="false"><div class="town-layout-marker-layer">${markers}</div></div><div class="town-layout-coordinate-list">${fields || `<p class="hint">This town has no destination references yet.</p>`}</div></section>`;
 }
 
 function updateTownLayoutMarker(destinationId, x, y) {
@@ -1447,6 +1455,20 @@ function renderExpeditionCadence(expedition) {
   </section>`;
 }
 
+function renderExpeditionDialogueTriggers(expedition) {
+  const triggers = Array.isArray(expedition.dialogueTriggers) ? expedition.dialogueTriggers : [];
+  const triggerKinds = ["distanceReached", "encounterOutcome", "combatVictory", "lowProvisionWarning", "beginReturn"];
+  const directions = ["outbound", "returning"];
+  const dialogues = state.catalog.known?.dialogues || Object.keys(state.catalog.dialogues || {}).sort();
+  const dialogueLabels = Object.fromEntries(dialogues.map((id) => [id, dialogueLabel(id)]));
+  const rows = triggers.map((trigger, index) => `
+    <div class="stage-card expedition-dialogue-trigger">
+      <div class="nested-heading"><span>Trigger ${index + 1}</span><button type="button" class="small-button danger-outline" data-action="remove-expedition-dialogue-trigger" data-expedition-dialogue-trigger-index="${index}">Remove</button></div>
+      <div class="form-grid"><label>ID<input data-expedition-dialogue-trigger-field="id" data-expedition-dialogue-trigger-index="${index}" value="${escapeHtml(trigger.id || "")}" placeholder="forest_bark"></label><label>Event<select data-expedition-dialogue-trigger-field="trigger" data-expedition-dialogue-trigger-index="${index}">${selectOptions(triggerKinds, trigger.trigger)}</select></label><label>Direction<select data-expedition-dialogue-trigger-field="direction" data-expedition-dialogue-trigger-index="${index}"><option value="">Any direction</option>${selectOptions(directions, trigger.direction)}</select></label><label>Distance (stadia)<input type="number" min="0" step="any" data-expedition-dialogue-trigger-field="distance" data-expedition-dialogue-trigger-index="${index}" value="${escapeHtml(trigger.distance ?? "")}" placeholder="Only for distance reached"></label><label class="wide">Dialogue sequence<select data-expedition-dialogue-trigger-field="dialogueId" data-expedition-dialogue-trigger-index="${index}"><option value="">Select dialogue...</option>${selectOptions(dialogues, trigger.dialogueId, dialogueLabels)}</select></label><label class="check-chip"><input type="checkbox" data-expedition-dialogue-trigger-field="repeatable" data-expedition-dialogue-trigger-index="${index}"${checked(trigger.repeatable === true)}> Repeatable</label><label class="wide">Requirements JSON<textarea data-expedition-dialogue-trigger-requirements data-expedition-dialogue-trigger-index="${index}" placeholder="[]">${jsonText(trigger.requirements || [])}</textarea></label></div>
+    </div>`).join("");
+  return `<section class="section"><div class="section-heading"><div><h3>Expedition Dialogue Triggers</h3><p>Optional reusable DialogueSystem sequences for travel milestones. One-shot triggers are recorded on the expedition.</p></div><button type="button" class="small-button" data-action="add-expedition-dialogue-trigger">Add Trigger</button></div>${rows || `<p class="hint">No expedition dialogue hooks authored.</p>`}</section>`;
+}
+
 function renderExpedition() {
   const expedition = state.draft;
   if (!expedition) return `<div class="empty-state">Choose an expedition to edit.</div>`;
@@ -1456,7 +1478,8 @@ function renderExpedition() {
   const campEventLinks = [...new Set((expedition.campEventTableIds || []).flatMap((tableId) => (state.catalog.campEventTables?.[tableId]?.entries || []).map((entry) => entry.eventId)).filter((eventId) => state.catalog.campEvents?.[eventId]))].map((eventId) => `<button type="button" class="small-button inline-open" data-action="open-reference" data-reference-category="campEvents" data-reference-id="${escapeHtml(eventId)}">Open ${escapeHtml(campEventLabel(eventId))}</button>`).join(" ");
   return `<div class="editor-title"><div><h2>${escapeHtml(expedition.name || expedition.id || "New expedition")}</h2><p>${escapeHtml(expedition.id || "Unsaved ID")}</p></div><span class="schema-badge">Expedition schema</span></div>
     <section class="section"><div class="section-heading"><div><h3>Expedition metadata</h3><p>These fields are authored in <code>js/expedition-data.js</code> and remain the canonical expedition definition.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(expedition.id || "")}"></label><label>Name<input data-field="name" value="${escapeHtml(expedition.name || "")}"></label><label class="wide">Description<textarea data-field="description">${escapeHtml(expedition.description || "")}</textarea></label><label>Danger<input type="number" min="0" step="any" data-field="danger" value="${escapeHtml(expedition.danger ?? "")}"></label><label>Minimum objective distance (stadia)<input type="number" min="0" step="any" data-field="minimumObjectiveDistance" value="${escapeHtml(expedition.minimumObjectiveDistance ?? "")}"></label><label>Region<select data-field="regionId"><option value="">Select region...</option>${selectOptions(known.regions || [], expedition.regionId)}</select></label><label>Kind<select data-field="kind"><option value="">Select kind...</option>${selectOptions(kinds, expedition.kind)}</select></label><label class="wide">Path${referenceInput("pathId", expedition.pathId, true)}</label></div>${renderSynthAudioSelector("Travel music", "travelMusicTrackId", expedition.travelMusicTrackId, "music")}${renderSynthAudioSelector("Camp music", "campMusicTrackId", expedition.campMusicTrackId, "music", true)}${renderSynthAudioSelector("Combat music", "combatMusicTrackId", expedition.combatMusicTrackId, "music", true)}${renderSynthAudioSelector("Combat start SFX", "combatStartSfxId", expedition.combatStartSfxId, "sfx")}${renderSynthAudioSelector("Combat victory SFX", "combatVictorySfxId", expedition.combatVictorySfxId, "sfx")}${renderAssetSelector("Travel visual", "travelVisualAssetId", expedition.travelVisualAssetId, "image", "expedition", expedition.name || expedition.id, "travel_panorama")}${renderAssetSelector("Travel foreground (aligned)", "travelParallaxAssetId", expedition.travelParallaxAssetId, "image", "expedition", expedition.name || expedition.id, "travel_panorama")}${renderAssetSelector("Travel Transition", "travelTransitionAssetId", expedition.travelTransitionAssetId, "image", "expedition", expedition.name || expedition.id)}${renderAssetSelector("Camp visual", "campVisualAssetId", expedition.campVisualAssetId, "image", "expedition", expedition.name || expedition.id)}${renderAssetSelector("Default Combat Background", "combatVisualAssetId", expedition.combatVisualAssetId, "image", "combat_scene", expedition.name || expedition.id, "scene")}</section>
-    ${renderExpeditionCadence(expedition)}
+     ${renderExpeditionCadence(expedition)}
+     ${renderExpeditionDialogueTriggers(expedition)}
     ${renderTravelScenes(expedition)}
     ${renderRouteBranches(expedition)}
     ${renderAssetSelector("Travel Seam Foreground", "travelSeamForegroundAssetId", expedition.travelSeamForegroundAssetId, "image", "expedition", expedition.name || expedition.id, "none")}
@@ -2378,6 +2401,39 @@ function startingChecks(field, ids, selectedIds, label) {
   return "<div class=\"check-grid compact-check-grid\">" + (checks || "<span class=\"hint\">No references available.</span>") + "</div>";
 }
 
+function globalSfxOptions(current) {
+  const ids = Object.keys(state.catalog?.audioDefinitions?.sfx || {}).sort();
+  return `<option value="">None (use fallback)</option>${ids.map((id) => `<option value="${escapeHtml(id)}"${selected(id, current)}>${escapeHtml(id)}</option>`).join("")}`;
+}
+
+function globalSettingChecks(field, values, selectedValues) {
+  const selectedSet = new Set(Array.isArray(selectedValues) ? selectedValues : []);
+  return `<div class="check-grid compact-check-grid">${values.map((value) => `<label class="check-chip"><input type="checkbox" data-global-array-field="${escapeHtml(field)}" data-global-array-value="${escapeHtml(value)}"${checked(selectedSet.has(value))}>${escapeHtml(value)}</label>`).join("") || `<span class="hint">No options available.</span>`}</div>`;
+}
+
+function renderGlobalSettings() {
+  const settings = state.draft;
+  if (!settings) return `<div class="empty-state">Global Settings are unavailable.</div>`;
+  const reward = settings.rewardPresentation || {};
+  const first = settings.firstDiscovery || {};
+  const warnings = settings.expeditionWarnings || {};
+  const town = settings.townDefaults || {};
+  const dialogue = settings.dialogueDefaults || {};
+  const rarities = state.catalog.known?.rarities || ["common", "uncommon", "rare"];
+  const categories = [...new Set([...(state.catalog.known?.itemCategories || []), "quest", "relic", "valuable", "curiosity"])].sort();
+  const types = ["item", "material", "recipe", "ability", "knowledge", "gold"];
+  return `<div class="editor-title"><div><h2>Global Settings</h2><p>Project-wide presentation defaults and lightweight UI behavior.</p></div><span class="schema-badge">Global Settings schema</span></div>
+    <section class="section"><div class="section-heading"><div><h3>Reward Presentation</h3><p>Configure minor chips, normal popups, and major reveals. Explicit reward overrides still win.</p></div></div>
+      <div class="form-grid"><label>Full popup minimum rarity<select data-field="rewardPresentation.fullPopupMinimumRarity">${selectOptions(rarities, reward.fullPopupMinimumRarity)}</select></label><label>Major popup minimum rarity<select data-field="rewardPresentation.majorPopupMinimumRarity">${selectOptions(rarities, reward.majorPopupMinimumRarity)}</select></label><label>Gold behavior<select data-field="rewardPresentation.goldBehavior"><option value="minor"${selected("minor", reward.goldBehavior)}>Minor only</option><option value="normal"${selected("normal", reward.goldBehavior)}>Normal allowed</option></select></label><label>Material behavior<select data-field="rewardPresentation.materialBehavior"><option value="minor"${selected("minor", reward.materialBehavior)}>Minor only</option><option value="normal"${selected("normal", reward.materialBehavior)}>Normal allowed</option></select></label><label>Default loot popup SFX<select data-global-sfx-field="rewardPresentation.defaultLootSfxId">${globalSfxOptions(reward.defaultLootSfxId)}</select></label><label>Major loot popup SFX<select data-global-sfx-field="rewardPresentation.majorLootSfxId">${globalSfxOptions(reward.majorLootSfxId)}</select></label><label>Minor hold (ms)<input type="number" min="0" max="120000" step="50" data-field="rewardPresentation.minorHoldDurationMs" value="${escapeHtml(reward.minorHoldDurationMs ?? "")}"></label><label>Normal hold (ms)<input type="number" min="0" max="120000" step="50" data-field="rewardPresentation.normalHoldDurationMs" value="${escapeHtml(reward.normalHoldDurationMs ?? "")}"></label><label>Major hold (ms)<input type="number" min="0" max="120000" step="50" data-field="rewardPresentation.majorHoldDurationMs" value="${escapeHtml(reward.majorHoldDurationMs ?? "")}"></label></div>
+      <h4>Always full-popup categories</h4>${globalSettingChecks("rewardPresentation.fullPopupCategories", categories, reward.fullPopupCategories)}<h4>Always full-popup types</h4>${globalSettingChecks("rewardPresentation.fullPopupTypes", types, reward.fullPopupTypes)}<h4>Major-popup categories</h4>${globalSettingChecks("rewardPresentation.majorPopupCategories", categories, reward.majorPopupCategories)}<h4>Major-popup types</h4>${globalSettingChecks("rewardPresentation.majorPopupTypes", types, reward.majorPopupTypes)}
+    </section>
+    <section class="section"><div class="section-heading"><div><h3>First Discovery Presentation</h3><p>Promotion uses persistent discovered-content records and only occurs for rewards actually granted.</p></div></div><div class="form-grid"><label class="check-chip"><input type="checkbox" data-field="firstDiscovery.enabled"${checked(first.enabled !== false)}> Enable first-discovery presentation</label><label>Minimum presentation<select data-field="firstDiscovery.minimumPresentation"><option value="normal"${selected("normal", first.minimumPresentation)}>Normal popup</option><option value="major"${selected("major", first.minimumPresentation)}>Major popup</option></select></label><label>First-discovery SFX<select data-global-sfx-field="firstDiscovery.sfxId">${globalSfxOptions(first.sfxId)}</select></label></div><h4>Eligible reward types</h4>${globalSettingChecks("firstDiscovery.eligibleTypes", types, first.eligibleTypes)}<h4>Eligible item categories</h4>${globalSettingChecks("firstDiscovery.eligibleCategories", categories, first.eligibleCategories)}</section>
+    <section class="section"><div class="section-heading"><div><h3>Expedition Warnings</h3><p>Uses the existing safe, warning, and danger provision states.</p></div></div><div class="form-grid"><label class="check-chip"><input type="checkbox" data-field="expeditionWarnings.lowEnabled"${checked(warnings.lowEnabled !== false)}> Low warning enabled</label><label class="wide">Low warning text<textarea data-field="expeditionWarnings.lowText">${escapeHtml(warnings.lowText || "")}</textarea></label><label class="check-chip"><input type="checkbox" data-field="expeditionWarnings.criticalEnabled"${checked(warnings.criticalEnabled !== false)}> Critical warning enabled</label><label class="wide">Critical warning text<textarea data-field="expeditionWarnings.criticalText">${escapeHtml(warnings.criticalText || "")}</textarea></label><label class="check-chip"><input type="checkbox" data-field="expeditionWarnings.retriggerAfterSafe"${checked(warnings.retriggerAfterSafe !== false)}> Retrigger after recovering to safe</label><label>Banner duration (ms)<input type="number" min="1" max="120000" step="50" data-field="expeditionWarnings.bannerDurationMs" value="${escapeHtml(warnings.bannerDurationMs ?? "")}"></label></div></section>
+    <section class="section"><div class="section-heading"><div><h3>Town Presentation Defaults</h3><p>Location-level marker settings override these defaults. Label is text-only and omits icon markup.</p></div></div><div class="form-grid"><label>Default marker style<select data-field="townDefaults.markerStyle"><option value="tag"${selected("tag", town.markerStyle)}>Tag</option><option value="ribbon"${selected("ribbon", town.markerStyle)}>Ribbon</option><option value="ink"${selected("ink", town.markerStyle)}>Ink</option><option value="label"${selected("label", town.markerStyle)}>Label (text only)</option></select></label><label class="check-chip"><input type="checkbox" data-field="townDefaults.showMarkerIcons"${checked(town.showMarkerIcons !== false)}> Show marker icons</label><label>Marker font scale<input type="number" min="0.5" max="2" step="0.05" data-field="townDefaults.markerFontScale" value="${escapeHtml(town.markerFontScale ?? "")}"></label><label>Horizontal padding (rem)<input type="number" min="0" max="2" step="0.01" data-field="townDefaults.markerHorizontalPadding" value="${escapeHtml(town.markerHorizontalPadding ?? "")}"></label><label>Vertical padding (rem)<input type="number" min="0" max="1" step="0.01" data-field="townDefaults.markerVerticalPadding" value="${escapeHtml(town.markerVerticalPadding ?? "")}"></label></div></section>
+    <section class="section"><div class="section-heading"><div><h3>Dialogue / Bark Defaults</h3><p>One-node barks use the existing DialogueSystem.</p></div></div><div class="form-grid"><label>One-node bark behavior<select data-field="dialogueDefaults.oneNodeBarkMode"><option value="tap"${selected("tap", dialogue.oneNodeBarkMode)}>Require tap</option><option value="auto"${selected("auto", dialogue.oneNodeBarkMode)}>Auto dismiss</option></select></label><label>Auto-dismiss duration (ms)<input type="number" min="1" max="120000" step="50" data-field="dialogueDefaults.barkAutoDismissDurationMs" value="${escapeHtml(dialogue.barkAutoDismissDurationMs ?? "")}"></label></div></section>
+    <section class="section"><details><summary>Raw Global Settings JSON (advanced)</summary><p class="hint">Unknown fields are preserved by the surgical source writer.</p><textarea id="raw-json" class="raw-editor">${jsonText(settings)}</textarea><div class="button-row"><button type="button" class="small-button" data-action="apply-raw">Apply raw JSON</button></div></details></section>`;
+}
+
 function renderStartingState() {
   const starting = state.draft;
   if (!starting) return "<div class=\"empty-state\">The starting player state is unavailable.</div>";
@@ -2789,9 +2845,9 @@ function dialogueNodeOptions(nodes, current) {
 }
 
 function dialogueSpeakerOptions(current) {
-  const ids = ["arthur", ...Object.keys(state.catalog?.npcs || {}).sort()];
-  const labels = { arthur: "Arthur (arthur)", ...Object.fromEntries(ids.slice(1).map((id) => [id, npcLabel(id)])) };
-  return `<option value="">Select speaker...</option>${selectOptions(ids, current, labels)}`;
+  const companions = Object.keys(state.catalog?.companions || {}).sort();
+  const npcs = Object.keys(state.catalog?.npcs || {}).sort();
+  return `<option value="">Select speaker...</option><optgroup label="Arthur"><option value="arthur"${selected("arthur", current)}>Arthur (arthur)</option></optgroup><optgroup label="Companions">${companions.map((id) => `<option value="${escapeHtml(id)}"${selected(id, current)}>${escapeHtml(companionLabel(id))}</option>`).join("")}</optgroup><optgroup label="NPCs">${npcs.map((id) => `<option value="${escapeHtml(id)}"${selected(id, current)}>${escapeHtml(npcLabel(id))}</option>`).join("")}</optgroup>`;
 }
 
 function renderDialogueChoice(nodeId, choice, index, nodes) {
@@ -2905,9 +2961,9 @@ function renderAudio() {
 
 function currentEntries() {
   if (!state.catalog) return {};
-  if (["playerCharacter", "startingState"].includes(state.category)) {
+  if (["globalSettings", "playerCharacter", "startingState"].includes(state.category)) {
     const singleton = state.draft || state.catalog[state.category];
-    const id = state.category === "playerCharacter" ? singleton?.id || "arthur" : "startingState";
+    const id = state.category === "playerCharacter" ? singleton?.id || "arthur" : state.category === "globalSettings" ? "global" : "startingState";
     return singleton ? { [id]: singleton } : {};
   }
   if (state.category === "returnRewards") {
@@ -2945,7 +3001,7 @@ function currentEntries() {
 }
 
 function categoryCount(category) {
-  return ["playerCharacter", "startingState"].includes(category)
+  return ["globalSettings", "playerCharacter", "startingState"].includes(category)
     ? (state.catalog?.[category] ? 1 : 0)
     : category === "returnRewards"
       ? (state.catalog?.returnRewards || []).length
@@ -3061,7 +3117,7 @@ function render() {
     const recipeOutput = state.category === "recipes" ? ` · Produces: ${entry.output?.itemId ? itemLabel(entry.output.itemId) : `${entry.output?.provisions ?? 0} provisions`}` : "";
     return `<button type="button" role="option" aria-selected="${id === state.selectedId || (state.draft?.id === id && state.originalSelectedId === state.selectedId)}" class="entry-row ${(id === state.selectedId || (state.draft?.id === id && state.originalSelectedId === state.selectedId)) ? "active" : ""}" data-action="select" data-id="${escapeHtml(id)}"><span class="entry-title">${escapeHtml(entry.title || entry.displayName || entry.name || id)}</span><span class="entry-id">${escapeHtml(id)}${state.category === "paths" ? ` · ${escapeHtml(entry.encounterCount || 0)} encounters` : recipeOutput}</span></button>`;
   }).join("") : `<div class="empty-state">No matching entries.</div>`;
-  const readonlyPaths = ["paths", "imageAssets", "playerCharacter", "startingState"].includes(state.category);
+  const readonlyPaths = ["paths", "imageAssets", "globalSettings", "playerCharacter", "startingState"].includes(state.category);
   $("[data-action='add']").disabled = readonlyPaths;
   $("[data-action='duplicate']").disabled = readonlyPaths;
   $("[data-action='delete']").disabled = readonlyPaths;
@@ -3071,9 +3127,11 @@ function render() {
     ? renderAsset()
     : state.category === "encounters"
     ? renderEncounter()
-    : state.category === "playerCharacter"
-      ? renderPlayerCharacter()
-    : state.category === "startingState"
+     : state.category === "playerCharacter"
+       ? renderPlayerCharacter()
+     : state.category === "globalSettings"
+       ? renderGlobalSettings()
+     : state.category === "startingState"
       ? renderStartingState()
     : state.category === "companions"
       ? renderCompanion()
@@ -3168,6 +3226,7 @@ function renderValidation() {
 function draftSnapshot() {
   const snapshot = {
     audioDefinitions: clone(state.catalog.audioDefinitions),
+    globalSettings: clone(state.catalog.globalSettings),
     playerCharacter: clone(state.catalog.playerCharacter),
     startingState: clone(state.catalog.startingState),
     companions: clone(state.catalog.companions),
@@ -3203,7 +3262,7 @@ function draftSnapshot() {
       delete encounter.milestoneOrder;
     }
   });
-  if (state.draft && ["playerCharacter", "startingState"].includes(state.category)) {
+  if (state.draft && ["globalSettings", "playerCharacter", "startingState"].includes(state.category)) {
     snapshot[state.category] = clone(state.draft);
   } else if (state.draft && state.category === "returnRewards") {
     const tiers = snapshot.returnRewards || [];
@@ -3270,9 +3329,9 @@ async function requestValidation() {
 
 function commitDraftToCatalog() {
   if (!state.draft || !state.catalog || state.category === "paths") return;
-  if (["playerCharacter", "startingState"].includes(state.category)) {
+  if (["globalSettings", "playerCharacter", "startingState"].includes(state.category)) {
     state.catalog[state.category] = clone(state.draft);
-    state.selectedId = state.category === "playerCharacter" ? state.catalog.playerCharacter.id || "arthur" : "startingState";
+    state.selectedId = state.category === "playerCharacter" ? state.catalog.playerCharacter.id || "arthur" : state.category === "globalSettings" ? "global" : "startingState";
     state.originalSelectedId = state.selectedId;
     return;
   }
@@ -3309,7 +3368,7 @@ function selectEntry(id, discard = false) {
   if (!state.catalog) return;
   if (state.category === "audio") stopAudioPreview();
   if (state.draftDirty && state.category !== "paths" && !discard && !window.confirm("Discard unsaved changes?")) return;
-  const entry = ["playerCharacter", "startingState"].includes(state.category)
+  const entry = ["globalSettings", "playerCharacter", "startingState"].includes(state.category)
     ? state.catalog[state.category]
     : state.category === "returnRewards"
       ? state.catalog.returnRewards?.find((tier) => tier?.id === id)
@@ -3482,7 +3541,7 @@ function uniqueId(base, map) {
 }
 
 function addEntry() {
-  if (["paths", "playerCharacter", "startingState"].includes(state.category)) return;
+  if (["paths", "globalSettings", "playerCharacter", "startingState"].includes(state.category)) return;
   if (state.category === "audio" && state.audioJsonEditing && !applyAudioJsonFromEditor()) return;
   commitDraftToCatalog();
   if (state.category === "audio") {
@@ -3523,7 +3582,7 @@ function addEntry() {
 }
 
 function duplicateEntry() {
-  if (!state.draft || ["paths", "playerCharacter", "startingState"].includes(state.category)) return;
+  if (!state.draft || ["paths", "globalSettings", "playerCharacter", "startingState"].includes(state.category)) return;
   if (state.category === "audio" && state.audioJsonEditing && !applyAudioJsonFromEditor()) return;
   commitDraftToCatalog();
   if (state.category === "audio") {
@@ -3572,7 +3631,7 @@ function duplicateEntry() {
 }
 
 function deleteEntry() {
-  if (!state.draft || !state.catalog || ["paths", "playerCharacter", "startingState"].includes(state.category)) return;
+  if (!state.draft || !state.catalog || ["paths", "globalSettings", "playerCharacter", "startingState"].includes(state.category)) return;
   if (state.category === "audio" && state.audioJsonEditing && !applyAudioJsonFromEditor()) return;
   if (state.category === "audio") {
     const id = state.draft.id || state.originalSelectedId;
@@ -3794,6 +3853,20 @@ function handleInput(input) {
     return;
   }
   if (!state.draft) return;
+  if (input.dataset.globalArrayField) {
+    setNested(state.draft, input.dataset.globalArrayField, toggleArray(
+      pathValue(state.draft, input.dataset.globalArrayField),
+      input.dataset.globalArrayValue,
+      input.checked,
+    ));
+    markDirty();
+    return;
+  }
+  if (input.dataset.globalSfxField) {
+    setNested(state.draft, input.dataset.globalSfxField, input.value || null);
+    markDirty();
+    return;
+  }
   if (input.dataset.audioMetaField) {
     const field = input.dataset.audioMetaField;
     if (input.value === "") delete state.draft[field];
@@ -4272,6 +4345,29 @@ function handleInput(input) {
     markDirty();
     return;
   }
+  if (input.dataset.expeditionDialogueTriggerField) {
+    const trigger = state.draft.dialogueTriggers?.[Number(input.dataset.expeditionDialogueTriggerIndex)];
+    if (!trigger) return;
+    const field = input.dataset.expeditionDialogueTriggerField;
+    const value = parseInputValue(input, field);
+    if (value === undefined || value === "") delete trigger[field];
+    else trigger[field] = value;
+    markDirty();
+    if (field === "trigger" || field === "dialogueId") render();
+    return;
+  }
+  if (input.dataset.expeditionDialogueTriggerRequirements) {
+    try {
+      const trigger = state.draft.dialogueTriggers?.[Number(input.dataset.expeditionDialogueTriggerIndex)];
+      const value = JSON.parse(input.value);
+      if (!trigger || !Array.isArray(value)) throw new Error("Requirements must be an array.");
+      trigger.requirements = value;
+      markDirty();
+    } catch (error) {
+      input.setCustomValidity(`Invalid requirements JSON: ${error.message}`);
+    }
+    return;
+  }
   if (input.dataset.injuryEffectField) {
     state.draft.effects ||= {};
     setNested(state.draft.effects, input.dataset.injuryEffectField, parseInputValue(input, input.dataset.injuryEffectField));
@@ -4462,8 +4558,8 @@ function switchCategory(category, id = null) {
   state.draftDirty = false;
   state.category = category;
   state.search = state.searchByCategory[category] || "";
-  const nextId = ["playerCharacter", "startingState"].includes(category)
-    ? (category === "playerCharacter" ? state.catalog.playerCharacter?.id || "arthur" : "startingState")
+  const nextId = ["globalSettings", "playerCharacter", "startingState"].includes(category)
+    ? (category === "playerCharacter" ? state.catalog.playerCharacter?.id || "arthur" : category === "globalSettings" ? "global" : "startingState")
     : category === "returnRewards"
       ? (id && state.catalog.returnRewards.some((tier) => tier?.id === id) ? id : state.catalog.returnRewards[0]?.id || null)
       : category === "audio"
@@ -4472,7 +4568,7 @@ function switchCategory(category, id = null) {
   state.selectedId = nextId;
   state.originalSelectedId = nextId;
   state.draft = nextId ? clone(
-    ["playerCharacter", "startingState"].includes(category)
+    ["globalSettings", "playerCharacter", "startingState"].includes(category)
       ? state.catalog[category]
       : category === "returnRewards"
         ? state.catalog.returnRewards.find((tier) => tier?.id === nextId)
@@ -4730,6 +4826,22 @@ function handleAction(button) {
     render();
   } else if (action === "remove-travel-scene") {
     state.draft.travelScenes?.splice(Number(button.dataset.travelSceneIndex), 1);
+    markDirty();
+    render();
+  } else if (action === "add-expedition-dialogue-trigger") {
+    state.draft.dialogueTriggers ||= [];
+    state.draft.dialogueTriggers.push({
+      id: uniqueId("new_trigger", Object.fromEntries(state.draft.dialogueTriggers.map((trigger) => [trigger.id, true]))),
+      trigger: "distanceReached",
+      distance: 0,
+      direction: "outbound",
+      dialogueId: Object.keys(state.catalog.dialogues || {}).sort()[0] || "",
+      requirements: [],
+    });
+    markDirty();
+    render();
+  } else if (action === "remove-expedition-dialogue-trigger") {
+    state.draft.dialogueTriggers?.splice(Number(button.dataset.expeditionDialogueTriggerIndex), 1);
     markDirty();
     render();
   } else if (action === "add-route-branch") {
@@ -5298,13 +5410,13 @@ async function saveChanges() {
     const selectedAfterSave = state.draft?.id || state.selectedId;
     state.catalog = payload;
     state.category = state.category;
-    state.selectedId = ["playerCharacter", "startingState"].includes(state.category)
-      ? (state.category === "playerCharacter" ? state.catalog.playerCharacter?.id || "arthur" : "startingState")
+    state.selectedId = ["globalSettings", "playerCharacter", "startingState"].includes(state.category)
+      ? (state.category === "playerCharacter" ? state.catalog.playerCharacter?.id || "arthur" : state.category === "globalSettings" ? "global" : "startingState")
       : state.category === "audio"
         ? selectedAfterSave && audioEntries()[selectedAfterSave] ? selectedAfterSave : Object.keys(audioEntries())[0] || null
         : selectedAfterSave && state.catalog[state.category][selectedAfterSave] ? selectedAfterSave : Object.keys(state.catalog[state.category])[0] || null;
     state.originalSelectedId = state.selectedId;
-    state.draft = state.selectedId ? clone(["playerCharacter", "startingState"].includes(state.category) ? state.catalog[state.category] : state.category === "audio" ? audioEntries()[state.selectedId] : state.catalog[state.category][state.selectedId]) : null;
+    state.draft = state.selectedId ? clone(["globalSettings", "playerCharacter", "startingState"].includes(state.category) ? state.catalog[state.category] : state.category === "audio" ? audioEntries()[state.selectedId] : state.catalog[state.category][state.selectedId]) : null;
     state.dirty = false;
     state.draftDirty = false;
     state.validation = state.catalog.validation;

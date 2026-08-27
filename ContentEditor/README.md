@@ -62,6 +62,13 @@ The default project is discovered as the sibling `../../Grail` relative to
   learned abilities and recipes, knowledge, and companion unlock/selection.
   Arthur and companion health remain runtime-derived from their live definitions.
 
+- Global Settings: the project-wide singleton in
+  `Grail/js/global-settings-data.js` edits reward reveal tiers/audio/hold
+  timings, first-discovery promotion, provision warning copy, town marker
+  defaults (including text-only Label markers), and future bark behavior.
+  It is intentionally a singleton rather than a fake one-entry content list;
+  the Advanced JSON escape hatch preserves uncommon fields.
+
 - Encounters: metadata, path and direction filters, requirements, stages,
   choices, costs, outcomes/effects, pending actions, and advanced raw JSON.
   Encounter applicability is path-based through `pathIds`; legacy encounter
@@ -115,7 +122,8 @@ The default project is discovered as the sibling `../../Grail` relative to
   name, description, danger, region, path, kind, camp-event table IDs,
   prerequisites, travel/camp/combat music, optional combat-start/victory SFX,
   repeatable bounded route branches with entry/map/rejoin path and distance
-  fields, used-by references, and advanced raw JSON.
+  fields, optional reusable dialogue triggers, used-by references, and
+  advanced raw JSON.
 - Recipes: canonical `RECIPE_DEFINITIONS` editing with typed item/material
   ingredient rows, quantities, selectors, duplicate/reorder/remove controls,
   item or provisions outputs, provider, rarity, starter flag, gold cost,
@@ -199,6 +207,7 @@ The server reads the current JavaScript constants directly from:
 - `Grail/js/injury-data.js`
 - `Grail/js/camp-data.js`
 - `Grail/js/audio-synth-data.js`
+- `Grail/js/global-settings-data.js`
 
 The editor starts with an in-memory copy and shows an unsaved indicator. Save
 is explicit. Before writing, it validates references and structure, checks the
@@ -228,6 +237,8 @@ unknown item/combat/ability/enemy-action/injury/path/region/loot references,
 unknown recipe/provider/material/dialogue/NPC/destination/location references,
 invalid recipe ingredient and output quantities, malformed recipe/provider
 definitions, malformed dialogue node links and choice branches,
+invalid global reward/town/warning/bark settings and expedition dialogue
+triggers,
 invalid chance values, malformed combat-resolution branches, invalid combat
 ability trigger/condition/effect fields, invalid loot
 rolls, loot-source table references, loot-source chance values, and direct
