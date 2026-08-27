@@ -1618,7 +1618,7 @@ function renderItemLegacy() {
   const treatment = effects.treatment && typeof effects.treatment === "object" ? effects.treatment : {};
   const combat = effects.combat && typeof effects.combat === "object" ? effects.combat : {};
   const showDamage = item.category === "weapon" || Object.prototype.hasOwnProperty.call(effects, "combatDamage");
-  const showDefense = item.category === "armor" || Object.prototype.hasOwnProperty.call(effects, "combatDefense");
+  const showDefense = ["armor", "shield"].includes(item.category) || Object.prototype.hasOwnProperty.call(effects, "combatDefense");
   const showCombat = Object.prototype.hasOwnProperty.call(effects, "combat");
   const showTreatment = Object.prototype.hasOwnProperty.call(effects, "treatment");
   const references = (state.catalog.references?.items || []).filter((reference) => reference.id === item.id);
@@ -1640,6 +1640,7 @@ function renderItemLegacy() {
     <section class="section"><div class="section-heading"><div><h3>Inventory and flags</h3><p>These flags retain the current runtime item behavior without requiring raw JSON for common edits.</p></div></div>
       <div class="form-grid">
         <label class="check-chip"><input type="checkbox" data-field="equippable"${checked(item.equippable)}> Equippable</label>
+        ${item.category === "weapon" || item.twoHanded === true ? `<label class="check-chip"><input type="checkbox" data-field="twoHanded"${checked(item.twoHanded)}> Two-Handed</label>` : ""}
         <label>Equipment slot<select data-field="equipmentSlot"><option value="">Not equipped</option>${selectOptions(known.equipmentSlots || [], item.equipmentSlot)}</select></label>
         <label class="check-chip"><input type="checkbox" data-field="carriable"${checked(item.carriable)}> Carriable</label>
         <label class="check-chip"><input type="checkbox" data-field="consumable"${checked(item.consumable)}> Consumable</label>
@@ -1651,7 +1652,7 @@ function renderItemLegacy() {
         <label class="check-chip"><input type="checkbox" data-field="protected"${checked(item.protected)}> Protected from unsafe deletion</label>
       </div>
     </section>
-    <section class="section"><div class="section-heading"><div><h3>Combat effects</h3><p>Weapon damage, armor defense, and granted combat abilities are edited as typed fields.</p></div></div>
+    <section class="section"><div class="section-heading"><div><h3>Combat effects</h3><p>Weapon damage, armor/shield defense, and granted combat abilities are edited as typed fields.</p></div></div>
       ${showDamage ? `<div class="form-grid"><label>Damage minimum<input type="number" min="0" step="any" data-item-effect-field="combatDamage.minimum" value="${escapeHtml(damage.minimum ?? "")}"></label><label>Damage maximum<input type="number" min="0" step="any" data-item-effect-field="combatDamage.maximum" value="${escapeHtml(damage.maximum ?? "")}"></label></div>` : `<p class="hint">No weapon damage effect is present. Choose category Weapon or use the advanced effects editor below.</p>`}
       ${showDefense ? `<div class="form-grid" style="margin-top:11px"><label>Combat defense<input type="number" min="0" step="any" data-item-effect-field="combatDefense" value="${escapeHtml(effects.combatDefense ?? "")}"></label></div>` : ""}
       <div class="section-heading" style="margin-top:14px"><div><h4>Granted abilities</h4><p>Choose from COMBAT_ABILITY_DEFINITIONS; IDs are validated before save.</p></div></div>
@@ -1734,7 +1735,7 @@ function renderItem() {
   const damageMarkup = item.category === "weapon" || Object.prototype.hasOwnProperty.call(effects, "combatDamage")
     ? `<div class="form-grid"><label>Damage minimum<input type="number" min="0" step="any" data-item-effect-field="combatDamage.minimum" value="${escapeHtml(damage.minimum ?? "")}"></label><label>Damage maximum<input type="number" min="0" step="any" data-item-effect-field="combatDamage.maximum" value="${escapeHtml(damage.maximum ?? "")}"></label></div>`
     : `<p class="hint">No weapon damage effect is present. Choose category Weapon or use the advanced effects editor.</p>`;
-  const defenseMarkup = item.category === "armor" || Object.prototype.hasOwnProperty.call(effects, "combatDefense")
+  const defenseMarkup = ["armor", "shield"].includes(item.category) || Object.prototype.hasOwnProperty.call(effects, "combatDefense")
     ? `<div class="form-grid" style="margin-top:11px"><label>Combat defense<input type="number" min="0" step="any" data-item-effect-field="combatDefense" value="${escapeHtml(effects.combatDefense ?? "")}"></label></div>`
     : "";
   const speedMarkup = Object.prototype.hasOwnProperty.call(effects, "combatSpeed") || item.equippable
@@ -1769,13 +1770,13 @@ function renderItem() {
       <label class="wide">Tags<input data-array-field="tags" value="${escapeHtml((item.tags || []).join(", "))}" placeholder="martial, steel"></label>
     </div></section>
     <section class="section"><div class="section-heading"><div><h3>Inventory and flags</h3><p>Common runtime flags stay schema-aware.</p></div></div><div class="form-grid">
-      <label class="check-chip"><input type="checkbox" data-field="equippable"${checked(item.equippable)}> Equippable</label><label>Equipment slot<select data-field="equipmentSlot"><option value="">Not equipped</option>${selectOptions(known.equipmentSlots || [], item.equipmentSlot)}</select></label>
+      <label class="check-chip"><input type="checkbox" data-field="equippable"${checked(item.equippable)}> Equippable</label>${item.category === "weapon" || item.twoHanded === true ? `<label class="check-chip"><input type="checkbox" data-field="twoHanded"${checked(item.twoHanded)}> Two-Handed</label>` : ""}<label>Equipment slot<select data-field="equipmentSlot"><option value="">Not equipped</option>${selectOptions(known.equipmentSlots || [], item.equipmentSlot)}</select></label>
       <label class="check-chip"><input type="checkbox" data-field="carriable"${checked(item.carriable)}> Carriable</label><label class="check-chip"><input type="checkbox" data-field="consumable"${checked(item.consumable)}> Consumable</label>
       <label>Maximum stack<input type="number" min="1" step="1" data-field="maxStack" value="${escapeHtml(item.maxStack ?? "")}" placeholder="optional"></label>
       <label class="check-chip"><input type="checkbox" data-field="questItem"${checked(item.questItem)}> Quest item</label><label class="check-chip"><input type="checkbox" data-field="campaignItem"${checked(item.campaignItem)}> Campaign item</label>
       <label class="check-chip"><input type="checkbox" data-field="unique"${checked(item.unique)}> Unique</label><label class="check-chip"><input type="checkbox" data-field="sellable"${checked(item.sellable)}> Sellable</label><label class="check-chip"><input type="checkbox" data-field="protected"${checked(item.protected)}> Protected</label>
     </div></section>
-    <section class="section"><div class="section-heading"><div><h3>Combat effects</h3><p>Weapon damage, armor defense, speed, and granted abilities are typed fields.</p></div></div>${damageMarkup}${defenseMarkup}${speedMarkup}<div class="section-heading" style="margin-top:14px"><div><h4>Granted abilities</h4><p>Validated against COMBAT_ABILITY_DEFINITIONS.</p></div></div><div class="check-grid ability-grid">${abilityMarkup || `<span class="hint">No combat abilities are available.</span>`}</div></section>
+    <section class="section"><div class="section-heading"><div><h3>Combat effects</h3><p>Weapon damage, armor/shield defense, speed, and granted abilities are typed fields.</p></div></div>${damageMarkup}${defenseMarkup}${speedMarkup}<div class="section-heading" style="margin-top:14px"><div><h4>Granted abilities</h4><p>Validated against COMBAT_ABILITY_DEFINITIONS.</p></div></div><div class="check-grid ability-grid">${abilityMarkup || `<span class="hint">No combat abilities are available.</span>`}</div></section>
     ${renderItemOnHitEffects(effects)}
     ${renderItemCombatTriggers(effects)}
     ${combatMarkup}${treatmentMarkup}
@@ -2265,7 +2266,7 @@ function renderStartingState() {
   const companionIds = Object.keys(state.catalog.companions || {}).sort();
   const knowledgeIds = state.catalog.known?.knowledge || [];
   const select = (field, ids, current) => "<select data-starting-field=\"" + field + "\"><option value=\"\">Select...</option>" + selectOptions(ids, current) + "</select>";
-  const equipment = ["weapon", "armor", "relic"].map((slot) => "<label>" + slot + select("equippedItems." + slot, itemIds, starting.equippedItems?.[slot]) + "</label>").join("");
+  const equipment = ["weapon", "shield", "armor", "relic"].map((slot) => "<label>" + slot + select("equippedItems." + slot, itemIds, starting.equippedItems?.[slot]) + "</label>").join("");
   return "<div class=\"editor-title\"><div><h2>Starting State</h2><p>New campaign defaults</p></div><span class=\"schema-badge\">Starting State schema</span></div>" +
     "<section class=\"section\"><div class=\"section-heading\"><div><h3>Resources and position</h3><p>These values seed a new campaign. Health still starts from live combat definitions.</p></div></div><div class=\"form-grid\">" +
     "<label>Faith<input type=\"number\" min=\"0\" step=\"1\" data-starting-field=\"faith\" value=\"" + escapeHtml(starting.faith ?? "") + "\"></label>" +

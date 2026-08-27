@@ -713,6 +713,56 @@ class ContentEditorTests(unittest.TestCase):
         self.assertEqual(after["items"]["arthur_sword"]["effects"]["combatDamage"], {"minimum": 11, "maximum": 19})
         self.assertEqual(after["items"]["arthur_sword"]["effects"]["grantedAbilityIds"], ["pommel_strike", "charge"])
 
+    def test_shield_and_two_handed_item_fields_round_trip_surgically(self) -> None:
+        temp, project = self.temporary_grail()
+        self.addCleanup(temp.cleanup)
+        before = load_catalog(project)
+        self.assertIn("shield", before["known"]["equipmentSlots"])
+        self.assertIn("shield", before["known"]["itemCategories"])
+        app = (CONTENT_EDITOR / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertIn('data-field="twoHanded"', app)
+        self.assertIn('["armor", "shield"]', app)
+
+        path = project / "js" / "data.js"
+        _, before_source, _ = parse_file_constant(path, "ITEM_DEFINITIONS")
+        before_blocks = constant_property_blocks(before_source, parse_file_constant(path, "ITEM_DEFINITIONS")[0])
+        items = clone(before["items"])
+        shield_id = "__content_editor_shield"
+        weapon_id = "__content_editor_two_handed_weapon"
+        items[shield_id] = {
+            "id": shield_id, "name": "Editor Test Shield", "description": "Temporary shield fixture.",
+            "category": "shield", "rarity": "common", "tags": ["shield", "test"],
+            "equippable": True, "equipmentSlot": "shield", "carriable": False,
+            "consumable": False, "effects": {"combatDefense": 6},
+            "questItem": False, "unique": True,
+        }
+        items[weapon_id] = {
+            "id": weapon_id, "name": "Editor Test Two-Hander", "description": "Temporary weapon fixture.",
+            "category": "weapon", "rarity": "uncommon", "tags": ["martial", "test"],
+            "equippable": True, "equipmentSlot": "weapon", "carriable": False,
+            "consumable": False, "effects": {"combatDamage": {"minimum": 8, "maximum": 12}},
+            "twoHanded": True, "questItem": False, "unique": True,
+        }
+        incoming = {"items": items}
+        self.assertEqual(validate_catalog(incoming, before["known"], before["references"])["errors"], [])
+        save_catalog(project, incoming, before["sourceHashes"], Path(temp.name) / "backups")
+        after = load_catalog(project)
+        self.assertEqual(after["items"][shield_id]["effects"]["combatDefense"], 6)
+        self.assertEqual(after["items"][weapon_id]["twoHanded"], True)
+        after_parsed, after_source, _ = parse_file_constant(path, "ITEM_DEFINITIONS")
+        after_blocks = constant_property_blocks(after_source, after_parsed)
+        for key, block in before_blocks.items():
+            self.assertEqual(after_blocks[key], block, key)
+
+        invalid_type = clone(after["items"])
+        invalid_type[weapon_id]["twoHanded"] = "yes"
+        errors = validate_catalog({"items": invalid_type}, after["known"], after["references"])["errors"]
+        self.assertTrue(any("twoHanded must be boolean" in issue["message"] for issue in errors))
+        invalid_usage = clone(after["items"])
+        invalid_usage[shield_id]["twoHanded"] = True
+        errors = validate_catalog({"items": invalid_usage}, after["known"], after["references"])["errors"]
+        self.assertTrue(any("twoHanded can only be true on an equippable weapon" in issue["message"] for issue in errors))
+
     def test_item_add_and_duplicate_are_unique_and_surgical(self) -> None:
         temp, project = self.temporary_grail()
         self.addCleanup(temp.cleanup)

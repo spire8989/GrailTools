@@ -798,7 +798,7 @@ def load_catalog(project_root: Path) -> dict[str, Any]:
     })
     known["itemCategories"] = sorted({
         *(item.get("category") for item in item_map.values() if isinstance(item, dict) and isinstance(item.get("category"), str)),
-        "other",
+        "other", "shield",
     })
     known["rarities"] = sorted({
         *(item.get("rarity") for item in item_map.values() if isinstance(item, dict) and isinstance(item.get("rarity"), str)),
@@ -807,7 +807,7 @@ def load_catalog(project_root: Path) -> dict[str, Any]:
     })
     known["equipmentSlots"] = sorted({
         *(item.get("equipmentSlot") for item in item_map.values() if isinstance(item, dict) and isinstance(item.get("equipmentSlot"), str)),
-        "armor", "relic", "weapon",
+        "armor", "relic", "shield", "weapon",
     })
 
     validation = validate_catalog(values, known, refs, parse_duplicates, project_root)
@@ -1432,7 +1432,7 @@ def _validate_items(items: Any, known: dict[str, list[str]], errors: list[dict[s
     seen_ids: set[str] = set()
     boolean_fields = (
         "equippable", "carriable", "consumable", "questItem", "campaignItem",
-        "unique", "sellable", "protected",
+        "unique", "sellable", "protected", "twoHanded",
     )
     for entry_id, item in items.items():
         source = f"item:{entry_id}"
@@ -1469,6 +1469,10 @@ def _validate_items(items: Any, known: dict[str, list[str]], errors: list[dict[s
             errors.append(_issue("error", f"Unknown equipment slot {slot!r}.", source, "equipmentSlot"))
         if equippable and not isinstance(slot, str):
             errors.append(_issue("error", "Equippable items need an equipmentSlot.", source, "equipmentSlot"))
+        if item.get("twoHanded") is True and not (
+            equippable and category == "weapon" and slot == "weapon"
+        ):
+            errors.append(_issue("error", "twoHanded can only be true on an equippable weapon.", source, "twoHanded"))
         if "maxStack" in item:
             max_stack = item.get("maxStack")
             if not isinstance(max_stack, int) or isinstance(max_stack, bool) or max_stack <= 0:
@@ -1759,7 +1763,7 @@ def _validate_starting_state(starting_state: Any, known: dict[str, list[str]], e
         errors.append(_issue("error", "Starting state equippedItems must be an object.", source, "equippedItems"))
     else:
         for slot, item_id in equipped.items():
-            if slot not in {"weapon", "armor", "relic"}:
+            if slot not in set(known.get("equipmentSlots", [])):
                 errors.append(_issue("error", f"Starting state equippedItems has unknown slot {slot!r}.", source, f"equippedItems.{slot}"))
             if not isinstance(item_id, str) or item_id not in item_ids:
                 errors.append(_issue("error", "Starting state equipped items must reference known non-material item IDs.", source, f"equippedItems.{slot}"))
