@@ -191,6 +191,7 @@ class Phase6FilterBrowserTests(unittest.TestCase):
         self.assertTrue(self.browser.evaluate("Boolean(document.querySelector('[data-audio-json]'))"))
         self.assertTrue(self.browser.evaluate("Boolean(window.GrailAudioSynth?.SynthPlayer)"))
         self.assertTrue(self.browser.evaluate("Boolean(document.querySelector('[data-action=play-audio]')) && Boolean(document.querySelector('[data-action=pause-audio]')) && Boolean(document.querySelector('[data-action=restart-audio]'))"))
+        self.assertTrue(self.browser.evaluate("document.querySelector('#editor-root').innerText.includes('low-pass filter') && document.querySelector('#editor-root').innerText.includes('vibrato')"))
         self.browser.evaluate("(() => { const volume=document.querySelector('[data-audio-volume]'); volume.value='0.31'; volume.dispatchEvent(new Event('input',{bubbles:true})); })()")
         self.assertTrue(self.browser.evaluate("document.querySelector('#dirty-indicator').textContent === 'All changes saved' && Math.abs(state.audioPreviewVolume - 0.31) < 0.001"))
 
@@ -208,7 +209,7 @@ class Phase6FilterBrowserTests(unittest.TestCase):
                 setTargetAtTime() {}
               }
               class Node {
-                constructor() { this.frequency = new Param(); this.gain = new Param(); }
+                constructor() { this.frequency = new Param(); this.gain = new Param(); this.detune = new Param(); this.Q = new Param(); }
                 connect() { return this; }
                 disconnect() {}
                 start() {}
@@ -219,12 +220,13 @@ class Phase6FilterBrowserTests(unittest.TestCase):
                 resume() { return Promise.resolve(); }
                 createGain() { return new Node(); }
                 createOscillator() { return new Node(); }
+                createBiquadFilter() { return new Node(); }
                 createBufferSource() { return new Node(); }
                 createBuffer(_channels, length) { return { getChannelData: () => new Float32Array(length) }; }
               }
               window.AudioContext = FakeAudioContext;
               const player = new window.GrailAudioSynth.SynthPlayer();
-              const music = { bpm: 120, loopBeats: 2, voices: [{ wave: 'triangle', gain: 0.1, notes: [['C4', 0, 1]] }] };
+              const music = { bpm: 120, loopBeats: 2, voices: [{ wave: 'triangle', gain: 0.1, filter: { frequency: 1800, q: 0.7 }, vibrato: { rate: 5.2, depth: 8 }, notes: [['C4', 0, 1]] }] };
               const sfx = { duration: 0.05, layers: [{ wave: 'square', startHz: 440, endHz: 660, gain: 0.1 }] };
               await player.playMusic(music);
               const playing = player.status().music;
@@ -244,6 +246,12 @@ class Phase6FilterBrowserTests(unittest.TestCase):
         self.assertTrue(result["sfxPlaying"])
         self.assertEqual(result["final"]["music"], "stopped")
         self.assertFalse(result["final"]["sfx"])
+
+    def test_location_music_selector_uses_canonical_tracks(self) -> None:
+        self.click_category("locations")
+        self.browser.evaluate("selectEntry('broceliande_village')")
+        self.assertEqual(self.browser.evaluate("document.querySelector('#editor-root [data-field=musicTrackId]').value"), "camelot_twilight")
+        self.assertTrue(self.browser.evaluate("Boolean(document.querySelector(\"#editor-root [data-field=musicTrackId] option[value='camelot_twilight']\")) && Array.from(document.querySelectorAll(\"#editor-root [data-field=musicTrackId] option\")).some(option => option.value === '' && option.textContent === 'None')"))
 
     def test_recipe_provider_change_updates_draft_for_navigation_and_save(self) -> None:
         self.click_category("recipes")

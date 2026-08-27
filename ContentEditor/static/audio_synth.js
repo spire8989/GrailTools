@@ -28,7 +28,11 @@
     constructor() {
       this.context = null;
       this.master = null;
+      this.musicOutput = null;
+      this.sfxOutput = null;
       this.volume = 0.7;
+      this.musicVolume = 1;
+      this.sfxVolume = 1;
       this.music = null;
       this.sfx = null;
       this.musicRequest = 0;
@@ -42,6 +46,12 @@
         this.context = new AudioContextClass();
         this.master = this.context.createGain();
         this.master.gain.value = this.volume;
+        this.musicOutput = this.context.createGain();
+        this.musicOutput.gain.value = this.musicVolume;
+        this.sfxOutput = this.context.createGain();
+        this.sfxOutput.gain.value = this.sfxVolume;
+        this.musicOutput.connect(this.master);
+        this.sfxOutput.connect(this.master);
         this.master.connect(this.context.destination);
       }
       if (this.context.state === "suspended") await this.context.resume();
@@ -52,6 +62,20 @@
       this.volume = Math.max(0, Math.min(1, numberOr(value, this.volume)));
       if (this.master && this.context) {
         this.master.gain.setTargetAtTime(this.volume, this.context.currentTime, 0.01);
+      }
+    }
+
+    setMusicVolume(value) {
+      this.musicVolume = Math.max(0, Math.min(1, numberOr(value, this.musicVolume)));
+      if (this.musicOutput && this.context) {
+        this.musicOutput.gain.setTargetAtTime(this.musicVolume, this.context.currentTime, 0.01);
+      }
+    }
+
+    setSfxVolume(value) {
+      this.sfxVolume = Math.max(0, Math.min(1, numberOr(value, this.sfxVolume)));
+      if (this.sfxOutput && this.context) {
+        this.sfxOutput.gain.setTargetAtTime(this.sfxVolume, this.context.currentTime, 0.01);
       }
     }
 
@@ -75,7 +99,8 @@
     }
 
     async restartMusic() {
-      return this.playMusic(this.music?.definition);
+      const definition = this.music?.definition;
+      return definition ? this.playMusic(definition) : false;
     }
 
     pauseMusic() {
@@ -103,7 +128,7 @@
       const context = await this.ensureContext();
       if (request !== this.sfxRequest) return false;
       if (!definition || !Array.isArray(definition.layers)) throw new Error("SFX definition has no layers to play.");
-      const state = { definition, nodes: new Set(), timer: null };
+      const state = { definition, nodes: new Set(), timer: null, output: this.sfxOutput || this.master };
       this.sfx = state;
       const startTime = context.currentTime + 0.03;
       definition.layers.forEach((layer) => this._scheduleSfxLayer(state, layer, startTime));
@@ -145,6 +170,7 @@
         positionBeat: offset,
         secondsPerBeat,
         loopSeconds,
+        output: this.musicOutput || this.master,
         anchorTime: context.currentTime + 0.03 - offset * secondsPerBeat,
         nextLoop: 0,
       };
@@ -169,7 +195,7 @@
           if (noteEnd <= now + 0.01 || noteStart >= loopEnd + 0.01) return;
           const scheduledStart = Math.max(noteStart, now + 0.02);
           if (noteEnd <= scheduledStart) return;
-          this._scheduleOscillator(state, voice.wave || "sine", note[0], voice.gain, voice.attack, voice.release, scheduledStart, noteEnd);
+          this._scheduleOscillator(state, voice.wave || "sine", note[0], voice.gain, voice.attack, voice.release, scheduledStart, noteEnd, null, voice.filter, voice.vibrato);
         });
       });
       const delay = Math.max(35, (loopEnd - context.currentTime - 0.12) * 1000);
@@ -184,11 +210,11 @@
       if (layer.wave === "noise") {
         this._scheduleNoise(state, layer, start, end);
       } else {
-        this._scheduleOscillator(state, layer.wave || "sine", layer.startHz, layer.gain, layer.attack, layer.release, start, end, layer.endHz);
+        this._scheduleOscillator(state, layer.wave || "sine", layer.startHz, layer.gain, layer.attack, layer.release, start, end, layer.endHz, layer.filter, null);
       }
     }
 
-    _scheduleOscillator(state, wave, pitchOrHz, gain, attack, release, start, end, endHz = null) {
+    _scheduleOscillator(state, wave, pitchOrHz, gain, attack, release, start, end, endHz = null, filterDefinition = null, vibratoDefinition = null) {
       const context = this.context;
       end = Math.max(end, start + 0.001);
       let startHz;
@@ -217,12 +243,45 @@
       if (releaseTime > 0) envelope.gain.linearRampToValueAtTime(0, end + releaseTime);
       else envelope.gain.setValueAtTime(0, end);
       oscillator.connect(envelope);
-      envelope.connect(this.master);
-      const record = { node: oscillator, envelope, start };
+      let filter = null;
+      if (filterDefinition && typeof context.createBiquadFilter === "function") {
+        filter = context.createBiquadFilter();
+        filter.type = "lowpass";
+        const frequency = Math.max(20, Math.min(24000, numberOr(filterDefinition.frequency, 24000)));
+        const q = Math.max(0, Math.min(100, numberOr(filterDefinition.q, 0.7)));
+        filter.frequency.setValueAtTime(frequency, start);
+        filter.Q.setValueAtTime(q, start);
+        envelope.connect(filter);
+        filter.connect(state.output || this.master);
+      } else {
+        envelope.connect(state.output || this.master);
+      }
+      let vibrato = null;
+      let vibratoDepth = null;
+      const rate = numberOr(vibratoDefinition?.rate, 0);
+      const depth = numberOr(vibratoDefinition?.depth, 0);
+      if (rate > 0 && depth > 0 && oscillator.detune && typeof context.createOscillator === "function") {
+        vibrato = context.createOscillator();
+        vibratoDepth = context.createGain();
+        vibrato.frequency.setValueAtTime(rate, start);
+        vibratoDepth.gain.setValueAtTime(depth, start);
+        vibrato.connect(vibratoDepth);
+        vibratoDepth.connect(oscillator.detune);
+        vibrato.start(start);
+        safeStop(vibrato, end + releaseTime + 0.02);
+      }
+      const record = { node: oscillator, envelope, filter, vibrato, vibratoDepth, start };
       state.nodes.add(record);
       oscillator.onended = () => {
         state.nodes.delete(record);
-        try { oscillator.disconnect(); envelope.disconnect(); } catch (_error) { /* Already disconnected. */ }
+        safeStop(vibrato, end + releaseTime + 0.02);
+        try {
+          oscillator.disconnect();
+          envelope.disconnect();
+          filter?.disconnect();
+          vibrato?.disconnect();
+          vibratoDepth?.disconnect();
+        } catch (_error) { /* Already disconnected. */ }
       };
       oscillator.start(start);
       safeStop(oscillator, end + releaseTime + 0.02);
@@ -249,12 +308,24 @@
       if (releaseTime > 0) envelope.gain.linearRampToValueAtTime(0, end + releaseTime);
       else envelope.gain.setValueAtTime(0, end);
       source.connect(envelope);
-      envelope.connect(this.master);
-      const record = { node: source, envelope, start };
+      let filter = null;
+      if (layer.filter && typeof context.createBiquadFilter === "function") {
+        filter = context.createBiquadFilter();
+        filter.type = "lowpass";
+        const frequency = Math.max(20, Math.min(24000, numberOr(layer.filter.frequency, 24000)));
+        const q = Math.max(0, Math.min(100, numberOr(layer.filter.q, 0.7)));
+        filter.frequency.setValueAtTime(frequency, start);
+        filter.Q.setValueAtTime(q, start);
+        envelope.connect(filter);
+        filter.connect(state.output || this.master);
+      } else {
+        envelope.connect(state.output || this.master);
+      }
+      const record = { node: source, envelope, filter, start };
       state.nodes.add(record);
       source.onended = () => {
         state.nodes.delete(record);
-        try { source.disconnect(); envelope.disconnect(); } catch (_error) { /* Already disconnected. */ }
+        try { source.disconnect(); envelope.disconnect(); filter?.disconnect(); } catch (_error) { /* Already disconnected. */ }
       };
       source.start(start);
       safeStop(source, end + releaseTime + 0.02);
@@ -270,7 +341,11 @@
     _stopNodes(nodes) {
       if (!nodes) return;
       const when = this.context ? this.context.currentTime : 0;
-      nodes.forEach((record) => safeStop(record.node, Math.max(when, numberOr(record.start, when))));
+      nodes.forEach((record) => {
+        const stopAt = Math.max(when, numberOr(record.start, when));
+        safeStop(record.node, stopAt);
+        safeStop(record.vibrato, stopAt);
+      });
       nodes.clear();
     }
   }

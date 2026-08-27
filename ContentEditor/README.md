@@ -144,10 +144,11 @@ The default project is discovered as the sibling `../../Grail` relative to
   metadata, visual keys, destination/NPC/shop/expedition/quest lists, shared
   requirements, and the runtime `serviceConfig` provision-shop, restock-shop,
   and auto-grant fields.
-- Audio: an editor-only Web Audio synth sandbox with Music Tracks and SFX
-  categories. Definitions are small JSON objects in
-  `ContentEditor/audio-definitions.json`; the editor validates, previews,
-  duplicates, and saves them without touching the Grail repository.
+- Audio: a lightweight Web Audio synth editor with Music Tracks and SFX
+  categories. Definitions are canonical game content in
+  `Grail/js/audio-synth-data.js`; the editor validates, previews, duplicates,
+  and saves them with the same source-hash and backup safeguards as other
+  Grail definitions.
 
 The left content category list is alphabetized by display label and the
 workspace keeps a wider category column so longer authoring categories remain
@@ -195,6 +196,7 @@ The server reads the current JavaScript constants directly from:
 - `Grail/js/crafting-data.js`
 - `Grail/js/injury-data.js`
 - `Grail/js/camp-data.js`
+- `Grail/js/audio-synth-data.js`
 
 The editor starts with an in-memory copy and shows an unsaved indicator. Save
 is explicit. Before writing, it validates references and structure, checks the
@@ -213,9 +215,11 @@ are retained for each changed source file. If the preferred backup directory
 is not writable in the local environment, the server falls back to an
 OS-temporary recovery directory rather than making the content write unsafe.
 
-Synthesized audio definitions are the exception to the Grail-source workflow:
-they are stored only in `ContentEditor/audio-definitions.json`, with an atomic
-write and recovery backup. They are not consumed by the game yet.
+Synthesized audio definitions use the same Grail-source workflow as the other
+content: they are stored in `Grail/js/audio-synth-data.js`, with an atomic
+source-preserving write and recovery backup. The game consumes this catalog
+through its native Web Audio runtime synth; conventional Audio Assets remain
+available separately for future file-backed content.
 
 Validation reports duplicate keys, missing required encounter structure,
 unknown item/combat/ability/enemy-action/injury/path/region/loot references,

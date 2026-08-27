@@ -7,7 +7,6 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 
 CONTENT_EDITOR = Path(__file__).resolve().parents[1]
@@ -51,11 +50,12 @@ class ContentEditorTests(unittest.TestCase):
         self.assertEqual(catalog["validation"]["errors"][0]["source"], "encounter:lost_purse")
         self.assertEqual(catalog["validation"]["warnings"], [])
 
-    def test_audio_definitions_load_validate_and_save_without_touching_grail(self) -> None:
+    def test_audio_definitions_load_validate_and_save_to_canonical_grail_source(self) -> None:
         catalog = load_catalog(GRAIL)
         self.assertIn("moonlit_court", catalog["audioDefinitions"]["musicTracks"])
+        self.assertIn("camelot_twilight", catalog["audioDefinitions"]["musicTracks"])
         self.assertIn("pickup_confirm", catalog["audioDefinitions"]["sfx"])
-        self.assertIn("ContentEditor/audio-definitions.json", catalog["sourceHashes"])
+        self.assertIn("js/audio-synth-data.js", catalog["sourceHashes"])
         app = (CONTENT_EDITOR / "static" / "app.js").read_text(encoding="utf-8")
         synth = (CONTENT_EDITOR / "static" / "audio_synth.js").read_text(encoding="utf-8")
         self.assertIn('["audio", "Audio"]', app)
@@ -67,26 +67,41 @@ class ContentEditorTests(unittest.TestCase):
         invalid["musicTracks"]["moonlit_court"]["bpm"] = 0
         invalid["musicTracks"]["moonlit_court"]["voices"][0]["wave"] = "organ"
         invalid["musicTracks"]["moonlit_court"]["voices"][0]["notes"][0] = ["H9", -1, 20]
+        invalid["musicTracks"]["moonlit_court"]["voices"][0]["filter"] = {"frequency": 0, "q": -1}
+        invalid["musicTracks"]["moonlit_court"]["voices"][0]["vibrato"] = {"rate": -1, "depth": 1300}
         invalid["sfx"]["pickup_confirm"]["layers"][0]["gain"] = 2
         messages = [issue["message"] for issue in validate_catalog({"audioDefinitions": invalid}, catalog["known"], catalog["references"])["errors"]]
         self.assertTrue(any("BPM" in message for message in messages))
         self.assertTrue(any("waveform" in message for message in messages))
         self.assertTrue(any("Invalid note name" in message for message in messages))
         self.assertTrue(any("gain" in message for message in messages))
+        self.assertTrue(any("filter frequency" in message for message in messages))
+        self.assertTrue(any("vibrato rate" in message for message in messages))
+        self.assertTrue(any("vibrato depth" in message for message in messages))
 
         temp, project = self.temporary_grail()
         self.addCleanup(temp.cleanup)
-        local_audio = Path(temp.name) / "audio-definitions.json"
-        shutil.copy2(content_editor_core.AUDIO_DEFINITIONS_PATH, local_audio)
-        with patch.object(content_editor_core, "AUDIO_DEFINITIONS_PATH", local_audio):
-            before = load_catalog(project)
-            incoming = clone(before["audioDefinitions"])
-            incoming["musicTracks"]["moonlit_court"]["name"] = "Moonlit Court (test)"
-            result = save_catalog(project, {"audioDefinitions": incoming}, before["sourceHashes"], Path(temp.name) / "backups")
-            after = load_catalog(project)
+        before = load_catalog(project)
+        incoming = clone(before["audioDefinitions"])
+        incoming["musicTracks"]["moonlit_court"]["name"] = "Moonlit Court (test)"
+        result = save_catalog(project, {"audioDefinitions": incoming}, before["sourceHashes"], Path(temp.name) / "backups")
+        after = load_catalog(project)
         self.assertEqual(after["audioDefinitions"]["musicTracks"]["moonlit_court"]["name"], "Moonlit Court (test)")
-        self.assertTrue(any(item["file"] == "ContentEditor/audio-definitions.json" and item["status"] == "updated" for item in result["saveResults"]))
-        self.assertTrue(list((Path(temp.name) / "backups").glob("audio-definitions.json.*.bak")))
+        self.assertTrue(any(item["file"] == "js/audio-synth-data.js" and item["status"] == "updated" for item in result["saveResults"]))
+        self.assertTrue(list((Path(temp.name) / "backups").glob("audio-synth-data.js.*.bak")))
+        self.assertEqual(after["locations"], before["locations"])
+
+    def test_location_music_reference_loads_and_validates(self) -> None:
+        catalog = load_catalog(GRAIL)
+        self.assertEqual(catalog["locations"]["broceliande_village"]["musicTrackId"], "camelot_twilight")
+        self.assertIn("camelot_twilight", catalog["known"]["musicTracks"])
+        invalid = clone(catalog["locations"])
+        invalid["broceliande_village"]["musicTrackId"] = "missing_track"
+        errors = validate_catalog({"locations": invalid}, catalog["known"], catalog["references"])["errors"]
+        self.assertTrue(any("unknown music track ID 'missing_track'" in issue["message"] for issue in errors))
+        app = (CONTENT_EDITOR / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertIn('data-field="musicTrackId"', app)
+        self.assertIn("Music track", app)
 
     def test_encounter_milestone_fields_load_validate_and_save_surgically(self) -> None:
         catalog = load_catalog(GRAIL)

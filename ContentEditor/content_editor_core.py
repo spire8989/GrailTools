@@ -479,8 +479,10 @@ CONTENT_FILES = {
     "returnRewards": ("js/loot-data.js", "EXPEDITION_RETURN_REWARD_TIERS"),
 }
 EXPEDITION_TUNING_FILE = ("js/tuning.js", "EXPEDITION_TUNING")
-AUDIO_DEFINITIONS_PATH = Path(__file__).resolve().parent / "audio-definitions.json"
-AUDIO_DEFINITIONS_SOURCE = "ContentEditor/audio-definitions.json"
+AUDIO_DEFINITIONS_RELATIVE = "js/audio-synth-data.js"
+AUDIO_DEFINITIONS_CONSTANT = "SYNTH_AUDIO_DEFINITIONS"
+AUDIO_DEFINITIONS_PATH = Path(__file__).resolve().parents[1] / "Grail" / AUDIO_DEFINITIONS_RELATIVE
+AUDIO_DEFINITIONS_SOURCE = AUDIO_DEFINITIONS_RELATIVE
 AUDIO_DEFINITION_CATEGORIES = ("musicTracks", "sfx")
 AUDIO_OSCILLATOR_WAVES = {"sine", "triangle", "square", "sawtooth"}
 AUDIO_SFX_WAVES = AUDIO_OSCILLATOR_WAVES | {"noise"}
@@ -566,6 +568,7 @@ def _ref_type_for_key(key: str) -> str | None:
         "dialogueId": "dialogues",
         "dialogueSequenceId": "dialogues",
         "introDialogueSequenceId": "dialogues",
+        "musicTrackId": "musicTracks",
         "speakerId": "npcs",
         "npcId": "npcs",
         "destinationId": "destinations",
@@ -671,23 +674,17 @@ def _id_map(value: Any) -> dict[str, Any]:
 
 
 def load_audio_definitions(path: Path | None = None) -> dict[str, Any]:
-    """Load the editor-only synthesized audio catalog.
-
-    These definitions intentionally live beside the Content Editor rather than
-    in the sibling Grail project.  Keeping this loader separate from the
-    JavaScript constant parser also means the editor can preserve ordinary JSON
-    formatting and keep the experimental catalog easy to copy from source
-    control.
-    """
+    """Load the canonical game-side synthesized audio catalog."""
     path = path or AUDIO_DEFINITIONS_PATH
     if not path.is_file():
         return {"musicTracks": {}, "sfx": {}}
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as error:
-        raise JsParseError(f"Invalid audio definitions JSON: {error.msg} at line {error.lineno}, column {error.colno}") from error
+        parsed, _source, _raw = parse_file_constant(path, AUDIO_DEFINITIONS_CONSTANT)
+        value = parsed.value
+    except (UnicodeDecodeError, JsParseError) as error:
+        raise JsParseError(f"Invalid synthesized audio definitions: {error}") from error
     if not isinstance(value, dict):
-        raise JsParseError("Audio definitions file must contain a JSON object.")
+        raise JsParseError("Synthesized audio definitions must contain an object.")
     for category in AUDIO_DEFINITION_CATEGORIES:
         value.setdefault(category, {})
     return value
@@ -763,10 +760,11 @@ def load_catalog(project_root: Path) -> dict[str, Any]:
         for duplicate in parsed.duplicate_keys:
             parse_duplicates.append({"source": relative, "id": duplicate})
 
-    audio_definitions = load_audio_definitions()
+    audio_path = project_root / AUDIO_DEFINITIONS_RELATIVE
+    audio_definitions = load_audio_definitions(audio_path)
     values["audioDefinitions"] = audio_definitions
-    if AUDIO_DEFINITIONS_PATH.is_file():
-        source_hashes[AUDIO_DEFINITIONS_SOURCE] = _source_hash(AUDIO_DEFINITIONS_PATH.read_bytes())
+    if audio_path.is_file():
+        source_hashes[AUDIO_DEFINITIONS_SOURCE] = _source_hash(audio_path.read_bytes())
     source_paths["audioDefinitions"] = AUDIO_DEFINITIONS_SOURCE
 
     try:
@@ -828,6 +826,7 @@ def load_catalog(project_root: Path) -> dict[str, Any]:
     known["craftingProviders"] = sorted(_id_map(values.get("craftingProviders")))
     known["imageAssets"] = sorted(_id_map(values.get("imageAssets")))
     known["audioAssets"] = sorted(_id_map(values.get("audioAssets")))
+    known["musicTracks"] = sorted(_id_map(values.get("audioDefinitions", {}).get("musicTracks")))
     known["companions"] = sorted(_id_map(values.get("companions")))
     known["materials"] = sorted(set(known.get("materials", [])) | {
         item_id
@@ -2900,6 +2899,10 @@ def _validate_locations(locations: Any, known: dict[str, list[str]], errors: lis
                 errors.append(_issue("error", f"Location {field_name} must be a string.", source, field_name))
         if "markerStyle" in location and location["markerStyle"] not in {"tag", "ribbon", "ink"}:
             errors.append(_issue("error", "Location markerStyle must be one of: tag, ribbon, ink.", source, "markerStyle"))
+        if "musicTrackId" in location:
+            track_id = location.get("musicTrackId")
+            if track_id is not None and (not isinstance(track_id, str) or track_id not in set(known.get("musicTracks", []))):
+                errors.append(_issue("error", f"Location musicTrackId references unknown music track ID {track_id!r}.", source, "musicTrackId"))
         for field_name in ("destinations", "npcs", "shops", "availableExpeditions", "availableQuests", "requirements"):
             if field_name in location and not isinstance(location[field_name], list):
                 errors.append(_issue("error", f"Location {field_name} must be an array.", source, field_name))
@@ -2932,6 +2935,30 @@ def _note_midi(pitch: Any) -> int | None:
     accidental = {"": 0, "#": 1, "b": -1}[match.group(2)]
     midi = (int(match.group(3)) + 1) * 12 + semitones[match.group(1).upper()] + accidental
     return midi if 0 <= midi <= 127 else None
+
+
+def _validate_audio_filter(filter_value: Any, source: str, path: str, errors: list[dict[str, str]]) -> None:
+    if not isinstance(filter_value, dict):
+        errors.append(_issue("error", "Audio filter must be an object.", source, path))
+        return
+    frequency = filter_value.get("frequency")
+    if not _audio_number(frequency) or not 20 <= frequency <= 24000:
+        errors.append(_issue("error", "Audio filter frequency must be a finite number from 20 to 24000 Hz.", source, f"{path}.frequency"))
+    q = filter_value.get("q", 0.7)
+    if not _audio_number(q) or q < 0 or q > 100:
+        errors.append(_issue("error", "Audio filter Q must be a finite number from 0 to 100.", source, f"{path}.q"))
+
+
+def _validate_audio_vibrato(vibrato: Any, source: str, path: str, errors: list[dict[str, str]]) -> None:
+    if not isinstance(vibrato, dict):
+        errors.append(_issue("error", "Audio vibrato must be an object.", source, path))
+        return
+    rate = vibrato.get("rate")
+    if not _audio_number(rate) or rate < 0 or rate > 100:
+        errors.append(_issue("error", "Audio vibrato rate must be a finite number from 0 to 100 Hz.", source, f"{path}.rate"))
+    depth = vibrato.get("depth")
+    if not _audio_number(depth) or depth < 0 or depth > 1200:
+        errors.append(_issue("error", "Audio vibrato depth must be a finite number from 0 to 1200 cents.", source, f"{path}.depth"))
 
 
 def _validate_audio_definitions(audio_definitions: Any, errors: list[dict[str, str]]) -> None:
@@ -2983,6 +3010,10 @@ def _validate_audio_definitions(audio_definitions: Any, errors: list[dict[str, s
                         if not _audio_number(value) or value < 0 or (field_name == "gain" and value > 1):
                             limit = "from 0 to 1" if field_name == "gain" else "non-negative"
                             errors.append(_issue("error", f"Music voice {field_name} must be a finite number {limit}.", source, f"{voice_path}.{field_name}"))
+                    if "filter" in voice:
+                        _validate_audio_filter(voice["filter"], source, f"{voice_path}.filter", errors)
+                    if "vibrato" in voice:
+                        _validate_audio_vibrato(voice["vibrato"], source, f"{voice_path}.vibrato", errors)
                     notes = voice.get("notes")
                     if not isinstance(notes, list):
                         errors.append(_issue("error", "Music voice notes must be an array of [pitch, startBeat, durationBeat].", source, f"{voice_path}.notes"))
@@ -3014,6 +3045,8 @@ def _validate_audio_definitions(audio_definitions: Any, errors: list[dict[str, s
                     if not isinstance(layer, dict):
                         errors.append(_issue("error", "Each SFX layer must be an object.", source, layer_path))
                         continue
+                    if "filter" in layer:
+                        _validate_audio_filter(layer["filter"], source, f"{layer_path}.filter", errors)
                     wave = layer.get("wave", "sine")
                     if wave not in AUDIO_SFX_WAVES:
                         errors.append(_issue("error", f"Invalid SFX waveform {wave!r}; use sine, triangle, square, sawtooth, or noise.", source, f"{layer_path}.wave"))
@@ -3182,6 +3215,8 @@ def validate_catalog(values: dict[str, Any], known: dict[str, list[str]], refere
         }
     if "audioAssets" in values:
         effective_known["audioAssets"] = sorted(_id_map(values.get("audioAssets")))
+    if "audioDefinitions" in values:
+        effective_known["musicTracks"] = sorted(_id_map(values.get("audioDefinitions", {}).get("musicTracks")))
     if "companions" in values:
         effective_known["companions"] = sorted(_id_map(values.get("companions")))
     for duplicate in parse_duplicates or []:
@@ -3488,37 +3523,14 @@ def _write_constant(project_root: Path, category: str, value: Any, backup_dir: P
     return _write_source_constants(project_root, relative, {name: value}, backup_dir, expected_hash)
 
 
-def _write_audio_definitions(value: Any, backup_dir: Path, expected_hash: str | None = None) -> dict[str, str]:
-    path = AUDIO_DEFINITIONS_PATH
-    raw = path.read_bytes() if path.is_file() else b""
-    if expected_hash and _source_hash(raw) != expected_hash:
-        raise RuntimeError(f"Conflict: {AUDIO_DEFINITIONS_SOURCE} changed on disk since the editor loaded it. Reload before saving.")
-    updated_bytes = (json.dumps(value, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
-    if updated_bytes == raw:
-        return {"file": AUDIO_DEFINITIONS_SOURCE, "status": "unchanged"}
-
-    backup_dir.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    if raw:
-        backup_path = backup_dir / f"audio-definitions.json.{stamp}.bak"
-        shutil.copy2(path, backup_path)
-    else:
-        backup_path = None
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, temp_name = tempfile.mkstemp(prefix=".audio-definitions.", suffix=".tmp", dir=path.parent)
-    try:
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(updated_bytes)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(temp_name, path)
-    finally:
-        if os.path.exists(temp_name):
-            os.unlink(temp_name)
-    result = {"file": AUDIO_DEFINITIONS_SOURCE, "status": "updated"}
-    if backup_path:
-        result["backup"] = str(backup_path)
-    return result
+def _write_audio_definitions(project_root: Path, value: Any, backup_dir: Path, expected_hash: str | None = None) -> dict[str, str]:
+    return _write_source_constants(
+        project_root,
+        AUDIO_DEFINITIONS_RELATIVE,
+        {AUDIO_DEFINITIONS_CONSTANT: value},
+        backup_dir,
+        expected_hash,
+    )
 
 
 def save_catalog(project_root: Path, incoming: dict[str, Any], expected_hashes: dict[str, str] | None = None, backup_dir: Path | None = None) -> dict[str, Any]:
@@ -3568,7 +3580,7 @@ def save_catalog(project_root: Path, incoming: dict[str, Any], expected_hashes: 
     for relative, definitions in updates_by_file.items():
         results.append(_write_source_constants(project_root, relative, definitions, backup_dir, current["sourceHashes"].get(relative)))
     if audio_changed:
-        results.append(_write_audio_definitions(incoming["audioDefinitions"], backup_dir, current["sourceHashes"].get(AUDIO_DEFINITIONS_SOURCE)))
+        results.append(_write_audio_definitions(project_root, incoming["audioDefinitions"], backup_dir, current["sourceHashes"].get(AUDIO_DEFINITIONS_SOURCE)))
     result = load_catalog(project_root)
     result["saveResults"] = results
     return result
