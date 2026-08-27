@@ -1258,6 +1258,8 @@ function renderEncounter() {
         <label>Weight<input type="number" step="any" data-field="weight" value="${escapeHtml(encounter.weight ?? "")}"></label>
         <label>Minimum distance (stadia)<input type="number" step="any" data-field="minimumDistance" value="${escapeHtml(encounter.minimumDistance ?? "")}"></label>
         <label>Maximum distance (stadia)<input type="number" step="any" data-field="maximumDistance" value="${escapeHtml(encounter.maximumDistance ?? "")}"></label>
+        <label class="check-chip"><input type="checkbox" data-field="milestone"${checked(encounter.milestone)}> Milestone</label>
+        <label class="milestone-order-field">Milestone Order<input type="number" min="0" step="any" data-field="milestoneOrder" value="${escapeHtml(encounter.milestoneOrder ?? "")}"${encounter.milestone === true ? "" : " disabled"} placeholder="required for milestones"></label>
         <label>Max occurrences per run<input type="number" step="1" data-field="maxOccurrencesPerRun" value="${escapeHtml(encounter.maxOccurrencesPerRun ?? "")}" placeholder="optional"></label>
         <label class="wide">Tags<input data-array-field="tags" value="${escapeHtml((encounter.tags || []).join(", "))}" placeholder="forest, discovery"></label>
         <label class="check-chip"><input type="checkbox" data-field="repeatable"${checked(encounter.repeatable)}> Repeatable</label>
@@ -3116,6 +3118,12 @@ function draftSnapshot() {
     recipe.ingredients = normalizedRecipeIngredients(recipe);
     delete recipe.ingredientType;
   });
+  Object.values(snapshot.encounters || {}).forEach((encounter) => {
+    if (encounter?.milestone !== true) {
+      delete encounter.milestone;
+      delete encounter.milestoneOrder;
+    }
+  });
   if (state.draft && ["playerCharacter", "startingState"].includes(state.category)) {
     snapshot[state.category] = clone(state.draft);
   } else if (state.draft && state.category === "returnRewards") {
@@ -4056,6 +4064,16 @@ function handleInput(input) {
         id: ids.includes(ingredient.id) ? ingredient.id : ids[0] || "",
       }));
       state.draft.ingredientType = type;
+      markDirty();
+      render();
+      return;
+    }
+    if (state.category === "encounters" && input.dataset.field === "milestone") {
+      if (input.checked) state.draft.milestone = true;
+      else {
+        delete state.draft.milestone;
+        delete state.draft.milestoneOrder;
+      }
       markDirty();
       render();
       return;

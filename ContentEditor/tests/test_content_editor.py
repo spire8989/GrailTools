@@ -49,6 +49,44 @@ class ContentEditorTests(unittest.TestCase):
         self.assertEqual(catalog["validation"]["errors"][0]["source"], "encounter:lost_purse")
         self.assertEqual(catalog["validation"]["warnings"], [])
 
+    def test_encounter_milestone_fields_load_validate_and_save_surgically(self) -> None:
+        catalog = load_catalog(GRAIL)
+        village = catalog["encounters"]["hidden_forest_village"]
+        self.assertTrue(village["milestone"])
+        self.assertEqual(village["milestoneOrder"], 95)
+        app = (CONTENT_EDITOR / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertIn('data-field="milestone"', app)
+        self.assertIn('data-field="milestoneOrder"', app)
+        self.assertIn("delete encounter.milestoneOrder", app)
+        self.assertIn("Milestone Order must fall within the encounter distance range", (CONTENT_EDITOR / "content_editor_core.py").read_text(encoding="utf-8"))
+
+        invalid = clone(catalog["encounters"])
+        invalid["hidden_forest_village"]["milestoneOrder"] = 94
+        errors = validate_catalog({"encounters": invalid}, catalog["known"], catalog["references"])["errors"]
+        self.assertTrue(any("Milestone Order must fall within the encounter distance range (95–99 stadia)." in issue["message"] for issue in errors))
+
+        invalid["hidden_forest_village"]["milestoneOrder"] = 100
+        errors = validate_catalog({"encounters": invalid}, catalog["known"], catalog["references"])["errors"]
+        self.assertTrue(any("Milestone Order must fall within the encounter distance range (95–99 stadia)." in issue["message"] for issue in errors))
+
+        temp, project = self.temporary_grail()
+        self.addCleanup(temp.cleanup)
+        before = load_catalog(project)
+        encounters = clone(before["encounters"])
+        encounters["hidden_forest_village"]["milestoneOrder"] = 97
+        encounters["hidden_forest_village"]["editorNote"] = "preserve unknown encounter fields"
+        fallen_tree_before = clone(encounters["fallen_tree"])
+        save_catalog(project, {"encounters": encounters}, before["sourceHashes"], Path(temp.name) / "backups")
+        after = load_catalog(project)
+        self.assertTrue(after["encounters"]["hidden_forest_village"]["milestone"])
+        self.assertEqual(after["encounters"]["hidden_forest_village"]["milestoneOrder"], 97)
+        self.assertEqual(after["encounters"]["hidden_forest_village"]["editorNote"], "preserve unknown encounter fields")
+        self.assertEqual(after["encounters"]["fallen_tree"], fallen_tree_before)
+
+        non_milestone = clone(after["encounters"]["fallen_tree"])
+        self.assertNotIn("milestone", non_milestone)
+        self.assertNotIn("milestoneOrder", non_milestone)
+
     def test_enemy_and_combat_loot_sources_round_trip_and_validate(self) -> None:
         catalog = load_catalog(GRAIL)
         app = (CONTENT_EDITOR / "static" / "app.js").read_text(encoding="utf-8")

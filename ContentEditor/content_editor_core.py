@@ -1187,6 +1187,25 @@ def _validate_encounters(encounters: Any, known: dict[str, list[str]], errors: l
             errors.append(_issue("error", "maximumDistance must be numeric.", source, "maximumDistance"))
         if isinstance(minimum, (int, float)) and isinstance(maximum, (int, float)) and minimum > maximum:
             errors.append(_issue("error", "minimumDistance cannot be greater than maximumDistance.", source, "maximumDistance"))
+        milestone = encounter.get("milestone")
+        if "milestone" in encounter and not isinstance(milestone, bool):
+            errors.append(_issue("error", "milestone must be boolean.", source, "milestone"))
+        if milestone is True:
+            milestone_order = encounter.get("milestoneOrder")
+            if not _is_number(milestone_order) or not math.isfinite(float(milestone_order)) or milestone_order < 0:
+                errors.append(_issue("error", "Milestone Order must be a finite non-negative number.", source, "milestoneOrder"))
+            elif isinstance(minimum, (int, float)) and isinstance(maximum, (int, float)):
+                if not minimum <= milestone_order <= maximum:
+                    errors.append(_issue(
+                        "error",
+                        f"Milestone Order must fall within the encounter distance range ({minimum:g}–{maximum:g} stadia).",
+                        source,
+                        "milestoneOrder",
+                    ))
+            elif isinstance(minimum, (int, float)) and milestone_order < minimum:
+                errors.append(_issue("error", f"Milestone Order must be at least {minimum:g} stadia.", source, "milestoneOrder"))
+            elif isinstance(maximum, (int, float)) and milestone_order > maximum:
+                errors.append(_issue("error", f"Milestone Order must be at most {maximum:g} stadia.", source, "milestoneOrder"))
         _validate_requirements(encounter.get("requirements"), source, "requirements", errors)
         stages = encounter.get("stages")
         if not isinstance(stages, dict) or not stages:

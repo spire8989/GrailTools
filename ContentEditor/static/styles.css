@@ -233,7 +233,7 @@ h2, h3, h4 { margin: 0; }
 .path-encounter-row code { color: #d9bd7d; font-size: 10px; margin-top: 2px; }
 .path-encounter-row .hint { margin-top: 3px; }
 .recipe-ingredient-list { display: grid; gap: 6px; }
-.recipe-ingredient-row { display: grid; grid-template-columns: minmax(190px, 1fr) 74px auto auto auto; gap: 7px; align-items: end; padding: 7px 8px; background: #171c24; border: 1px solid var(--border); border-radius: 4px; }
+.recipe-ingredient-row { display: grid; grid-template-columns: minmax(95px, .35fr) minmax(220px, 1.65fr) minmax(70px, 90px) auto auto; gap: 7px; align-items: end; padding: 7px 8px; background: #171c24; border: 1px solid var(--border); border-radius: 4px; }
 .recipe-ingredient-row input, .recipe-ingredient-row select { padding: 6px 7px; }
 .recipe-ref-kind { color: var(--muted); font-size: 11px; padding-bottom: 8px; }
 .recipe-ingredient-type { max-width: 260px; margin-bottom: 8px; }

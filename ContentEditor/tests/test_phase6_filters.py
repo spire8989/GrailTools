@@ -218,6 +218,21 @@ class Phase6FilterBrowserTests(unittest.TestCase):
             })
         """))
 
+    def test_encounter_milestone_controls_load_edit_and_clear_stale_order(self) -> None:
+        self.click_category("encounters")
+        self.browser.evaluate("document.querySelector('[data-action=select][data-id=hidden_forest_village]').click()")
+        self.assertTrue(self.browser.evaluate("document.querySelector('[data-field=milestone]')?.checked === true && document.querySelector('[data-field=milestoneOrder]')?.value === '95' && !document.querySelector('[data-field=milestoneOrder]')?.disabled"))
+
+        self.browser.evaluate("(() => { const order=document.querySelector('[data-field=milestoneOrder]'); order.value='97'; order.dispatchEvent(new Event('input',{bubbles:true})); })()")
+        self.assertEqual(self.browser.evaluate("state.draft.milestoneOrder"), 97)
+        self.assertIn("Unsaved changes", self.browser.evaluate("document.querySelector('#dirty-indicator').textContent"))
+
+        self.browser.evaluate("(() => { const milestone=document.querySelector('[data-field=milestone]'); milestone.checked=false; milestone.dispatchEvent(new Event('change',{bubbles:true})); })()")
+        self.assertTrue(self.browser.evaluate("!state.draft.milestone && !Object.prototype.hasOwnProperty.call(state.draft,'milestoneOrder') && document.querySelector('[data-field=milestoneOrder]')?.disabled === true && document.querySelector('[data-field=milestoneOrder]')?.value === ''"))
+
+        self.browser.evaluate("(() => { const milestone=document.querySelector('[data-field=milestone]'); milestone.checked=true; milestone.dispatchEvent(new Event('change',{bubbles:true})); })()")
+        self.assertTrue(self.browser.evaluate("state.draft.milestone === true && document.querySelector('[data-field=milestoneOrder]')?.disabled === false"))
+
     def test_phase6_direct_recipe_outcome_and_duration_fields_are_schema_aware(self) -> None:
         self.click_category("encounters")
         self.browser.evaluate("document.querySelector('[data-action=select][data-id=wild_boar]').click()")
@@ -323,6 +338,7 @@ class Phase6FilterBrowserTests(unittest.TestCase):
     def test_recipe_ingredient_type_refreshes_ingredient_options(self) -> None:
         self.click_category("recipes")
         self.browser.evaluate("document.querySelector('[data-action=select][data-id=repair_kit]').click()")
+        self.assertTrue(self.browser.evaluate("(() => { const row=document.querySelector('[data-recipe-ingredient-row]'); const fields=row?.querySelectorAll('select'); return fields?.length === 2 && fields[0].getBoundingClientRect().width < fields[1].getBoundingClientRect().width; })()"))
         self.browser.evaluate("""
             (() => {
               const select = document.querySelector('#editor-root [data-field=ingredientType]');
