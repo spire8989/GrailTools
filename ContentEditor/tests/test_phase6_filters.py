@@ -788,7 +788,8 @@ class Phase6FilterBrowserTests(unittest.TestCase):
     def test_expedition_cadence_fields_use_optional_nested_draft_shape(self) -> None:
         self.click_category("expeditions")
         self.browser.evaluate("selectEntry('old_forest_road')")
-        self.assertTrue(self.browser.evaluate("document.querySelector('[data-expedition-cadence-field=\"encounterSpacing.returning.minimumDistance\"]')?.value === '14'"))
+        self.assertTrue(self.browser.evaluate("(() => { const legacyUnit=['lea','gue'].join(''); const text=document.body.textContent.toLowerCase(); return text.includes('minimum stadia')&&text.includes('maximum stadia')&&!text.includes(legacyUnit); })()"))
+        self.assertTrue(self.browser.evaluate("document.querySelector('[data-expedition-cadence-field=\"encounterSpacing.returning.minimumDistance\"]')?.value === '16'"))
         self.assertTrue(self.browser.evaluate("document.querySelector('[data-expedition-cadence-field=returnSpeedMultiplier]')?.value === '4'"))
 
         self.browser.evaluate("selectEntry('fountain_of_barenton')")

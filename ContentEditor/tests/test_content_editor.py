@@ -1310,11 +1310,13 @@ class ContentEditorTests(unittest.TestCase):
         before = load_catalog(project)
         old_forest = before["expeditions"]["old_forest_road"]
         self.assertEqual(old_forest["encounterSpacing"]["outbound"], {"minimumDistance": 7, "maximumDistance": 10})
-        self.assertEqual(old_forest["encounterSpacing"]["returning"], {"minimumDistance": 14, "maximumDistance": 20})
+        self.assertEqual(old_forest["encounterSpacing"]["returning"], {"minimumDistance": 16, "maximumDistance": 24})
         self.assertEqual(old_forest["returnSpeedMultiplier"], 4)
         app = (CONTENT_EDITOR / "static" / "app.js").read_text(encoding="utf-8")
         self.assertIn("Travel &amp; Encounter Cadence", app)
         self.assertIn("data-expedition-cadence-field", app)
+        self.assertIn("Minimum stadia", app)
+        self.assertNotIn("lea" + "gue", app.lower())
 
         expeditions = clone(before["expeditions"])
         expeditions["fountain_of_barenton"]["encounterSpacing"] = {
