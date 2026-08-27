@@ -18,7 +18,6 @@ const COMMON_EFFECT_TYPES = [
 const CONTENT_CATEGORIES = [
   ["imageAssets", "Images"],
   ["audio", "Audio"],
-  ["audioAssets", "Audio Assets"],
   ["playerCharacter", "Player Character"],
   ["startingState", "Starting State"],
   ["companions", "Companions"],
@@ -244,17 +243,12 @@ function locationLabel(locationId) {
   return location?.name || state.catalog?.locationLabels?.[locationId] || locationId;
 }
 
-function assetTypeForCategory(category) {
-  return category === "audioAssets" ? "audio" : "image";
-}
-
 function assetPreviewUrl(path) {
   return `/api/assets/file?path=${encodeURIComponent(path || "")}`;
 }
 
 function assetOptions(assetType, current, category = "") {
-  const sourceCategory = assetType === "audio" ? "audioAssets" : "imageAssets";
-  const assets = state.catalog?.[sourceCategory] || {};
+  const assets = state.catalog?.imageAssets || {};
   const entries = Object.entries(assets)
     .filter(([, asset]) => !category || asset.category === category)
     .sort(([left], [right]) => left.localeCompare(right));
@@ -262,8 +256,7 @@ function assetOptions(assetType, current, category = "") {
 }
 
 function renderAssetSelector(label, field, current, assetType = "image", category = "", context = "", optimizationProfile = "") {
-  const sourceCategory = assetType === "audio" ? "audioAssets" : "imageAssets";
-  const asset = current ? state.catalog?.[sourceCategory]?.[current] : null;
+  const asset = current ? state.catalog?.imageAssets?.[current] : null;
   const combatBackground = field === "combatVisualAssetId" && category === "combat_scene";
   const displayLabel = field === "campVisualAssetId" || combatBackground
     ? `${label} · Scene 16:9`
@@ -281,12 +274,27 @@ function renderAssetSelector(label, field, current, assetType = "image", categor
           : field === "combatVisualAssetId"
             ? `<span class="hint">Optional static character combat visual. Use the transparent combat cutout profile; playback and animation are intentionally deferred.</span>`
           : "";
-  const preview = asset && assetType === "image"
+  const preview = asset
     ? `<img class="asset-field-preview" src="${assetPreviewUrl(asset.path)}" alt="Preview of ${escapeHtml(current)}">`
-    : asset && assetType === "audio"
-      ? `<audio class="asset-field-audio" controls preload="none" src="${assetPreviewUrl(asset.path)}"></audio>`
-      : `<span class="asset-field-placeholder">Placeholder fallback</span>`;
-  return `<label class="asset-selector wide"><span>${escapeHtml(displayLabel)}</span>${helper}<span class="asset-selector-controls"><select data-field="${escapeHtml(field)}">${assetOptions(assetType, current, category)}</select><button type="button" class="small-button" data-action="upload-asset" data-asset-type="${assetType}" data-asset-category="${category}" data-asset-field="${escapeHtml(field)}" data-asset-context="${escapeHtml(context)}" data-asset-profile="${escapeHtml(optimizationProfile)}">Upload New</button></span><span class="asset-field-preview-wrap">${preview}</span></label>`;
+    : `<span class="asset-field-placeholder">Placeholder fallback</span>`;
+  return `<label class="asset-selector wide"><span>${escapeHtml(displayLabel)}</span>${helper}<span class="asset-selector-controls"><select data-field="${escapeHtml(field)}">${assetOptions(assetType, current, category)}</select><button type="button" class="small-button" data-action="upload-asset" data-asset-type="image" data-asset-category="${category}" data-asset-field="${escapeHtml(field)}" data-asset-context="${escapeHtml(context)}" data-asset-profile="${escapeHtml(optimizationProfile)}">Upload New</button></span><span class="asset-field-preview-wrap">${preview}</span></label>`;
+}
+
+function synthAudioOptions(kind, current, includeInherit = false) {
+  const definitions = state.catalog?.audioDefinitions?.[kind === "music" ? "musicTracks" : "sfx"] || {};
+  const entries = Object.entries(definitions)
+    .filter(([id]) => id === current || definitions[id])
+    .sort(([left], [right]) => left.localeCompare(right));
+  const firstOption = includeInherit
+    ? `<option value="__inherit__"${current === undefined ? " selected" : ""}>Inherit travel music</option>`
+    : `<option value=""${current == null ? " selected" : ""}>None</option>`;
+  return `${firstOption}${entries.map(([id, definition]) => `<option value="${escapeHtml(id)}"${selected(id, current)}>${escapeHtml(definition.name || id)} (${escapeHtml(id)})</option>`).join("")}`;
+}
+
+function renderSynthAudioSelector(label, field, current, kind, includeInherit = false) {
+  const hasValue = Object.prototype.hasOwnProperty.call(state.draft || {}, field);
+  const selectedValue = includeInherit && !hasValue ? undefined : current;
+  return `<label class="asset-selector wide"><span>${escapeHtml(label)}</span><span class="asset-selector-controls"><select data-field="${escapeHtml(field)}">${synthAudioOptions(kind, selectedValue, includeInherit)}</select></span><span class="hint">Synthesized ${kind === "music" ? "music track" : "SFX"}; no uploaded file is required.</span></label>`;
 }
 
 function renderTravelScenes(expedition) {
@@ -1269,8 +1277,8 @@ function renderEncounter() {
         <label class="wide">Description<textarea data-field="description">${escapeHtml(encounter.description || "")}</textarea></label>
         ${renderAssetSelector("Encounter visual", "visualAssetId", encounter.visualAssetId, "image", "encounter", encounter.title || encounter.id)}
         ${renderAssetSelector("Combat Background Override", "combatVisualAssetId", encounter.combatVisualAssetId, "image", "combat_scene", encounter.title || encounter.id, "scene")}
-        ${renderAssetSelector("Encounter ambience", "ambienceAssetId", encounter.ambienceAssetId, "audio", "ambience", encounter.title || encounter.id)}
-        ${renderAssetSelector("Encounter sting", "stingAssetId", encounter.stingAssetId, "audio", "sfx", encounter.title || encounter.id)}
+        ${renderSynthAudioSelector("Encounter music", "musicTrackId", encounter.musicTrackId, "music")}
+        ${renderSynthAudioSelector("Encounter SFX", "stingSfxId", encounter.stingSfxId, "sfx")}
         <label>Region<select data-field="regionId"><option value="">Select region…</option>${selectOptions(known.regions || [], encounter.regionId)}</select></label>
         <label>Weight<input type="number" step="any" data-field="weight" value="${escapeHtml(encounter.weight ?? "")}"></label>
         <label>Minimum distance (stadia)<input type="number" step="any" data-field="minimumDistance" value="${escapeHtml(encounter.minimumDistance ?? "")}"></label>
@@ -1321,7 +1329,7 @@ function renderCampEvent() {
     return `<details class="stage-card" open><summary>${escapeHtml(stageId)}${stage.resultStage ? " · result stage" : ""}</summary><label>Stage text<textarea data-stage-field="text" data-stage="${escapeHtml(stageId)}">${escapeHtml(stage.text || "")}</textarea></label>${renderObjectCollection("Stage outcomes / effects", stage.outcomes, "stage-outcomes", stageId, -1, `stages.${stageId}`)}<div class="nested-heading"><span>Choices <span class="panel-count">${choices.length}</span></span><button type="button" class="small-button" data-action="add-choice" data-stage="${escapeHtml(stageId)}">Add choice</button></div>${choices.map((choice, index) => renderChoice(stageId, choice, index)).join("") || `<p class="hint">This result stage resolves automatically and has no choices.</p>`}<div class="button-row"><button type="button" class="small-button danger-outline" data-action="remove-stage" data-stage="${escapeHtml(stageId)}">Remove stage</button></div></details>`;
   }).join("");
   return `<div class="editor-title"><div><h2>${escapeHtml(event.title || event.id || "New camp event")}</h2><p>${escapeHtml(event.id || "Unsaved ID")}</p></div><span class="schema-badge">Camp event schema</span></div>
-    <section class="section"><div class="section-heading"><div><h3>Camp event identity</h3><p>Camp events are authored in <code>js/camp-data.js</code> and selected through expedition camp-event tables.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(event.id || "")}"></label><label>Title<input data-field="title" value="${escapeHtml(event.title || "")}"></label><label class="wide">Description<textarea data-field="description">${escapeHtml(event.description || "")}</textarea></label><label>Region<select data-field="regionId"><option value="">Select region...</option>${selectOptions(known.regions || [], event.regionId)}</select></label><label>Weight<input type="number" step="any" data-field="weight" value="${escapeHtml(event.weight ?? "")}" placeholder="optional"></label><label>Minimum distance (stadia)<input type="number" step="any" data-field="minimumDistance" value="${escapeHtml(event.minimumDistance ?? "")}" placeholder="optional"></label><label>Maximum distance (stadia)<input type="number" step="any" data-field="maximumDistance" value="${escapeHtml(event.maximumDistance ?? "")}" placeholder="optional"></label><label>Max occurrences per run<input type="number" step="1" data-field="maxOccurrencesPerRun" value="${escapeHtml(event.maxOccurrencesPerRun ?? "")}" placeholder="optional"></label><label class="wide">Tags<input data-array-field="tags" value="${escapeHtml((event.tags || []).join(", "))}" placeholder="camp, discovery"></label></div><div class="section-heading" style="margin-top:14px"><div><h3>Paths</h3><p>Optional path applicability is stored as authored path IDs.</p></div></div>${renderReferenceChecks("pathIds", event.pathIds || [], known.paths || [], Object.fromEntries((known.paths || []).map((id) => [id, pathLabel(id)])))}${Object.prototype.hasOwnProperty.call(event, "expeditionIds") ? `<div class="section-heading" style="margin-top:14px"><div><h3>Expeditions</h3></div></div>${renderReferenceChecks("expeditionIds", event.expeditionIds || [], Object.keys(state.catalog.expeditions || {}).sort(), Object.fromEntries(Object.keys(state.catalog.expeditions || {}).map((id) => [id, expeditionLabel(id)])))}` : ""}${renderObjectCollection("Camp event requirements", event.requirements, "camp-event-requirements", "", -1, "")}</section>
+    <section class="section"><div class="section-heading"><div><h3>Camp event identity</h3><p>Camp events are authored in <code>js/camp-data.js</code> and selected through expedition camp-event tables.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(event.id || "")}"></label><label>Title<input data-field="title" value="${escapeHtml(event.title || "")}"></label><label class="wide">Description<textarea data-field="description">${escapeHtml(event.description || "")}</textarea></label><label>Region<select data-field="regionId"><option value="">Select region...</option>${selectOptions(known.regions || [], event.regionId)}</select></label><label>Weight<input type="number" step="any" data-field="weight" value="${escapeHtml(event.weight ?? "")}" placeholder="optional"></label><label>Minimum distance (stadia)<input type="number" step="any" data-field="minimumDistance" value="${escapeHtml(event.minimumDistance ?? "")}" placeholder="optional"></label><label>Maximum distance (stadia)<input type="number" step="any" data-field="maximumDistance" value="${escapeHtml(event.maximumDistance ?? "")}" placeholder="optional"></label><label>Max occurrences per run<input type="number" step="1" data-field="maxOccurrencesPerRun" value="${escapeHtml(event.maxOccurrencesPerRun ?? "")}" placeholder="optional"></label><label class="wide">Tags<input data-array-field="tags" value="${escapeHtml((event.tags || []).join(", "))}" placeholder="camp, discovery"></label>${renderSynthAudioSelector("Camp event music", "musicTrackId", event.musicTrackId, "music")}${renderSynthAudioSelector("Camp event SFX", "stingSfxId", event.stingSfxId, "sfx")}</div><div class="section-heading" style="margin-top:14px"><div><h3>Paths</h3><p>Optional path applicability is stored as authored path IDs.</p></div></div>${renderReferenceChecks("pathIds", event.pathIds || [], known.paths || [], Object.fromEntries((known.paths || []).map((id) => [id, pathLabel(id)])))}${Object.prototype.hasOwnProperty.call(event, "expeditionIds") ? `<div class="section-heading" style="margin-top:14px"><div><h3>Expeditions</h3></div></div>${renderReferenceChecks("expeditionIds", event.expeditionIds || [], Object.keys(state.catalog.expeditions || {}).sort(), Object.fromEntries(Object.keys(state.catalog.expeditions || {}).map((id) => [id, expeditionLabel(id)])))}` : ""}${renderObjectCollection("Camp event requirements", event.requirements, "camp-event-requirements", "", -1, "")}</section>
     <section class="section"><div class="section-heading"><div><h3>Stages and choices</h3><p>Camp events reuse the encounter stage, requirement, cost, and recursive outcome editor.</p></div><button type="button" class="small-button" data-action="add-stage">Add stage</button></div>${stageMarkup || `<div class="empty-state">Add a stage to begin authoring this camp event.</div>`}</section>
     <section class="section"><div class="section-heading"><div><h3>Used by</h3><p>Camp-event tables and other known definitions are shown before deletion.</p></div></div><div class="reference-list">${renderReferenceRows(references, "No known current references to this camp event.")}</div></section><section class="section"><details><summary>Raw camp event JSON (advanced)</summary><p class="hint">Use this escape hatch for future camp-event fields while the visible editor covers common authored structures.</p><textarea id="raw-json" class="raw-editor">${jsonText(event)}</textarea><div class="button-row"><button type="button" class="small-button" data-action="apply-raw">Apply raw JSON</button></div></details></section>`;
 }
@@ -1438,7 +1446,7 @@ function renderExpedition() {
   const references = (liveReferences().expeditions || []).filter((reference) => reference.id === expedition.id);
   const campEventLinks = [...new Set((expedition.campEventTableIds || []).flatMap((tableId) => (state.catalog.campEventTables?.[tableId]?.entries || []).map((entry) => entry.eventId)).filter((eventId) => state.catalog.campEvents?.[eventId]))].map((eventId) => `<button type="button" class="small-button inline-open" data-action="open-reference" data-reference-category="campEvents" data-reference-id="${escapeHtml(eventId)}">Open ${escapeHtml(campEventLabel(eventId))}</button>`).join(" ");
   return `<div class="editor-title"><div><h2>${escapeHtml(expedition.name || expedition.id || "New expedition")}</h2><p>${escapeHtml(expedition.id || "Unsaved ID")}</p></div><span class="schema-badge">Expedition schema</span></div>
-    <section class="section"><div class="section-heading"><div><h3>Expedition metadata</h3><p>These fields are authored in <code>js/expedition-data.js</code> and remain the canonical expedition definition.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(expedition.id || "")}"></label><label>Name<input data-field="name" value="${escapeHtml(expedition.name || "")}"></label><label class="wide">Description<textarea data-field="description">${escapeHtml(expedition.description || "")}</textarea></label><label>Danger<input type="number" min="0" step="any" data-field="danger" value="${escapeHtml(expedition.danger ?? "")}"></label><label>Minimum objective distance (stadia)<input type="number" min="0" step="any" data-field="minimumObjectiveDistance" value="${escapeHtml(expedition.minimumObjectiveDistance ?? "")}"></label><label>Region<select data-field="regionId"><option value="">Select region...</option>${selectOptions(known.regions || [], expedition.regionId)}</select></label><label>Kind<select data-field="kind"><option value="">Select kind...</option>${selectOptions(kinds, expedition.kind)}</select></label><label class="wide">Path${referenceInput("pathId", expedition.pathId, true)}</label></div>${renderAssetSelector("Travel visual", "travelVisualAssetId", expedition.travelVisualAssetId, "image", "expedition", expedition.name || expedition.id, "travel_panorama")}${renderAssetSelector("Travel foreground (aligned)", "travelParallaxAssetId", expedition.travelParallaxAssetId, "image", "expedition", expedition.name || expedition.id, "travel_panorama")}${renderAssetSelector("Travel Transition", "travelTransitionAssetId", expedition.travelTransitionAssetId, "image", "expedition", expedition.name || expedition.id)}${renderAssetSelector("Camp visual", "campVisualAssetId", expedition.campVisualAssetId, "image", "expedition", expedition.name || expedition.id)}${renderAssetSelector("Default Combat Background", "combatVisualAssetId", expedition.combatVisualAssetId, "image", "combat_scene", expedition.name || expedition.id, "scene")}${renderAssetSelector("Travel ambience", "travelAmbienceAssetId", expedition.travelAmbienceAssetId, "audio", "ambience", expedition.name || expedition.id)}${renderAssetSelector("Camp ambience", "campAmbienceAssetId", expedition.campAmbienceAssetId, "audio", "ambience", expedition.name || expedition.id)}</section>
+    <section class="section"><div class="section-heading"><div><h3>Expedition metadata</h3><p>These fields are authored in <code>js/expedition-data.js</code> and remain the canonical expedition definition.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(expedition.id || "")}"></label><label>Name<input data-field="name" value="${escapeHtml(expedition.name || "")}"></label><label class="wide">Description<textarea data-field="description">${escapeHtml(expedition.description || "")}</textarea></label><label>Danger<input type="number" min="0" step="any" data-field="danger" value="${escapeHtml(expedition.danger ?? "")}"></label><label>Minimum objective distance (stadia)<input type="number" min="0" step="any" data-field="minimumObjectiveDistance" value="${escapeHtml(expedition.minimumObjectiveDistance ?? "")}"></label><label>Region<select data-field="regionId"><option value="">Select region...</option>${selectOptions(known.regions || [], expedition.regionId)}</select></label><label>Kind<select data-field="kind"><option value="">Select kind...</option>${selectOptions(kinds, expedition.kind)}</select></label><label class="wide">Path${referenceInput("pathId", expedition.pathId, true)}</label></div>${renderSynthAudioSelector("Travel music", "travelMusicTrackId", expedition.travelMusicTrackId, "music")}${renderSynthAudioSelector("Camp music", "campMusicTrackId", expedition.campMusicTrackId, "music", true)}${renderAssetSelector("Travel visual", "travelVisualAssetId", expedition.travelVisualAssetId, "image", "expedition", expedition.name || expedition.id, "travel_panorama")}${renderAssetSelector("Travel foreground (aligned)", "travelParallaxAssetId", expedition.travelParallaxAssetId, "image", "expedition", expedition.name || expedition.id, "travel_panorama")}${renderAssetSelector("Travel Transition", "travelTransitionAssetId", expedition.travelTransitionAssetId, "image", "expedition", expedition.name || expedition.id)}${renderAssetSelector("Camp visual", "campVisualAssetId", expedition.campVisualAssetId, "image", "expedition", expedition.name || expedition.id)}${renderAssetSelector("Default Combat Background", "combatVisualAssetId", expedition.combatVisualAssetId, "image", "combat_scene", expedition.name || expedition.id, "scene")}</section>
     ${renderExpeditionCadence(expedition)}
     ${renderTravelScenes(expedition)}
     ${renderRouteBranches(expedition)}
@@ -1451,7 +1459,7 @@ function renderExpedition() {
 
 function collectClientReferences(value, source, references) {
   const scalarTypes = {
-    portraitAssetId: "imageAssets", visualAssetId: "imageAssets", backgroundAssetId: "imageAssets", travelVisualAssetId: "imageAssets", travelParallaxAssetId: "imageAssets", travelTransitionAssetId: "imageAssets", travelSeamForegroundAssetId: "imageAssets", campVisualAssetId: "imageAssets", combatVisualAssetId: "imageAssets", assetId: "imageAssets", travelAmbienceAssetId: "audioAssets", campAmbienceAssetId: "audioAssets", ambienceAssetId: "audioAssets", stingAssetId: "audioAssets",
+    portraitAssetId: "imageAssets", visualAssetId: "imageAssets", backgroundAssetId: "imageAssets", travelVisualAssetId: "imageAssets", travelParallaxAssetId: "imageAssets", travelTransitionAssetId: "imageAssets", travelSeamForegroundAssetId: "imageAssets", campVisualAssetId: "imageAssets", combatVisualAssetId: "imageAssets", assetId: "imageAssets", musicTrackId: "musicTracks", travelMusicTrackId: "musicTracks", campMusicTrackId: "musicTracks", stingSfxId: "sfx",
     itemId: "items", treatmentItemId: "items", combatId: "combats", abilityId: "abilities", statusId: "combatStatuses", injuryId: "injuries",
     tableId: "lootTables", lootTableId: "lootTables", pathId: "paths", expeditionId: "expeditions", selectedExpeditionId: "expeditions",
     nextExpeditionId: "expeditions", materialId: "materials", recipeId: "recipes",
@@ -2669,10 +2677,8 @@ function renderLootTable() {
     <section class="section"><details><summary>Raw loot table JSON (advanced)</summary><p class="hint">Use raw JSON for uncommon entry shapes while keeping validation enabled.</p><textarea id="raw-json" class="raw-editor">${jsonText(table)}</textarea><div class="button-row"><button type="button" class="small-button" data-action="apply-raw">Apply raw JSON</button></div></details></section>`;
 }
 
-function assetUsages(assetId, assetType) {
-  const fields = assetType === "image"
-    ? new Set(["portraitAssetId", "visualAssetId", "travelVisualAssetId", "travelParallaxAssetId", "travelTransitionAssetId", "travelSeamForegroundAssetId", "campVisualAssetId", "combatVisualAssetId", "assetId"])
-    : new Set(["travelAmbienceAssetId", "campAmbienceAssetId", "ambienceAssetId", "stingAssetId"]);
+function assetUsages(assetId) {
+  const fields = new Set(["portraitAssetId", "visualAssetId", "travelVisualAssetId", "travelParallaxAssetId", "travelTransitionAssetId", "travelSeamForegroundAssetId", "campVisualAssetId", "combatVisualAssetId", "assetId"]);
   const usages = [];
   const visit = (value, source, path) => {
     if (Array.isArray(value)) {
@@ -2688,14 +2694,13 @@ function assetUsages(assetId, assetType) {
   };
   const snapshot = draftSnapshot();
   Object.entries(snapshot).forEach(([category, entries]) => {
-    if (["imageAssets", "audioAssets", "known", "files", "sourceHashes", "validation", "references", "paths", "projectRoot"].includes(category)) return;
+    if (["imageAssets", "known", "files", "sourceHashes", "validation", "references", "paths", "projectRoot"].includes(category)) return;
     if (!entries || typeof entries !== "object") return;
   if (category === "playerCharacter") visit(entries, category, entries.id || "arthur");
     else Object.entries(entries).forEach(([id, entry]) => visit(entry, category, id));
   });
-  const referenceType = assetType === "image" ? "imageAssets" : "audioAssets";
   const seen = new Set(usages.map((usage) => `${usage.source}:${usage.path}`));
-  (state.catalog?.references?.[referenceType] || []).forEach((reference) => {
+  (state.catalog?.references?.imageAssets || []).forEach((reference) => {
     if (reference.id !== assetId) return;
     const key = `${reference.source}:${reference.path}`;
     if (seen.has(key)) return;
@@ -2707,24 +2712,22 @@ function assetUsages(assetId, assetType) {
 
 function renderAsset() {
   const asset = state.draft;
-  const assetType = assetTypeForCategory(state.category);
-  const categoryValues = assetType === "image" ? ["location", "town", "expedition", "encounter", "combat", "combat_scene", "portrait", "ui"] : ["ambience", "sfx", "music"];
+  const assetType = "image";
+  const categoryValues = ["location", "town", "expedition", "encounter", "combat", "combat_scene", "portrait", "ui"];
   const categoryLabel = categoryValues[0];
   if (!asset) {
-    return `<div class="empty-state"><h2>No ${assetType} assets yet</h2><p>Upload a file to add it to the game's canonical assets folder and catalog.</p><label class="asset-upload-category">Asset category<select id="asset-browser-category">${categoryValues.map((category) => `<option value="${category}">${category}</option>`).join("")}</select></label><button type="button" class="primary" data-action="upload-asset" data-asset-browser="true" data-asset-type="${assetType}" data-asset-category="${categoryLabel}">Upload New ${assetType}</button></div>`;
+    return `<div class="empty-state"><h2>No image assets yet</h2><p>Upload a file to add it to the game's canonical assets folder and catalog.</p><label class="asset-upload-category">Asset category<select id="asset-browser-category">${categoryValues.map((category) => `<option value="${category}">${category}</option>`).join("")}</select></label><button type="button" class="primary" data-action="upload-asset" data-asset-browser="true" data-asset-type="image" data-asset-category="${categoryLabel}">Upload New Image</button></div>`;
   }
-  const preview = assetType === "image"
-    ? `<img class="asset-browser-preview" src="${assetPreviewUrl(asset.path)}" alt="Preview of ${escapeHtml(asset.id)}">`
-    : `<audio controls preload="none" src="${assetPreviewUrl(asset.path)}"></audio>`;
-  const usages = assetUsages(asset.id, assetType);
-  return `<div class="editor-title"><div><h2>${escapeHtml(asset.id || "Asset")}</h2><p>${escapeHtml(asset.path || "No path")}</p></div><span class="schema-badge">${assetType} asset</span></div>
+  const preview = `<img class="asset-browser-preview" src="${assetPreviewUrl(asset.path)}" alt="Preview of ${escapeHtml(asset.id)}">`;
+  const usages = assetUsages(asset.id);
+  return `<div class="editor-title"><div><h2>${escapeHtml(asset.id || "Asset")}</h2><p>${escapeHtml(asset.path || "No path")}</p></div><span class="schema-badge">Image asset</span></div>
     <section class="section"><div class="asset-browser-card">${preview}<div><strong>${escapeHtml(asset.id)}</strong><span>${escapeHtml(asset.category || "Uncategorized")} · ${escapeHtml(asset.path || "")}</span><button type="button" class="small-button" data-action="replace-asset" data-asset-type="${assetType}" data-asset-id="${escapeHtml(asset.id)}" data-asset-category="${escapeHtml(asset.category || categoryLabel)}">Replace File</button></div></div></section>
     <section class="section"><div class="section-heading"><div><h3>Used by</h3><p>Current authored references to this stable asset ID.</p></div></div>${usages.length ? `<div class="asset-usage-list">${usages.map((usage) => `<div class="asset-usage-row"><strong>${escapeHtml(usage.source)}</strong><code>${escapeHtml(usage.path)}</code></div>`).join("")}</div>` : `<p class="hint">No authored references yet.</p>`}</section>
     <section class="section"><details><summary>Raw asset metadata (read-only)</summary><pre class="raw-json-preview">${jsonText(asset)}</pre></details></section>`;
 }
 
 function injectAssetEditors() {
-  if (!state.draft || ["paths", "imageAssets", "audioAssets", "encounters", "expeditions", "npcs", "playerCharacter", "companions", "enemyDefinitions"].includes(state.category)) return;
+  if (!state.draft || ["paths", "imageAssets", "encounters", "expeditions", "npcs", "playerCharacter", "companions", "enemyDefinitions"].includes(state.category)) return;
   if (["destinations", "locations", "campEvents"].includes(state.category)) {
     const form = $("#editor-root .form-grid");
     if (!form) return;
@@ -2736,10 +2739,6 @@ function injectAssetEditors() {
     form.insertAdjacentHTML("beforeend", renderAssetSelector(config[0], config[1], state.draft[config[1]], "image", config[2], state.draft.name || state.draft.id));
     if (state.category === "locations") {
       form.closest(".section")?.insertAdjacentHTML("afterend", renderTownLayoutEditor(state.draft));
-    }
-    if (state.category === "campEvents") {
-      form.insertAdjacentHTML("beforeend", renderAssetSelector("Event ambience", "ambienceAssetId", state.draft.ambienceAssetId, "audio", "ambience", state.draft.title || state.draft.id));
-      form.insertAdjacentHTML("beforeend", renderAssetSelector("Event sting", "stingAssetId", state.draft.stingAssetId, "audio", "sfx", state.draft.title || state.draft.id));
     }
   }
   if (state.category === "dialogues") {
@@ -2923,7 +2922,7 @@ function currentEntries() {
     return entries;
   }
   const entries = { ...state.catalog[state.category] };
-  if (state.draft && !["paths", "imageAssets", "audioAssets", "audio"].includes(state.category)) {
+  if (state.draft && !["paths", "imageAssets", "audio"].includes(state.category)) {
     delete entries[state.originalSelectedId];
     const draftId = state.draft.id || state.originalSelectedId;
     if (!entries[draftId] || draftId === state.originalSelectedId) entries[draftId] = state.draft;
@@ -3049,13 +3048,13 @@ function render() {
     const recipeOutput = state.category === "recipes" ? ` · Produces: ${entry.output?.itemId ? itemLabel(entry.output.itemId) : `${entry.output?.provisions ?? 0} provisions`}` : "";
     return `<button type="button" role="option" aria-selected="${id === state.selectedId || (state.draft?.id === id && state.originalSelectedId === state.selectedId)}" class="entry-row ${(id === state.selectedId || (state.draft?.id === id && state.originalSelectedId === state.selectedId)) ? "active" : ""}" data-action="select" data-id="${escapeHtml(id)}"><span class="entry-title">${escapeHtml(entry.title || entry.displayName || entry.name || id)}</span><span class="entry-id">${escapeHtml(id)}${state.category === "paths" ? ` · ${escapeHtml(entry.encounterCount || 0)} encounters` : recipeOutput}</span></button>`;
   }).join("") : `<div class="empty-state">No matching entries.</div>`;
-  const readonlyPaths = ["paths", "imageAssets", "audioAssets", "playerCharacter", "startingState"].includes(state.category);
+  const readonlyPaths = ["paths", "imageAssets", "playerCharacter", "startingState"].includes(state.category);
   $("[data-action='add']").disabled = readonlyPaths;
   $("[data-action='duplicate']").disabled = readonlyPaths;
   $("[data-action='delete']").disabled = readonlyPaths;
   $("#editor-root").innerHTML = state.category === "audio"
     ? renderAudio()
-    : state.category === "imageAssets" || state.category === "audioAssets"
+    : state.category === "imageAssets"
     ? renderAsset()
     : state.category === "encounters"
     ? renderEncounter()
@@ -3208,7 +3207,7 @@ function draftSnapshot() {
     } else {
       entries[state.originalSelectedId] = draftCopy;
     }
-  } else if (state.draft && !["paths", "imageAssets", "audioAssets"].includes(state.category)) {
+  } else if (state.draft && !["paths", "imageAssets"].includes(state.category)) {
     const map = snapshot[state.category];
     const draftId = state.draft.id || state.originalSelectedId;
     const draftCopy = clone(state.draft);
@@ -4314,10 +4313,16 @@ function handleInput(input) {
       render();
       return;
     }
-    const value = input.dataset.field === "combatVisualAssetId" && input.value === ""
+    const field = input.dataset.field;
+    if (field === "campMusicTrackId" && input.value === "__inherit__") {
+      delete state.draft[field];
+      markDirty();
+      return;
+    }
+    const value = (field === "combatVisualAssetId" || ["musicTrackId", "travelMusicTrackId", "campMusicTrackId"].includes(field)) && input.value === ""
       ? null
-      : parseInputValue(input, input.dataset.field);
-    setNested(state.draft, input.dataset.field, value);
+      : parseInputValue(input, field);
+    setNested(state.draft, field, value);
     markDirty();
     if (["category"].includes(input.dataset.field)
       || (state.category === "locations" && ["visualAssetId", "markerStyle"].includes(input.dataset.field))
@@ -4477,7 +4482,7 @@ function suggestClientAssetId(filename, assetType, category, context = "") {
   const stem = filename.replace(/\.[^.]+$/, "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || "asset";
   const contextSlug = String(context || "").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
   const prefix = category === "portrait" ? "portrait" : category;
-  return [prefix, contextSlug, stem].filter(Boolean).join("_").slice(0, 64).replace(/_+$/, "") || (assetType === "audio" ? "audio_asset" : "image_asset");
+  return [prefix, contextSlug, stem].filter(Boolean).join("_").slice(0, 64).replace(/_+$/, "") || "image_asset";
 }
 
 function imageProfileForCategory(category) {
@@ -4589,15 +4594,13 @@ function openImageImportDialog(file, target, assetId) {
 
 async function submitAssetUpload(file, target, assetId, options = {}, samMaskFile = null) {
   const form = new FormData();
-  form.append("assetType", target.assetType);
+  form.append("assetType", "image");
   form.append("category", target.category);
   form.append("assetId", assetId.trim());
   form.append("sourceHash", state.catalog?.sourceHashes?.["js/asset-data.js"] || "");
-  if (target.assetType === "image") {
-    form.append("optimizeForGame", String(options.optimize ?? true));
-    form.append("optimizationProfile", options.profile || "none");
-    form.append("cropAnchor", options.cropAnchor || "center");
-  }
+  form.append("optimizeForGame", String(options.optimize ?? true));
+  form.append("optimizationProfile", options.profile || "none");
+  form.append("cropAnchor", options.cropAnchor || "center");
   if (samMaskFile) form.append("samMaskFile", samMaskFile, samMaskFile.name);
   form.append("file", file, file.name);
   const response = await fetch(target.replace ? "/api/assets/replace" : "/api/assets/upload", { method: "POST", body: form });
@@ -4618,7 +4621,7 @@ async function submitAssetUpload(file, target, assetId, options = {}, samMaskFil
     }
     markDirty();
   } else {
-    state.category = target.assetType === "audio" ? "audioAssets" : "imageAssets";
+    state.category = "imageAssets";
     state.selectedId = payload.assetResult.assetId;
     state.originalSelectedId = state.selectedId;
     state.draft = clone(state.catalog[state.category][state.selectedId]);
@@ -4635,15 +4638,7 @@ async function uploadSelectedAsset(file) {
   const defaultId = target.assetId || suggestClientAssetId(file.name, target.assetType, target.category, target.context);
   const assetId = target.replace ? defaultId : window.prompt("Asset ID (lowercase slug)", defaultId);
   if (!assetId) return;
-  if (target.assetType === "image") {
-    openImageImportDialog(file, target, assetId.trim());
-    return;
-  }
-  try {
-    await submitAssetUpload(file, target, assetId);
-  } catch (error) {
-    window.alert(error.message);
-  }
+  openImageImportDialog(file, target, assetId.trim());
 }
 
 function handleAction(button) {

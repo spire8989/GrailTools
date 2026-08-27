@@ -52,14 +52,13 @@ class EditorHandler(BaseHTTPRequestHandler):
         if path == "/api/assets/file":
             requested = parse_qs(urlparse(self.path).query).get("path", [""])[0]
             target = (self.project_root / unquote(requested)).resolve()
-            assets_root = (self.project_root / "assets").resolve()
+            assets_root = (self.project_root / "assets" / "images").resolve()
             if assets_root not in target.parents or not target.is_file():
                 self.send_error(404, "Asset not found")
                 return
             content_type = {
                 ".png": "image/png", ".webp": "image/webp", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-                ".gif": "image/gif", ".avif": "image/avif", ".mp3": "audio/mpeg", ".ogg": "audio/ogg",
-                ".wav": "audio/wav", ".m4a": "audio/mp4", ".aac": "audio/aac", ".webm": "audio/webm",
+                ".gif": "image/gif", ".avif": "image/avif",
             }.get(target.suffix.lower(), "application/octet-stream")
             self._static_response(target, content_type)
             return
@@ -88,14 +87,14 @@ class EditorHandler(BaseHTTPRequestHandler):
                 asset_type = fields.get("assetType", "")
                 category = fields.get("category", "")
                 asset_id = fields.get("assetId", "")
+                if asset_type != "image":
+                    raise ValueError("Only image assets can be uploaded.")
                 if not filename or content is None:
                     raise ValueError("Choose a file before uploading an asset.")
                 optimize_for_game = fields.get("optimizeForGame", "true" if path == "/api/assets/preview" else "false").lower() in {"1", "true", "yes", "on"}
                 optimization_profile = fields.get("optimizationProfile") or None
                 crop_anchor = fields.get("cropAnchor") or "center"
                 if path == "/api/assets/preview":
-                    if asset_type != "image":
-                        raise ValueError("Only image uploads can be optimized or previewed.")
                     self._json_response(preview_image(
                         category=category,
                         filename=filename,

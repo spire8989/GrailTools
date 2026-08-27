@@ -253,6 +253,18 @@ class Phase6FilterBrowserTests(unittest.TestCase):
         self.assertEqual(self.browser.evaluate("document.querySelector('#editor-root [data-field=musicTrackId]').value"), "camelot_twilight")
         self.assertTrue(self.browser.evaluate("Boolean(document.querySelector(\"#editor-root [data-field=musicTrackId] option[value='camelot_twilight']\")) && Array.from(document.querySelectorAll(\"#editor-root [data-field=musicTrackId] option\")).some(option => option.value === '' && option.textContent === 'None')"))
 
+    def test_expedition_music_selectors_support_inherit_and_explicit_none(self) -> None:
+        self.click_category("expeditions")
+        self.browser.evaluate("selectEntry('old_forest_road')")
+        self.assertEqual(self.browser.evaluate("document.querySelector('#editor-root [data-field=travelMusicTrackId]').value"), "wisps_of_the_forest")
+        self.assertEqual(self.browser.evaluate("document.querySelector('#editor-root [data-field=campMusicTrackId]').value"), "__inherit__")
+        self.assertTrue(self.browser.evaluate("Boolean(document.querySelector(\"#editor-root [data-field=travelMusicTrackId] option[value='wisps_of_the_forest']\"))"))
+        self.browser.evaluate("(() => { const input=document.querySelector('#editor-root [data-field=travelMusicTrackId]'); input.value='camelot_twilight'; input.dispatchEvent(new Event('change',{bubbles:true})); const camp=document.querySelector('#editor-root [data-field=campMusicTrackId]'); camp.value=''; camp.dispatchEvent(new Event('change',{bubbles:true})); })()")
+        self.assertEqual(self.browser.evaluate("state.draft.travelMusicTrackId"), "camelot_twilight")
+        self.assertIsNone(self.browser.evaluate("state.draft.campMusicTrackId"))
+        self.browser.evaluate("(() => { const camp=document.querySelector('#editor-root [data-field=campMusicTrackId]'); camp.value='__inherit__'; camp.dispatchEvent(new Event('change',{bubbles:true})); })()")
+        self.assertTrue(self.browser.evaluate("!Object.prototype.hasOwnProperty.call(state.draft,'campMusicTrackId')"))
+
     def test_recipe_provider_change_updates_draft_for_navigation_and_save(self) -> None:
         self.click_category("recipes")
         self.browser.evaluate("document.querySelector('[data-action=select][data-id=repair_kit]').click()")

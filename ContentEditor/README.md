@@ -218,8 +218,8 @@ OS-temporary recovery directory rather than making the content write unsafe.
 Synthesized audio definitions use the same Grail-source workflow as the other
 content: they are stored in `Grail/js/audio-synth-data.js`, with an atomic
 source-preserving write and recovery backup. The game consumes this catalog
-through its native Web Audio runtime synth; conventional Audio Assets remain
-available separately for future file-backed content.
+through its native Web Audio runtime synth. There is no file-backed gameplay
+audio catalog or upload workflow.
 
 Validation reports duplicate keys, missing required encounter structure,
 unknown item/combat/ability/enemy-action/injury/path/region/loot references,
@@ -236,20 +236,20 @@ The editor never silently repairs authored content.
 
 ## Asset browser and upload workflow
 
-The Images and Audio Assets categories browse the canonical maps in
+The Images category browses the canonical image map in
 `Grail/js/asset-data.js`. Upload New validates the stable lowercase asset ID,
-category, filename, and supported extension, writes the binary file under the
-matching `Grail/assets/images/...` or `Grail/assets/audio/...` folder, and then
-updates only the two asset constants. Replace File keeps the existing path and
-ID and creates a recovery copy of the previous binary. Source writes remain
-atomic and retain the normal `.backups` source-file backup behavior.
+category, filename, and supported raster extension, writes the binary file
+under the matching `Grail/assets/images/...` folder, and then updates the image
+constant. Replace File keeps the existing path and ID and creates a recovery
+copy of the previous binary. Source writes remain atomic and retain the normal
+`.backups` source-file backup behavior.
 
 The editor exposes asset selectors for locations, destinations, expeditions,
 encounters, NPC portraits, dialogue-node portrait overrides, and combat
 visuals. Combat battlefield backgrounds use the separate `combat_scene`
 category and the normal Scene 16:9 profile; they are distinct from transparent
 `combat` cutouts. Validation checks that referenced files exist, paths stay
-within the asset roots, IDs are unique across image/audio catalogs, and
+within the image asset root, and
 field/category pairs are compatible (for example, a portrait cannot point at a
 location asset). The game-side catalog is still authoritative; the editor
 stores no separate asset database.
@@ -337,8 +337,8 @@ attempted.
   authored shapes remain available through the raw encounter/object editors.
 - There is no autosave, collaboration lock, or automatic merge. A stale-file
   save is rejected and the editor must be reloaded before trying again.
-- The editor accepts browser-supported raster/audio formats; audio remains a
-  raw-copy pipeline and is not transcoded or normalized.
+- The editor accepts browser-supported raster image formats; images remain a
+  raw-copy pipeline when optimization is disabled.
 - Character visual slots optionally author frame count, columns, FPS, and a
   0.25–3 scale multiplier. Character previews alpha-normalize each frame and
   bottom-align the visible artwork so authored transparent padding does not

@@ -397,18 +397,6 @@ class AssetPipelineTests(unittest.TestCase):
         self.assertEqual((project / "assets/images/portrait/reeve.png").read_bytes(), b"first-image")
         self.assertTrue(list(backup_dir.glob("asset-data.js.*.bak")))
 
-        audio = upload_asset(
-            project,
-            asset_type="audio",
-            category="ambience",
-            asset_id="ambience_forest",
-            filename="forest.ogg",
-            content=b"first-audio",
-            expected_hash=image["sourceHashes"]["js/asset-data.js"],
-            backup_dir=backup_dir,
-        )
-        self.assertTrue(audio["audioAssets"]["ambience_forest"]["loop"])
-
         replaced = upload_asset(
             project,
             asset_type="image",
@@ -416,7 +404,7 @@ class AssetPipelineTests(unittest.TestCase):
             asset_id="portrait_pipeline_reeve",
             filename="replacement.png",
             content=b"replacement-image",
-            expected_hash=audio["sourceHashes"]["js/asset-data.js"],
+            expected_hash=image["sourceHashes"]["js/asset-data.js"],
             replace=True,
             backup_dir=backup_dir,
         )
@@ -425,7 +413,7 @@ class AssetPipelineTests(unittest.TestCase):
         self.assertTrue(replaced["assetResult"]["binaryBackup"])
 
         current = load_catalog(project)
-        incoming = {"npcs": clone(current["npcs"]), "imageAssets": clone(current["imageAssets"]), "audioAssets": clone(current["audioAssets"])}
+        incoming = {"npcs": clone(current["npcs"]), "imageAssets": clone(current["imageAssets"])}
         incoming["npcs"]["village_reeve"]["portraitAssetId"] = "portrait_pipeline_reeve"
         saved = save_catalog(project, incoming, current["sourceHashes"], backup_dir)
         self.assertEqual(saved["validation"]["errors"], [])
@@ -452,17 +440,16 @@ class AssetPipelineTests(unittest.TestCase):
         incompatible = validate_catalog(
             {
                 "imageAssets": {"scene_village": {"id": "scene_village", "category": "location", "path": "assets/images/location/village.png"}},
-                "audioAssets": {},
                 "npcs": {"village_reeve": {"portraitAssetId": "scene_village"}},
             },
-            {"imageAssets": ["scene_village"], "audioAssets": [], "npcs": ["village_reeve"]},
+            {"imageAssets": ["scene_village"], "npcs": ["village_reeve"]},
             project_root=project,
         )
         self.assertTrue(any("incompatible with portraitAssetId" in issue["message"] for issue in incompatible["errors"]))
 
         missing = validate_catalog(
-            {"imageAssets": {"scene_missing": {"id": "scene_missing", "category": "location", "path": "assets/images/location/missing.png"}}, "audioAssets": {}},
-            {"imageAssets": ["scene_missing"], "audioAssets": []},
+            {"imageAssets": {"scene_missing": {"id": "scene_missing", "category": "location", "path": "assets/images/location/missing.png"}}},
+            {"imageAssets": ["scene_missing"]},
             project_root=project,
         )
         self.assertTrue(any("does not exist" in issue["message"] for issue in missing["errors"]))
@@ -490,12 +477,12 @@ class AssetPipelineTests(unittest.TestCase):
                 content=b"other",
                 backup_dir=backup_dir,
             )
-        with self.assertRaises(ValueError):
+        with self.assertRaisesRegex(ValueError, "Only image assets"):
             upload_asset(
                 project,
                 asset_type="audio",
                 category="sfx",
-                asset_id="ui_badge",
+                asset_id="ui_badge_sound",
                 filename="badge.ogg",
                 content=b"sound",
                 backup_dir=backup_dir,
@@ -517,7 +504,7 @@ class AssetPipelineTests(unittest.TestCase):
 
     def test_asset_id_suggestion_is_stable_and_slug_safe(self) -> None:
         self.assertEqual(suggest_asset_id("Sir Kay Portrait.PNG", "image", "portrait", "Sir Kay"), "portrait_sir_kay_sir_kay_portrait")
-        self.assertEqual(suggest_asset_id("Night Forest.ogg", "audio", "ambience", "Old Forest Road"), "ambience_old_forest_road_night_forest")
+        self.assertEqual(suggest_asset_id("Night Forest.PNG", "image", "expedition", "Old Forest Road"), "expedition_old_forest_road_night_forest")
 
 
 if __name__ == "__main__":

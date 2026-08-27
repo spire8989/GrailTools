@@ -453,7 +453,6 @@ def serialize_js(value: Any, indent: int = 0, newline: str = "\n") -> str:
 
 CONTENT_FILES = {
     "imageAssets": ("js/asset-data.js", "IMAGE_ASSET_DEFINITIONS"),
-    "audioAssets": ("js/asset-data.js", "AUDIO_ASSET_DEFINITIONS"),
     "playerCharacter": ("js/data.js", "PLAYER_CHARACTER_DEFINITION"),
     "startingState": ("js/storage.js", "STARTING_PLAYER_STATE"),
     "companions": ("js/data.js", "COMPANION_DEFINITIONS"),
@@ -488,9 +487,7 @@ AUDIO_OSCILLATOR_WAVES = {"sine", "triangle", "square", "sawtooth"}
 AUDIO_SFX_WAVES = AUDIO_OSCILLATOR_WAVES | {"noise"}
 
 ASSET_IMAGE_CATEGORIES = ("location", "town", "expedition", "encounter", "combat", "combat_scene", "portrait", "ui")
-ASSET_AUDIO_CATEGORIES = ("ambience", "sfx", "music")
 ASSET_IMAGE_EXTENSIONS = {".png", ".webp", ".jpg", ".jpeg", ".gif", ".avif"}
-ASSET_AUDIO_EXTENSIONS = {".mp3", ".ogg", ".wav", ".m4a", ".aac", ".webm"}
 ASSET_ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{1,63}$")
 ASSET_FILENAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 
@@ -539,8 +536,6 @@ def _walk(value: Any, path: str = "") -> Iterable[tuple[str, Any, Any]]:
 def _ref_type_for_key(key: str) -> str | None:
     if key in {"portraitAssetId", "visualAssetId", "backgroundAssetId", "travelVisualAssetId", "travelParallaxAssetId", "travelTransitionAssetId", "travelSeamForegroundAssetId", "campVisualAssetId", "combatVisualAssetId", "assetId"}:
         return "imageAssets"
-    if key in {"travelAmbienceAssetId", "campAmbienceAssetId", "ambienceAssetId", "stingAssetId"}:
-        return "audioAssets"
     return {
         "itemId": "items",
         "treatmentItemId": "items",
@@ -569,6 +564,9 @@ def _ref_type_for_key(key: str) -> str | None:
         "dialogueSequenceId": "dialogues",
         "introDialogueSequenceId": "dialogues",
         "musicTrackId": "musicTracks",
+        "travelMusicTrackId": "musicTracks",
+        "campMusicTrackId": "musicTracks",
+        "stingSfxId": "sfx",
         "speakerId": "npcs",
         "npcId": "npcs",
         "destinationId": "destinations",
@@ -825,8 +823,8 @@ def load_catalog(project_root: Path) -> dict[str, Any]:
     known["recipes"] = sorted(_id_map(values.get("recipes")))
     known["craftingProviders"] = sorted(_id_map(values.get("craftingProviders")))
     known["imageAssets"] = sorted(_id_map(values.get("imageAssets")))
-    known["audioAssets"] = sorted(_id_map(values.get("audioAssets")))
     known["musicTracks"] = sorted(_id_map(values.get("audioDefinitions", {}).get("musicTracks")))
+    known["sfx"] = sorted(_id_map(values.get("audioDefinitions", {}).get("sfx")))
     known["companions"] = sorted(_id_map(values.get("companions")))
     known["materials"] = sorted(set(known.get("materials", [])) | {
         item_id
@@ -885,7 +883,6 @@ def load_catalog(project_root: Path) -> dict[str, Any]:
         "tuning": tuning,
         "audioDefinitions": values["audioDefinitions"],
         "imageAssets": values["imageAssets"],
-        "audioAssets": values["audioAssets"],
         "playerCharacter": values["playerCharacter"],
         "startingState": values["startingState"],
         "companions": values["companions"],
@@ -2529,6 +2526,11 @@ def _validate_expeditions(expeditions: Any, known: dict[str, list[str]], errors:
         for field_name in ("name", "description", "regionId", "pathId", "kind"):
             if not isinstance(expedition.get(field_name), str) or not expedition.get(field_name):
                 errors.append(_issue("error", f"Expedition {field_name} is required.", source, field_name))
+        for field_name in ("travelMusicTrackId", "campMusicTrackId"):
+            if field_name in expedition:
+                value = expedition.get(field_name)
+                if value is not None and (not isinstance(value, str) or not value):
+                    errors.append(_issue("error", f"Expedition {field_name} must be a synth music track ID or null.", source, field_name))
         danger = expedition.get("danger")
         if not _is_number(danger) or danger < 0:
             errors.append(_issue("error", "Expedition danger must be a non-negative number.", source, "danger"))
@@ -3074,18 +3076,14 @@ def _validate_audio_definitions(audio_definitions: Any, errors: list[dict[str, s
 
 def _validate_asset_map(
     assets: Any,
-    asset_type: str,
     project_root: Path | None,
     errors: list[dict[str, str]],
 ) -> None:
-    categories = ASSET_IMAGE_CATEGORIES if asset_type == "image" else ASSET_AUDIO_CATEGORIES
-    extensions = ASSET_IMAGE_EXTENSIONS if asset_type == "image" else ASSET_AUDIO_EXTENSIONS
-    root_prefix = "assets/images/" if asset_type == "image" else "assets/audio/"
     if not isinstance(assets, dict):
-        errors.append(_issue("error", f"{asset_type.title()} asset definitions must be an object.", f"{asset_type}Assets"))
+        errors.append(_issue("error", "Image asset definitions must be an object.", "imageAssets"))
         return
     for entry_id, asset in assets.items():
-        source = f"{asset_type}Asset:{entry_id}"
+        source = f"imageAsset:{entry_id}"
         if not isinstance(asset, dict):
             errors.append(_issue("error", "Asset must be an object.", source))
             continue
@@ -3094,30 +3092,27 @@ def _validate_asset_map(
         if not isinstance(entry_id, str) or not ASSET_ID_PATTERN.fullmatch(entry_id):
             errors.append(_issue("error", f"Asset ID {entry_id!r} must be lowercase slug-like text.", source, "id"))
         category = asset.get("category")
-        if category not in categories:
-            errors.append(_issue("error", f"Asset category {category!r} is not valid for {asset_type} assets.", source, "category"))
+        if category not in ASSET_IMAGE_CATEGORIES:
+            errors.append(_issue("error", f"Asset category {category!r} is not valid for image assets.", source, "category"))
         path = asset.get("path")
         path_object = Path(path) if isinstance(path, str) else None
         safe_path = bool(
             isinstance(path, str)
-            and path.startswith(root_prefix)
+            and path.startswith("assets/images/")
             and not path_object.is_absolute()
             and "\\" not in path
             and ".." not in path_object.parts
             and all(part not in {"", "."} for part in path_object.parts)
-            and Path(path).suffix.lower() in extensions
+            and Path(path).suffix.lower() in ASSET_IMAGE_EXTENSIONS
         )
         if not safe_path:
-            errors.append(_issue("error", f"Asset path must be a relative file inside {root_prefix[:-1]}/ with a supported extension.", source, "path"))
+            errors.append(_issue("error", "Asset path must be a relative file inside assets/images/ with a supported extension.", source, "path"))
         elif project_root is not None and not (project_root / path).is_file():
             errors.append(_issue("error", f"Referenced asset file does not exist: {path!r}.", source, "path"))
-        if asset_type == "audio" and not isinstance(asset.get("loop", False), bool):
-            errors.append(_issue("error", "Audio loop must be true or false.", source, "loop"))
 
 
 def _validate_asset_references(values: dict[str, Any], errors: list[dict[str, str]]) -> None:
     image_assets = _id_map(values.get("imageAssets"))
-    audio_assets = _id_map(values.get("audioAssets"))
     image_fields = {
         "portraitAssetId": {"portrait"},
         "travelVisualAssetId": {"expedition"},
@@ -3126,12 +3121,6 @@ def _validate_asset_references(values: dict[str, Any], errors: list[dict[str, st
         "travelSeamForegroundAssetId": {"expedition"},
         "campVisualAssetId": {"expedition"},
         "combatVisualAssetId": {"combat"},
-    }
-    audio_fields = {
-        "travelAmbienceAssetId": {"ambience"},
-        "campAmbienceAssetId": {"ambience"},
-        "ambienceAssetId": {"ambience"},
-        "stingAssetId": {"sfx"},
     }
     visual_field_categories = {
         "locations": {"location", "town"},
@@ -3157,17 +3146,13 @@ def _validate_asset_references(values: dict[str, Any], errors: list[dict[str, st
                     asset = image_assets.get(child)
                     if asset and asset.get("category") not in allowed_image_categories:
                         errors.append(_issue("error", f"Image asset {child!r} has category {asset.get('category')!r}, incompatible with {key}.", source, child_path))
-                elif isinstance(child, str) and key in audio_fields:
-                    asset = audio_assets.get(child)
-                    if asset and asset.get("category") not in audio_fields[key]:
-                        errors.append(_issue("error", f"Audio asset {child!r} has category {asset.get('category')!r}, incompatible with {key}.", source, child_path))
                 visit(child, source, child_path)
         elif isinstance(node, list):
             for index, child in enumerate(node):
                 visit(child, source, f"{path}[{index}]")
 
     for category, value in values.items():
-        if category not in {"imageAssets", "audioAssets"}:
+        if category != "imageAssets":
             visit(value, category)
 
 
@@ -3213,10 +3198,9 @@ def validate_catalog(values: dict[str, Any], known: dict[str, list[str]], refere
             for asset_id, asset in _id_map(values.get("imageAssets")).items()
             if isinstance(asset, dict)
         }
-    if "audioAssets" in values:
-        effective_known["audioAssets"] = sorted(_id_map(values.get("audioAssets")))
     if "audioDefinitions" in values:
         effective_known["musicTracks"] = sorted(_id_map(values.get("audioDefinitions", {}).get("musicTracks")))
+        effective_known["sfx"] = sorted(_id_map(values.get("audioDefinitions", {}).get("sfx")))
     if "companions" in values:
         effective_known["companions"] = sorted(_id_map(values.get("companions")))
     for duplicate in parse_duplicates or []:
@@ -3273,13 +3257,7 @@ def validate_catalog(values: dict[str, Any], known: dict[str, list[str]], refere
     if "audioDefinitions" in values:
         _validate_audio_definitions(values.get("audioDefinitions"), errors)
     if "imageAssets" in values:
-        _validate_asset_map(values.get("imageAssets"), "image", project_root, errors)
-    if "audioAssets" in values:
-        _validate_asset_map(values.get("audioAssets"), "audio", project_root, errors)
-    if "imageAssets" in values and "audioAssets" in values:
-        duplicate_asset_ids = set(_id_map(values.get("imageAssets"))) & set(_id_map(values.get("audioAssets")))
-        for asset_id in sorted(duplicate_asset_ids):
-            errors.append(_issue("error", f"Duplicate asset ID {asset_id!r} is used by both an image and audio asset.", "assets"))
+        _validate_asset_map(values.get("imageAssets"), project_root, errors)
     _validate_asset_references(values, errors)
 
     effective_references: dict[str, list[dict[str, str]]] = {}
@@ -3303,7 +3281,7 @@ def validate_catalog(values: dict[str, Any], known: dict[str, list[str]], refere
                     "craftingProviders": "crafting provider", "campEvents": "camp event",
                     "dialogues": "dialogue", "npcs": "NPC", "destinations": "destination", "locations": "location",
                     "combatStatuses": "combat status",
-                    "imageAssets": "image asset", "audioAssets": "audio asset",
+                    "imageAssets": "image asset", "musicTracks": "music track", "sfx": "SFX",
                 }.get(ref_type, ref_type[:-1] if ref_type.endswith("s") else ref_type)
                 errors.append(_issue("error", f"Unknown {label} ID {entry['id']!r}.", entry["source"], entry["path"]))
 
@@ -3597,26 +3575,22 @@ def suggest_asset_id(filename: str, asset_type: str, category: str, context: str
             pieces.append(context_slug)
     pieces.append(stem)
     base = "_".join(pieces)
-    if asset_type == "audio" and category not in base.split("_"):
-        base = f"{category}_{base}"
     return base[:64].rstrip("_") or "asset"
 
 
 def _validate_upload_metadata(asset_type: str, category: str, asset_id: str, filename: str, content: bytes) -> str:
-    if asset_type not in {"image", "audio"}:
-        raise ValueError("Asset type must be image or audio.")
-    categories = ASSET_IMAGE_CATEGORIES if asset_type == "image" else ASSET_AUDIO_CATEGORIES
-    extensions = ASSET_IMAGE_EXTENSIONS if asset_type == "image" else ASSET_AUDIO_EXTENSIONS
-    if category not in categories:
-        raise ValueError(f"Unsupported {asset_type} asset category {category!r}.")
+    if asset_type != "image":
+        raise ValueError("Only image assets are supported.")
+    if category not in ASSET_IMAGE_CATEGORIES:
+        raise ValueError(f"Unsupported image asset category {category!r}.")
     if not ASSET_ID_PATTERN.fullmatch(asset_id or ""):
         raise ValueError("Asset ID must be lowercase slug-like text (2-64 characters).")
     if not ASSET_FILENAME_PATTERN.fullmatch(filename or "") or Path(filename).name != filename:
         raise ValueError("Filename must be a simple name without folders or unsafe characters.")
     suffix = Path(filename).suffix.lower()
-    if suffix not in extensions:
-        supported = ", ".join(sorted(extensions))
-        raise ValueError(f"Unsupported {asset_type} format {suffix or '(none)'}; use {supported}.")
+    if suffix not in ASSET_IMAGE_EXTENSIONS:
+        supported = ", ".join(sorted(ASSET_IMAGE_EXTENSIONS))
+        raise ValueError(f"Unsupported image format {suffix or '(none)'}; use {supported}.")
     if not content:
         raise ValueError("Uploaded asset is empty.")
     return suffix
@@ -3791,12 +3765,8 @@ def upload_asset(
         raise RuntimeError("Conflict: js/asset-data.js changed on disk since the editor loaded it. Reload before saving.")
 
     image_assets = clone(current["imageAssets"])
-    audio_assets = clone(current["audioAssets"])
-    target_map = image_assets if asset_type == "image" else audio_assets
-    other_map = audio_assets if asset_type == "image" else image_assets
+    target_map = image_assets
     existing = target_map.get(asset_id)
-    if asset_id in other_map:
-        raise ValueError(f"Asset ID {asset_id!r} already belongs to the other asset type.")
     if existing and not replace:
         raise ValueError(f"Asset ID {asset_id!r} already exists. Use Replace File explicitly.")
     if replace and not existing:
@@ -3804,8 +3774,6 @@ def upload_asset(
 
     parallax_asset_id = _parallax_asset_id(asset_id) if parallax_processed is not None else None
     parallax_existing = image_assets.get(parallax_asset_id) if parallax_asset_id else None
-    if parallax_asset_id and parallax_asset_id in audio_assets:
-        raise ValueError(f"Generated parallax ID {parallax_asset_id!r} already belongs to an audio asset.")
     if parallax_existing and parallax_existing.get("category") != "expedition":
         raise ValueError("An existing generated parallax asset must keep the expedition category.")
     if parallax_existing and not replace and existing is None:
@@ -3815,7 +3783,7 @@ def upload_asset(
         if existing.get("category") != category:
             raise ValueError("Replacement files must keep the existing asset category.")
         old_path = existing.get("path")
-        expected_root = "assets/images/" if asset_type == "image" else "assets/audio/"
+        expected_root = "assets/images/"
         if not isinstance(old_path, str) or not old_path.startswith(expected_root) or ".." in Path(old_path).parts:
             raise ValueError(f"Existing asset {asset_id!r} has an unsafe catalog path.")
         old_suffix = Path(old_path).suffix.lower()
@@ -3826,7 +3794,7 @@ def upload_asset(
         if not optimized_webp and old_suffix != input_suffix:
             raise ValueError("Replacement files must keep the existing asset file extension.")
     else:
-        root = "assets/images" if asset_type == "image" else "assets/audio"
+        root = "assets/images"
         runtime_filename = f"{_safe_runtime_stem(filename, asset_id)}.webp" if optimized_webp else filename
         relative_path = f"{root}/{category}/{runtime_filename}"
         if (project_root / relative_path).exists():
@@ -3914,8 +3882,6 @@ def upload_asset(
         "path": relative_path.replace("\\", "/"),
         "category": category,
     }
-    if asset_type == "audio":
-        definition.setdefault("loop", category == "ambience")
     target_map[asset_id] = definition
     if parallax_processed is not None and parallax_asset_id and parallax_relative_path:
         parallax_definition = {
@@ -3948,7 +3914,7 @@ def upload_asset(
         _write_source_constants(
             project_root,
             source_relative,
-            {"IMAGE_ASSET_DEFINITIONS": image_assets, "AUDIO_ASSET_DEFINITIONS": audio_assets},
+            {"IMAGE_ASSET_DEFINITIONS": image_assets},
             backup_dir,
             actual_hash,
         )
