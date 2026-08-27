@@ -1711,17 +1711,74 @@ function renderItemOnHitEffects(effects) {
 
 function renderItemCombatTriggers(effects) {
   const entries = Array.isArray(effects.combatTriggers) ? effects.combatTriggers : [];
-  const triggerIds = ["defendDamagePrevented", "beforeNormalAttack"];
-  const effectIds = ["storeCharge", "consumeChargeForBonusDamage"];
-  const rows = entries.map((trigger, index) => `<div class="reference-row" data-item-trigger-row>
-    <span class="panel-count">${index + 1}</span>
-    <select data-item-trigger-field="trigger" data-item-trigger-index="${index}">${selectOptions(triggerIds, trigger.trigger)}</select>
-    <select data-item-trigger-field="effect" data-item-trigger-index="${index}">${selectOptions(effectIds, trigger.effect)}</select>
-    <label>Charge ID<input data-item-trigger-field="chargeId" data-item-trigger-index="${index}" value="${escapeHtml(trigger.chargeId || "")}"></label>
-    <label>Cap<input type="number" min="0" step="1" data-item-trigger-field="cap" data-item-trigger-index="${index}" value="${escapeHtml(trigger.cap ?? "")}" placeholder="optional"></label>
-    <button type="button" class="small-button danger-outline" data-action="remove-item-trigger" data-item-trigger-index="${index}">Remove</button>
-  </div>`).join("");
-  return `<section class="section"><div class="section-heading"><div><h3>Combat triggers</h3><p>Author event-driven passive effects such as charge storage and spending.</p></div><button type="button" class="small-button" data-action="add-item-trigger">Add trigger</button></div>${rows || `<p class="hint">No combat triggers.</p>`}</section>`;
+  const legacyTriggerIds = ["defendDamagePrevented", "beforeNormalAttack"];
+  const legacyEffectIds = ["storeCharge", "consumeChargeForBonusDamage"];
+  const rows = entries.map((trigger, index) => {
+    if (trigger?.trigger && typeof trigger.trigger === "object") {
+      const definition = trigger.trigger;
+      return `<div class="section-card item-trigger-card" data-item-trigger-row>
+        <div class="form-grid three">
+          <strong>Generic trigger ${index + 1}</strong>
+          <label>Event<select data-item-trigger-generic-field="event" data-item-trigger-index="${index}">${selectOptions(COMBAT_EVENT_TYPES, definition.event)}</select></label>
+          <label class="check-chip"><input type="checkbox" data-item-trigger-generic-field="oncePerCombat" data-item-trigger-index="${index}"${checked(definition.oncePerCombat)}> Once per combat</label>
+        </div>
+        ${renderAbilityConditionEditor(definition.conditions, `effects.combatTriggers[${index}].trigger.conditions`)}
+        ${renderItemTriggerEffects(trigger.effects, index, "effects")}
+        <div class="button-row"><button type="button" class="small-button danger-outline" data-action="remove-item-trigger" data-item-trigger-index="${index}">Remove trigger</button></div>
+      </div>`;
+    }
+    return `<div class="reference-row" data-item-trigger-row>
+      <span class="panel-count">${index + 1}</span>
+      <select data-item-trigger-field="trigger" data-item-trigger-index="${index}">${selectOptions(legacyTriggerIds, trigger.trigger)}</select>
+      <select data-item-trigger-field="effect" data-item-trigger-index="${index}">${selectOptions(legacyEffectIds, trigger.effect)}</select>
+      <label>Charge ID<input data-item-trigger-field="chargeId" data-item-trigger-index="${index}" value="${escapeHtml(trigger.chargeId || "")}"></label>
+      <label>Cap<input type="number" min="0" step="1" data-item-trigger-field="cap" data-item-trigger-index="${index}" value="${escapeHtml(trigger.cap ?? "")}" placeholder="optional"></label>
+      <button type="button" class="small-button danger-outline" data-action="remove-item-trigger" data-item-trigger-index="${index}">Remove</button>
+    </div>`;
+  }).join("");
+  return `<section class="section"><div class="section-heading"><div><h3>Combat triggers</h3><p>Author generic reactive effects or preserve the legacy Resolve charge triggers below.</p></div><button type="button" class="small-button" data-action="add-item-trigger">Add trigger</button></div>${rows || `<p class="hint">No combat triggers.</p>`}</section>`;
+}
+
+function renderItemTriggerEffects(effects, triggerIndex, path, depth = 0, label = "Effects") {
+  const list = Array.isArray(effects) ? effects : [];
+  const rows = list.map((effect, index) => {
+    const effectPath = `${path}[${index}]`;
+    const nested = effect?.type === "randomChance" && depth < 2;
+    return `<div class="section-card item-trigger-effect-row">
+      <div class="form-grid three">
+        <strong>${escapeHtml(label)} ${index + 1}</strong>
+        <label>Effect type<select data-item-trigger-effect-field="type" data-item-trigger-index="${triggerIndex}" data-item-trigger-effect-path="${escapeHtml(effectPath)}">${selectOptions(ITEM_TRIGGER_EFFECT_TYPES, effect?.type)}</select></label>
+        ${renderItemTriggerEffectFields(effect || {}, triggerIndex, effectPath)}
+      </div>
+      ${nested ? renderItemTriggerEffects(effect.effects, triggerIndex, `${effectPath}.effects`, depth + 1, "Success effects") : ""}
+      ${nested ? renderItemTriggerEffects(effect.elseEffects, triggerIndex, `${effectPath}.elseEffects`, depth + 1, "Failure effects") : ""}
+      <div class="button-row"><button type="button" class="small-button danger-outline" data-action="remove-item-trigger-effect" data-item-trigger-index="${triggerIndex}" data-item-trigger-effects-path="${escapeHtml(path)}" data-item-trigger-effect-index="${index}">Remove effect</button></div>
+    </div>`;
+  }).join("");
+  return `<div class="item-trigger-effects" data-item-trigger-effects-path="${escapeHtml(path)}"><div class="nested-heading"><span>${escapeHtml(label)} <span class="panel-count">${list.length}</span></span><button type="button" class="small-button" data-action="add-item-trigger-effect" data-item-trigger-index="${triggerIndex}" data-item-trigger-effects-path="${escapeHtml(path)}">Add effect</button></div>${rows || `<p class="hint">No effects authored.</p>`}</div>`;
+}
+
+function renderItemTriggerEffectFields(effect, triggerIndex, path) {
+  const type = effect.type;
+  const targetTypes = ["applyStatus", "dealDamage", "modifyGauge"];
+  const target = targetTypes.includes(type)
+    ? `<label>Target<select data-item-trigger-effect-field="target" data-item-trigger-index="${triggerIndex}" data-item-trigger-effect-path="${escapeHtml(path)}">${selectOptions(EQUIPMENT_EFFECT_TARGETS, effect.target || "target", EQUIPMENT_EFFECT_TARGET_LABELS)}</select></label>`
+    : "";
+  if (type === "applyStatus") {
+    const statusIds = state.catalog.known?.combatStatuses || Object.keys(state.catalog.combatStatuses || {}).sort();
+    const labels = Object.fromEntries(statusIds.map((id) => [id, combatStatusLabel(id)]));
+    return `${target}<label>Status<select data-item-trigger-effect-field="statusId" data-item-trigger-index="${triggerIndex}" data-item-trigger-effect-path="${escapeHtml(path)}"><option value="">Select status...</option>${selectOptions(statusIds, effect.statusId, labels)}</select></label><label>Chance<input type="number" min="0" max="1" step="0.05" data-item-trigger-effect-field="chance" data-item-trigger-index="${triggerIndex}" data-item-trigger-effect-path="${escapeHtml(path)}" value="${escapeHtml(effect.chance ?? "")}"></label>`;
+  }
+  if (type === "dealDamage") {
+    return `${target}<label>Amount<input type="number" min="0" step="any" data-item-trigger-effect-field="amount" data-item-trigger-index="${triggerIndex}" data-item-trigger-effect-path="${escapeHtml(path)}" value="${escapeHtml(effect.amount ?? "")}"></label>`;
+  }
+  if (type === "modifyGauge") {
+    return `${target}<label>Amount<input type="number" step="any" data-item-trigger-effect-field="amount" data-item-trigger-index="${triggerIndex}" data-item-trigger-effect-path="${escapeHtml(path)}" value="${escapeHtml(effect.amount ?? "")}"></label>`;
+  }
+  if (type === "randomChance") {
+    return `<label>Chance<input type="number" min="0" max="1" step="0.05" data-item-trigger-effect-field="chance" data-item-trigger-index="${triggerIndex}" data-item-trigger-effect-path="${escapeHtml(path)}" value="${escapeHtml(effect.chance ?? "")}"></label>`;
+  }
+  return "";
 }
 
 function renderItem() {
@@ -2382,15 +2439,22 @@ const COMBAT_EVENT_TYPES = [
   "damageDealt", "damageTaken", "damagePrevented", "afterDamage", "attackHit", "turnEnd",
   "actorDefeated", "enemyDefeated", "allyDefeated", "combatVictory", "combatDefeat", "combatFled", "combatEnd",
 ];
+const ITEM_TRIGGER_EFFECT_TYPES = ["applyStatus", "dealDamage", "modifyGauge", "randomChance"];
+const EQUIPMENT_EFFECT_TARGETS = ["target", "self", "eventSource"];
+const EQUIPMENT_EFFECT_TARGET_LABELS = { target: "Target", self: "Self", eventSource: "Event source" };
 
 function abilityPathValue(path) {
   return pathValue(state.draft, path);
 }
 
 function setAbilityPathValue(path, value) {
+  setPathValue(state.draft, path, value);
+}
+
+function setPathValue(root, path, value) {
   const tokens = path.match(/[^.[\]]+|\[\d+\]/g) || [];
   if (!tokens.length) return;
-  let target = state.draft;
+  let target = root;
   tokens.slice(0, -1).forEach((token, index) => {
     const key = token.startsWith("[") ? Number(token.slice(1, -1)) : token;
     const nextToken = tokens[index + 1];
@@ -3844,6 +3908,28 @@ function handleInput(input) {
     if (input.dataset.itemOnHitField === "type" || input.dataset.itemOnHitField === "statusId") render();
     return;
   }
+  if (input.dataset.itemTriggerGenericField) {
+    const trigger = state.draft.effects?.combatTriggers?.[Number(input.dataset.itemTriggerIndex)];
+    if (!trigger) return;
+    trigger.trigger ||= {};
+    const value = parseInputValue(input, input.dataset.itemTriggerGenericField);
+    if (value === undefined || value === "") delete trigger.trigger[input.dataset.itemTriggerGenericField];
+    else trigger.trigger[input.dataset.itemTriggerGenericField] = value;
+    markDirty();
+    if (input.dataset.itemTriggerGenericField === "event") render();
+    return;
+  }
+  if (input.dataset.itemTriggerEffectField) {
+    const trigger = state.draft.effects?.combatTriggers?.[Number(input.dataset.itemTriggerIndex)];
+    const effect = pathValue(trigger, input.dataset.itemTriggerEffectPath);
+    if (!effect) return;
+    const value = parseInputValue(input, input.dataset.itemTriggerEffectField);
+    if (value === undefined || value === "") delete effect[input.dataset.itemTriggerEffectField];
+    else effect[input.dataset.itemTriggerEffectField] = value;
+    markDirty();
+    if (input.dataset.itemTriggerEffectField === "type") render();
+    return;
+  }
   if (input.dataset.itemTriggerField) {
     state.draft.effects ||= {};
     state.draft.effects.combatTriggers ||= [];
@@ -4661,14 +4747,32 @@ function handleAction(button) {
     markDirty();
     render();
   } else if (action === "add-item-trigger") {
+    const statusId = state.catalog.known?.combatStatuses?.[0] || Object.keys(state.catalog.combatStatuses || {}).sort()[0] || "";
     state.draft.effects ||= {};
     state.draft.effects.combatTriggers ||= [];
     state.draft.effects.combatTriggers.push({
-      trigger: "defendDamagePrevented",
-      effect: "storeCharge",
-      chargeId: "resolve",
-      cap: 10,
+      trigger: { event: "damageTaken" },
+      effects: [{ type: "applyStatus", target: "eventSource", statusId, chance: 0.25 }],
     });
+    markDirty();
+    render();
+  } else if (action === "add-item-trigger-effect") {
+    const trigger = state.draft.effects?.combatTriggers?.[Number(button.dataset.itemTriggerIndex)];
+    if (!trigger || typeof trigger.trigger !== "object") return;
+    const path = button.dataset.itemTriggerEffectsPath;
+    let effects = pathValue(trigger, path);
+    if (!Array.isArray(effects)) {
+      effects = [];
+      setPathValue(trigger, path, effects);
+    }
+    effects.push({ type: "modifyGauge", target: "eventSource", amount: -15 });
+    markDirty();
+    render();
+  } else if (action === "remove-item-trigger-effect") {
+    const trigger = state.draft.effects?.combatTriggers?.[Number(button.dataset.itemTriggerIndex)];
+    const effects = pathValue(trigger, button.dataset.itemTriggerEffectsPath);
+    if (!Array.isArray(effects)) return;
+    effects.splice(Number(button.dataset.itemTriggerEffectIndex), 1);
     markDirty();
     render();
   } else if (action === "remove-item-trigger") {

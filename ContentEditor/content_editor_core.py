@@ -1425,6 +1425,153 @@ def _validate_combat_statuses(statuses: Any, errors: list[dict[str, str]]) -> No
             errors.append(_issue("error", "refreshBehavior must be 'refresh'.", source, "refreshBehavior"))
 
 
+EQUIPMENT_TRIGGER_EVENTS = {
+    "combatStart", "actorReady", "turnStart", "beforeAction", "actionUsed", "beforeDamage",
+    "damageDealt", "damageTaken", "damagePrevented", "afterDamage", "attackHit", "turnEnd",
+    "actorDefeated", "enemyDefeated", "allyDefeated", "combatVictory", "combatDefeat",
+    "combatFled", "combatEnd",
+}
+EQUIPMENT_TRIGGER_EFFECTS = {"applyStatus", "dealDamage", "modifyGauge", "randomChance"}
+EQUIPMENT_EFFECT_TARGETS = {"target", "self", "eventSource"}
+LEGACY_EQUIPMENT_TRIGGERS = {"defendDamagePrevented", "beforeNormalAttack"}
+LEGACY_EQUIPMENT_TRIGGER_EFFECTS = {"storeCharge", "consumeChargeForBonusDamage"}
+
+
+def _validate_equipment_trigger_conditions(
+    conditions: Any, source: str, path: str, known: dict[str, list[str]], errors: list[dict[str, str]],
+) -> None:
+    if conditions is None:
+        return
+    if isinstance(conditions, list):
+        for index, condition in enumerate(conditions):
+            _validate_equipment_trigger_conditions(condition, source, f"{path}[{index}]", known, errors)
+        return
+    if not isinstance(conditions, dict):
+        errors.append(_issue("error", "Combat trigger conditions must be objects or arrays.", source, path))
+        return
+    for combinator in ("all", "any"):
+        if combinator in conditions:
+            value = conditions[combinator]
+            if not isinstance(value, list) or not value:
+                errors.append(_issue("error", f"Condition {combinator} must be a non-empty array.", source, f"{path}.{combinator}"))
+            else:
+                for index, child in enumerate(value):
+                    _validate_equipment_trigger_conditions(child, source, f"{path}.{combinator}[{index}]", known, errors)
+    if "event" in conditions and (
+        not isinstance(conditions["event"], str) or conditions["event"] not in EQUIPMENT_TRIGGER_EVENTS
+    ):
+        errors.append(_issue("error", f"Unknown combat event {conditions['event']!r}.", source, f"{path}.event"))
+    for field_name in ("sourceSide", "targetSide"):
+        if field_name in conditions and (
+            not isinstance(conditions[field_name], str) or conditions[field_name] not in {"ally", "enemy"}
+        ):
+            errors.append(_issue("error", f"{field_name} must be ally or enemy.", source, f"{path}.{field_name}"))
+    for field_name in ("healthBelowPercent", "healthAbovePercent", "targetHealthBelowPercent", "targetHealthAbovePercent", "chance"):
+        if field_name in conditions and (
+            not _is_number(conditions[field_name])
+            or not math.isfinite(float(conditions[field_name]))
+            or not 0 <= conditions[field_name] <= 1
+        ):
+            errors.append(_issue("error", f"Combat condition {field_name} must be between 0 and 1.", source, f"{path}.{field_name}"))
+    for field_name in ("actionId", "event"):
+        if field_name in conditions and not isinstance(conditions[field_name], str):
+            errors.append(_issue("error", f"Combat condition {field_name} must be a string.", source, f"{path}.{field_name}"))
+    for field_name in ("firstUse", "oncePerCombat"):
+        if field_name in conditions and not isinstance(conditions[field_name], bool):
+            errors.append(_issue("error", f"Combat condition {field_name} must be boolean.", source, f"{path}.{field_name}"))
+    for field_name in ("hasStatus", "missingStatus"):
+        if field_name in conditions:
+            statuses = conditions[field_name] if isinstance(conditions[field_name], list) else [conditions[field_name]]
+            for index, status_id in enumerate(statuses):
+                if not isinstance(status_id, str) or status_id not in set(known.get("combatStatuses", [])):
+                    errors.append(_issue("error", f"Combat condition {field_name} needs a known statusId.", source, f"{path}.{field_name}[{index}]"))
+
+
+def _validate_equipment_trigger_effects(
+    effects: Any, source: str, path: str, known: dict[str, list[str]], errors: list[dict[str, str]],
+) -> None:
+    if not isinstance(effects, list):
+        errors.append(_issue("error", "Combat trigger effects must be an array.", source, path))
+        return
+    known_statuses = set(known.get("combatStatuses", []))
+    for index, effect in enumerate(effects):
+        effect_path = f"{path}[{index}]"
+        if not isinstance(effect, dict):
+            errors.append(_issue("error", "Combat trigger effects must be objects.", source, effect_path))
+            continue
+        effect_type = effect.get("type")
+        if not isinstance(effect_type, str) or effect_type not in EQUIPMENT_TRIGGER_EFFECTS:
+            errors.append(_issue("error", f"Unknown equipment combat effect {effect_type!r}.", source, f"{effect_path}.type"))
+            continue
+        if "target" in effect and (
+            not isinstance(effect["target"], str) or effect["target"] not in EQUIPMENT_EFFECT_TARGETS
+        ):
+            errors.append(_issue("error", f"Invalid equipment combat effect target {effect['target']!r}.", source, f"{effect_path}.target"))
+        if effect_type == "applyStatus":
+            status_id = effect.get("statusId")
+            if not isinstance(status_id, str) or status_id not in known_statuses:
+                errors.append(_issue("error", "Reactive applyStatus effects need a known statusId.", source, f"{effect_path}.statusId"))
+            if "chance" in effect:
+                chance = effect.get("chance")
+                if not _is_number(chance) or not math.isfinite(float(chance)) or not 0 <= chance <= 1:
+                    errors.append(_issue("error", "Reactive applyStatus chance must be between 0 and 1.", source, f"{effect_path}.chance"))
+        elif effect_type == "dealDamage":
+            amount = effect.get("amount")
+            if not _is_number(amount) or not math.isfinite(float(amount)) or amount < 0:
+                errors.append(_issue("error", "Reactive dealDamage amount must be a non-negative number.", source, f"{effect_path}.amount"))
+        elif effect_type == "modifyGauge":
+            amount = effect.get("amount")
+            if not _is_number(amount) or not math.isfinite(float(amount)):
+                errors.append(_issue("error", "Reactive modifyGauge amount must be a number.", source, f"{effect_path}.amount"))
+        elif effect_type == "randomChance":
+            chance = effect.get("chance")
+            if not _is_number(chance) or not math.isfinite(float(chance)) or not 0 <= chance <= 1:
+                errors.append(_issue("error", "Reactive randomChance effects need a chance between 0 and 1.", source, f"{effect_path}.chance"))
+            _validate_equipment_trigger_effects(effect.get("effects"), source, f"{effect_path}.effects", known, errors)
+            if "elseEffects" in effect:
+                _validate_equipment_trigger_effects(effect.get("elseEffects"), source, f"{effect_path}.elseEffects", known, errors)
+
+
+def _validate_equipment_triggers(
+    triggers: Any, known: dict[str, list[str]], source: str, path: str, errors: list[dict[str, str]],
+) -> None:
+    if not isinstance(triggers, list):
+        errors.append(_issue("error", "combatTriggers must be an array.", source, path))
+        return
+    for index, trigger in enumerate(triggers):
+        trigger_path = f"{path}[{index}]"
+        if not isinstance(trigger, dict):
+            errors.append(_issue("error", "Combat triggers must be objects.", source, trigger_path))
+            continue
+        trigger_definition = trigger.get("trigger")
+        if isinstance(trigger_definition, dict):
+            event = trigger_definition.get("event")
+            if not isinstance(event, str) or not event:
+                errors.append(_issue("error", "Generic combat triggers require a trigger event.", source, f"{trigger_path}.trigger.event"))
+            elif event not in EQUIPMENT_TRIGGER_EVENTS:
+                errors.append(_issue("error", f"Unknown combat trigger event {event!r}.", source, f"{trigger_path}.trigger.event"))
+            _validate_equipment_trigger_conditions(
+                trigger_definition.get("conditions"), source, f"{trigger_path}.trigger.conditions", known, errors,
+            )
+            if "oncePerCombat" in trigger_definition and not isinstance(trigger_definition["oncePerCombat"], bool):
+                errors.append(_issue("error", "Combat trigger oncePerCombat must be boolean.", source, f"{trigger_path}.trigger.oncePerCombat"))
+            _validate_equipment_trigger_effects(trigger.get("effects"), source, f"{trigger_path}.effects", known, errors)
+            continue
+        trigger_id = trigger_definition
+        if not isinstance(trigger_id, str) or trigger_id not in LEGACY_EQUIPMENT_TRIGGERS:
+            errors.append(_issue("error", f"Unknown combat trigger {trigger_id!r}.", source, f"{trigger_path}.trigger"))
+        effect_id = trigger.get("effect")
+        if not isinstance(effect_id, str) or effect_id not in LEGACY_EQUIPMENT_TRIGGER_EFFECTS:
+            errors.append(_issue("error", f"Unknown combat trigger effect {effect_id!r}.", source, f"{trigger_path}.effect"))
+        charge_id = trigger.get("chargeId")
+        if not isinstance(charge_id, str) or not charge_id:
+            errors.append(_issue("error", "Combat triggers need a chargeId.", source, f"{trigger_path}.chargeId"))
+        if effect_id == "storeCharge":
+            cap = trigger.get("cap")
+            if not _is_number(cap) or cap < 0:
+                errors.append(_issue("error", "storeCharge triggers need a non-negative cap.", source, f"{trigger_path}.cap"))
+
+
 def _validate_items(items: Any, known: dict[str, list[str]], errors: list[dict[str, str]]) -> None:
     if not isinstance(items, dict):
         errors.append(_issue("error", "Item definitions must be an object.", "items"))
@@ -1522,29 +1669,7 @@ def _validate_items(items: Any, known: dict[str, list[str]], errors: list[dict[s
                         errors.append(_issue("error", "On-hit chance must be a number from 0 to 1.", source, f"{path}.chance"))
         combat_triggers = effects.get("combatTriggers")
         if combat_triggers is not None:
-            if not isinstance(combat_triggers, list):
-                errors.append(_issue("error", "combatTriggers must be an array.", source, "effects.combatTriggers"))
-            else:
-                known_triggers = {"defendDamagePrevented", "beforeNormalAttack"}
-                known_trigger_effects = {"storeCharge", "consumeChargeForBonusDamage"}
-                for index, trigger in enumerate(combat_triggers):
-                    path = f"effects.combatTriggers[{index}]"
-                    if not isinstance(trigger, dict):
-                        errors.append(_issue("error", "Combat triggers must be objects.", source, path))
-                        continue
-                    trigger_id = trigger.get("trigger")
-                    if trigger_id not in known_triggers:
-                        errors.append(_issue("error", f"Unknown combat trigger {trigger_id!r}.", source, f"{path}.trigger"))
-                    effect_id = trigger.get("effect")
-                    if effect_id not in known_trigger_effects:
-                        errors.append(_issue("error", f"Unknown combat trigger effect {effect_id!r}.", source, f"{path}.effect"))
-                    charge_id = trigger.get("chargeId")
-                    if not isinstance(charge_id, str) or not charge_id:
-                        errors.append(_issue("error", "Combat triggers need a chargeId.", source, f"{path}.chargeId"))
-                    if effect_id == "storeCharge":
-                        cap = trigger.get("cap")
-                        if not _is_number(cap) or cap < 0:
-                            errors.append(_issue("error", "storeCharge triggers need a non-negative cap.", source, f"{path}.cap"))
+            _validate_equipment_triggers(combat_triggers, known, source, "effects.combatTriggers", errors)
         granted = effects.get("grantedAbilityIds")
         if granted is not None:
             if not isinstance(granted, list) or not all(isinstance(ability_id, str) for ability_id in granted):

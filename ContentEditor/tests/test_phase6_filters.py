@@ -352,6 +352,18 @@ class Phase6FilterBrowserTests(unittest.TestCase):
             && Boolean(document.querySelector('[data-item-effect-field="combatDamage.maximum"]'))
         """))
 
+    def test_generic_item_reactive_trigger_controls_update_draft(self) -> None:
+        self.click_category("items")
+        self.browser.evaluate("document.querySelector('[data-action=select][data-id=splinterbark_shield]').click()")
+        self.browser.evaluate("document.querySelector('[data-action=add-item-trigger]').click()")
+        self.assertTrue(self.browser.evaluate("Boolean(document.querySelector('[data-item-trigger-generic-field=event]'))"))
+        self.assertTrue(self.browser.evaluate("Boolean(document.querySelector('[data-ability-condition-field=targetSide]'))"))
+        self.assertTrue(self.browser.evaluate("Boolean(document.querySelector('[data-item-trigger-effect-field=target] option[value=eventSource]'))"))
+        self.browser.evaluate("(() => { const event=document.querySelector('[data-item-trigger-generic-field=event]'); event.value='damageTaken'; event.dispatchEvent(new Event('change',{bubbles:true})); const type=document.querySelector('[data-item-trigger-effect-field=type]'); type.value='dealDamage'; type.dispatchEvent(new Event('change',{bubbles:true})); })()")
+        self.browser.evaluate("(() => { const target=document.querySelector('[data-item-trigger-effect-field=target]'); target.value='eventSource'; target.dispatchEvent(new Event('change',{bubbles:true})); const amount=document.querySelector('[data-item-trigger-effect-field=amount]'); amount.value='2'; amount.dispatchEvent(new Event('input',{bubbles:true})); })()")
+        self.assertTrue(self.browser.evaluate("document.querySelector('[data-item-trigger-effect-field=type]')?.value === 'dealDamage' && document.querySelector('[data-item-trigger-effect-field=target]')?.value === 'eventSource' && document.querySelector('[data-item-trigger-effect-field=amount]')?.value === '2'"))
+        self.assertIn("Unsaved changes", self.browser.evaluate("document.querySelector('#dirty-indicator').textContent"))
+
     def test_item_loot_table_rows_open_the_full_table_editor(self) -> None:
         self.click_category("items")
         self.browser.evaluate("document.querySelector('[data-action=select][data-id=old_coin]').click()")

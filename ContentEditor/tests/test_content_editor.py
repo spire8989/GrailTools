@@ -1935,6 +1935,73 @@ class ContentEditorTests(unittest.TestCase):
         validation = validate_catalog({"combatStatuses": deleted_statuses}, catalog["known"], catalog["references"])
         self.assertTrue(any("poisoned" in issue["message"] for issue in validation["errors"]))
 
+    def test_generic_reactive_equipment_triggers_round_trip_and_validate(self) -> None:
+        temp, project = self.temporary_grail()
+        self.addCleanup(temp.cleanup)
+        before = load_catalog(project)
+        item_id = "splinterbark_shield"
+        generic_triggers = [
+            {
+                "trigger": {
+                    "event": "damageTaken",
+                    "oncePerCombat": True,
+                    "conditions": {"targetSide": "ally"},
+                },
+                "effects": [
+                    {"type": "applyStatus", "target": "eventSource", "statusId": "poisoned", "chance": 0.25},
+                    {"type": "dealDamage", "target": "eventSource", "amount": 2},
+                    {"type": "modifyGauge", "target": "eventSource", "amount": -15},
+                    {"type": "randomChance", "chance": 0.3, "effects": [
+                        {"type": "modifyGauge", "target": "eventSource", "amount": -15},
+                    ]},
+                ],
+            },
+        ]
+        items = clone(before["items"])
+        items[item_id]["effects"]["combatTriggers"] = generic_triggers
+        validation = validate_catalog({"items": items}, before["known"], before["references"])
+        self.assertEqual(validation["errors"], [])
+
+        path = project / "js" / "data.js"
+        parsed_before, source_before, _ = parse_file_constant(path, "ITEM_DEFINITIONS")
+        before_blocks = constant_property_blocks(source_before, parsed_before)
+        save_catalog(project, {"items": items}, before["sourceHashes"], Path(temp.name) / "backups")
+        after = load_catalog(project)
+        self.assertEqual(after["items"][item_id]["effects"]["combatTriggers"], generic_triggers)
+        self.assertEqual(
+            after["items"]["shard_of_the_perron"]["effects"]["combatTriggers"],
+            before["items"]["shard_of_the_perron"]["effects"]["combatTriggers"],
+        )
+        parsed_after, source_after, _ = parse_file_constant(path, "ITEM_DEFINITIONS")
+        after_blocks = constant_property_blocks(source_after, parsed_after)
+        for key, block in before_blocks.items():
+            if key != item_id:
+                self.assertEqual(after_blocks[key], block, key)
+
+        app = (CONTENT_EDITOR / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("data-item-trigger-effect-field", app)
+        self.assertIn("eventSource", app)
+        self.assertIn("randomChance", app)
+
+        invalid = clone(after["items"])
+        invalid[item_id]["effects"]["combatTriggers"][0]["trigger"]["event"] = "notAnEvent"
+        invalid[item_id]["effects"]["combatTriggers"][0]["effects"][0]["target"] = "attacker"
+        invalid[item_id]["effects"]["combatTriggers"][0]["effects"][0]["statusId"] = "missing_status"
+        invalid[item_id]["effects"]["combatTriggers"][0]["effects"][1]["amount"] = "two"
+        invalid[item_id]["effects"]["combatTriggers"][0]["effects"][3]["chance"] = 1.1
+        errors = validate_catalog({"items": invalid}, after["known"], after["references"])["errors"]
+        messages = [issue["message"] for issue in errors]
+        self.assertTrue(any("Unknown combat trigger event" in message for message in messages))
+        self.assertTrue(any("Invalid equipment combat effect target" in message for message in messages))
+        self.assertTrue(any("known statusId" in message for message in messages))
+        self.assertTrue(any("dealDamage amount" in message for message in messages))
+        self.assertTrue(any("randomChance effects need a chance" in message for message in messages))
+
+        malformed = clone(after["items"])
+        malformed[item_id]["effects"]["combatTriggers"][0]["effects"] = {"type": "dealDamage"}
+        errors = validate_catalog({"items": malformed}, after["known"], after["references"])["errors"]
+        self.assertTrue(any("Combat trigger effects must be an array" in issue["message"] for issue in errors))
+
     def test_phase9_ability_cooldown_charge_hit_and_learning_schema_validation(self) -> None:
         catalog = load_catalog(GRAIL)
         invalid_abilities = clone(catalog["abilities"])
