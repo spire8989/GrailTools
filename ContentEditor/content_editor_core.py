@@ -566,7 +566,13 @@ def _ref_type_for_key(key: str) -> str | None:
         "musicTrackId": "musicTracks",
         "travelMusicTrackId": "musicTracks",
         "campMusicTrackId": "musicTracks",
+        "combatMusicTrackId": "musicTracks",
         "stingSfxId": "sfx",
+        "combatStartSfxId": "sfx",
+        "combatVictorySfxId": "sfx",
+        "useSfxId": "sfx",
+        "impactSfxId": "sfx",
+        "sfxId": "sfx",
         "speakerId": "npcs",
         "npcId": "npcs",
         "destinationId": "destinations",
@@ -953,6 +959,27 @@ def _validate_reference(value: Any, known: dict[str, list[str]], source: str, er
                 errors.append(_issue("error", f"Unknown {ref_type[:-1] if ref_type.endswith('s') else ref_type} ID {entry['id']!r}.", source, entry["path"]))
 
 
+def _validate_audio_fields(
+    value: Any,
+    known: dict[str, list[str]],
+    source: str,
+    path: str,
+    errors: list[dict[str, str]],
+    fields: tuple[tuple[str, str], ...],
+) -> None:
+    if not isinstance(value, dict):
+        return
+    for field_name, catalog_key in fields:
+        if field_name not in value:
+            continue
+        field_path = f"{path}.{field_name}" if path else field_name
+        audio_id = value.get(field_name)
+        if audio_id is None:
+            continue
+        if not isinstance(audio_id, str) or not audio_id:
+            errors.append(_issue("error", f"{field_name} must be a synth ID or null.", source, field_path))
+
+
 def _validate_requirements(requirements: Any, source: str, path: str, errors: list[dict[str, str]]) -> None:
     if requirements is None:
         return
@@ -1069,6 +1096,7 @@ def _validate_resolution_outcome(outcome: Any, known: dict[str, list[str]], sour
         errors.append(_issue("error", "Each outcome must be an object with a type.", source, path))
         return
     outcome_type = outcome["type"]
+    _validate_audio_fields(outcome, known, source, path, errors, (("sfxId", "sfx"),))
     for legacy_field in ("outcomeVisual", "visualOverride"):
         if legacy_field in outcome:
             errors.append(_issue("error", "Visual overrides belong on the parent choice, result, or stage, not on mechanical effects.", source, f"{path}.{legacy_field}"))
@@ -1091,6 +1119,7 @@ def _validate_resolution_outcome(outcome: Any, known: dict[str, list[str]], sour
             if not isinstance(branch, dict):
                 errors.append(_issue("error", f"startCombat {branch_name} branch must be an object.", source, branch_path))
                 continue
+            _validate_audio_fields(branch, known, source, branch_path, errors, (("sfxId", "sfx"),))
             if "resultText" in branch and not isinstance(branch.get("resultText"), str):
                 errors.append(_issue("error", f"startCombat {branch_name} resultText must be a string.", source, f"{branch_path}.resultText"))
             if "visualOverride" in branch:
@@ -1208,6 +1237,7 @@ def _validate_encounters(encounters: Any, known: dict[str, list[str]], errors: l
             errors.append(_issue("error", "directions must be an array of strings.", source, "directions"))
         if "encounterLayout" in encounter:
             _validate_encounter_layout(encounter.get("encounterLayout"), source, "encounterLayout", errors)
+        _validate_audio_fields(encounter, known, source, "", errors, (("musicTrackId", "musicTracks"), ("stingSfxId", "sfx")))
         if "hiddenSlots" in encounter:
             _validate_hidden_slots(encounter.get("hiddenSlots"), source, "hiddenSlots", errors)
         minimum = encounter.get("minimumDistance")
@@ -1247,6 +1277,7 @@ def _validate_encounters(encounters: Any, known: dict[str, list[str]], errors: l
                 if not isinstance(stage, dict):
                     errors.append(_issue("error", "Stage must be an object.", source, stage_path))
                     continue
+                _validate_audio_fields(stage, known, source, stage_path, errors, (("sfxId", "sfx"),))
                 if not isinstance(stage.get("text"), str):
                     errors.append(_issue("error", "Stage text is required.", source, f"{stage_path}.text"))
                 if "visualOverride" in stage:
@@ -1263,6 +1294,7 @@ def _validate_encounters(encounters: Any, known: dict[str, list[str]], errors: l
                         if not isinstance(choice, dict):
                             errors.append(_issue("error", "Choice must be an object.", source, choice_path))
                             continue
+                        _validate_audio_fields(choice, known, source, choice_path, errors, (("sfxId", "sfx"),))
                         choice_id = choice.get("id")
                         if not isinstance(choice_id, str) or not choice_id:
                             errors.append(_issue("error", "Choice ID is required.", source, f"{choice_path}.id"))
@@ -1353,6 +1385,7 @@ def _validate_staged_events(events: Any, known: dict[str, list[str]], errors: li
                 errors.append(_issue("error", f"Missing required {label[:-1]} field {field_name!r}.", source, field_name))
         if "pathIds" in event and (not isinstance(event.get("pathIds"), list) or not all(isinstance(item, str) for item in event.get("pathIds", []))):
             errors.append(_issue("error", "pathIds must be an array of path IDs.", source, "pathIds"))
+        _validate_audio_fields(event, known, source, "", errors, (("musicTrackId", "musicTracks"), ("stingSfxId", "sfx")))
         for field_name in ("weight", "minimumDistance", "maximumDistance"):
             if field_name in event and event.get(field_name) is not None and not _is_number(event.get(field_name)):
                 errors.append(_issue("error", f"{field_name} must be numeric.", source, field_name))
@@ -1370,6 +1403,7 @@ def _validate_staged_events(events: Any, known: dict[str, list[str]], errors: li
             if not isinstance(stage, dict):
                 errors.append(_issue("error", "Stage must be an object.", source, stage_path))
                 continue
+            _validate_audio_fields(stage, known, source, stage_path, errors, (("sfxId", "sfx"),))
             if not isinstance(stage.get("text"), str):
                 errors.append(_issue("error", "Stage text is required.", source, f"{stage_path}.text"))
             if "visualOverride" in stage:
@@ -1383,6 +1417,7 @@ def _validate_staged_events(events: Any, known: dict[str, list[str]], errors: li
                 if not isinstance(choice, dict):
                     errors.append(_issue("error", "Choice must be an object.", source, choice_path))
                     continue
+                _validate_audio_fields(choice, known, source, choice_path, errors, (("sfxId", "sfx"),))
                 if not isinstance(choice.get("id"), str) or not choice.get("id"):
                     errors.append(_issue("error", "Choice ID is required.", source, f"{choice_path}.id"))
                 if "visualOverride" in choice:
@@ -1752,6 +1787,7 @@ def _validate_items(items: Any, known: dict[str, list[str]], errors: list[dict[s
                 for field_name in ("target", "selectionPrompt", "description"):
                     if field_name in combat and not isinstance(combat.get(field_name), str):
                         errors.append(_issue("error", f"combat.{field_name} must be a string.", source, f"effects.combat.{field_name}"))
+                _validate_audio_fields(combat, known, source, "effects.combat", errors, (("useSfxId", "sfx"),))
         treatment = effects.get("treatment")
         if treatment is not None:
             if not isinstance(treatment, dict):
@@ -2158,6 +2194,7 @@ def _validate_enemy_actions(actions: Any, known: dict[str, list[str]], errors: l
                 errors.append(_issue("error", "Enemy action injuryChance must be between 0 and 1.", source, "injuryChance"))
         if "telegraphed" in action and not isinstance(action.get("telegraphed"), bool):
             errors.append(_issue("error", "Enemy action telegraphed must be boolean.", source, "telegraphed"))
+        _validate_audio_fields(action, known, source, "", errors, (("useSfxId", "sfx"), ("impactSfxId", "sfx")))
 
 
 def _validate_abilities(abilities: Any, known: dict[str, list[str]], errors: list[dict[str, str]]) -> None:
@@ -2306,6 +2343,7 @@ def _validate_abilities(abilities: Any, known: dict[str, list[str]], errors: lis
         for field_name in ("triggersOnHit",):
             if field_name in ability and not isinstance(ability.get(field_name), bool):
                 errors.append(_issue("error", f"Ability {field_name} must be boolean.", source, field_name))
+        _validate_audio_fields(ability, known, source, "", errors, (("useSfxId", "sfx"), ("impactSfxId", "sfx")))
         if kind == "passive":
             trigger = ability.get("trigger")
             if not isinstance(trigger, dict) or not isinstance(trigger.get("event"), str) or not trigger.get("event"):
@@ -2397,6 +2435,7 @@ def _validate_loot_tables(tables: Any, known: dict[str, list[str]], errors: list
             if not _is_number(weight) or weight <= 0:
                 errors.append(_issue("error", "Loot entry weight must be a positive number.", entry_source, "weight"))
             _validate_quantity_fields(entry, entry_source, errors)
+            _validate_audio_fields(entry, known, entry_source, "", errors, (("sfxId", "sfx"),))
             required_field = {"item": "itemId", "material": "materialId", "recipe": "recipeId", "table": "tableId"}.get(entry_type)
             if required_field and (not isinstance(entry.get(required_field), str) or not entry.get(required_field)):
                 errors.append(_issue("error", f"{entry_type} loot entries require {required_field}.", entry_source, required_field))
@@ -2526,11 +2565,12 @@ def _validate_expeditions(expeditions: Any, known: dict[str, list[str]], errors:
         for field_name in ("name", "description", "regionId", "pathId", "kind"):
             if not isinstance(expedition.get(field_name), str) or not expedition.get(field_name):
                 errors.append(_issue("error", f"Expedition {field_name} is required.", source, field_name))
-        for field_name in ("travelMusicTrackId", "campMusicTrackId"):
+        for field_name in ("travelMusicTrackId", "campMusicTrackId", "combatMusicTrackId"):
             if field_name in expedition:
                 value = expedition.get(field_name)
                 if value is not None and (not isinstance(value, str) or not value):
                     errors.append(_issue("error", f"Expedition {field_name} must be a synth music track ID or null.", source, field_name))
+        _validate_audio_fields(expedition, known, source, "", errors, (("combatStartSfxId", "sfx"), ("combatVictorySfxId", "sfx")))
         danger = expedition.get("danger")
         if not _is_number(danger) or danger < 0:
             errors.append(_issue("error", "Expedition danger must be a non-negative number.", source, "danger"))
@@ -2863,6 +2903,7 @@ def _validate_destinations(destinations: Any, known: dict[str, list[str]], error
         for field_name in ("name", "type", "description"):
             if field_name in destination and not isinstance(destination[field_name], str):
                 errors.append(_issue("error", f"Destination {field_name} must be a string.", source, field_name))
+        _validate_audio_fields(destination, known, source, "", errors, (("musicTrackId", "musicTracks"),))
         if "hotspot" in destination:
             hotspot = destination["hotspot"]
             if not isinstance(hotspot, dict):

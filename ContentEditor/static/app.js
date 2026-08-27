@@ -286,15 +286,19 @@ function synthAudioOptions(kind, current, includeInherit = false) {
     .filter(([id]) => id === current || definitions[id])
     .sort(([left], [right]) => left.localeCompare(right));
   const firstOption = includeInherit
-    ? `<option value="__inherit__"${current === undefined ? " selected" : ""}>Inherit travel music</option>`
+    ? `<option value="__inherit__"${current === undefined ? " selected" : ""}>Inherit travel music</option><option value=""${current === null ? " selected" : ""}>None</option>`
     : `<option value=""${current == null ? " selected" : ""}>None</option>`;
   return `${firstOption}${entries.map(([id, definition]) => `<option value="${escapeHtml(id)}"${selected(id, current)}>${escapeHtml(definition.name || id)} (${escapeHtml(id)})</option>`).join("")}`;
+}
+
+function renderSynthAudioSelect(label, current, kind, attributes, includeInherit = false) {
+  return `<label class="asset-selector wide"><span>${escapeHtml(label)}</span><span class="asset-selector-controls"><select ${attributes}>${synthAudioOptions(kind, current, includeInherit)}</select></span><span class="hint">Synthesized ${kind === "music" ? "music track" : "SFX"}; no uploaded file is required.</span></label>`;
 }
 
 function renderSynthAudioSelector(label, field, current, kind, includeInherit = false) {
   const hasValue = Object.prototype.hasOwnProperty.call(state.draft || {}, field);
   const selectedValue = includeInherit && !hasValue ? undefined : current;
-  return `<label class="asset-selector wide"><span>${escapeHtml(label)}</span><span class="asset-selector-controls"><select data-field="${escapeHtml(field)}">${synthAudioOptions(kind, selectedValue, includeInherit)}</select></span><span class="hint">Synthesized ${kind === "music" ? "music track" : "SFX"}; no uploaded file is required.</span></label>`;
+  return renderSynthAudioSelect(label, selectedValue, kind, `data-field="${escapeHtml(field)}"`, includeInherit);
 }
 
 function renderTravelScenes(expedition) {
@@ -1216,13 +1220,16 @@ function renderObjectCollection(label, collection, owner, stageId, choiceIndex, 
     const special = object?.type === "startCombat"
       ? renderStartCombatResolution(object, objectPath)
       : `${renderResolutionItemList(object || {}, objectPath)}${renderResolutionNestedCollections(object || {}, objectPath)}`;
+    const audio = !requirements
+      ? renderSynthAudioSelect("Resolution SFX", object?.sfxId, "sfx", "data-object-audio-field=\"sfxId\"")
+      : "";
     return `<div class="object-row" data-object-row data-owner="${owner}" data-stage="${escapeHtml(stageId)}" data-choice-index="${choiceIndex}" data-object-index="${index}"${contextAttributes}>
       <div class="object-top">
         <select data-object-field="type">${selectOptions(types, object?.type)} </select>
         <span class="hint">Quick reference fields are schema-aware; use JSON for uncommon nested fields.</span>
         <button type="button" class="small-button danger-outline" data-action="remove-object">Remove</button>
       </div>
-      ${object?.type === "startCombat" ? special : `${quick ? `<div class="quick-fields">${quick}</div>` : ""}${special}`}
+      ${object?.type === "startCombat" ? `${audio}${special}` : `${quick ? `<div class="quick-fields">${quick}</div>` : ""}${audio}${special}`}
       <details><summary>Advanced object JSON</summary><textarea class="object-json" data-object-json>${jsonText(object || {})}</textarea></details>
     </div>`;
   }).join("");
@@ -1242,6 +1249,7 @@ function renderChoice(stageId, choice, index) {
       <label class="wide">Result text<textarea data-choice-field="resultText" data-stage="${escapeHtml(stageId)}" data-choice-index="${index}">${escapeHtml(choice.resultText || "")}</textarea></label>
       <label>Pending action text<input data-choice-field="pendingAction.text" data-stage="${escapeHtml(stageId)}" data-choice-index="${index}" value="${escapeHtml(choice.pendingAction?.text || "")}"></label>
       <label>Delay profile<input data-choice-field="pendingAction.delayProfile" data-stage="${escapeHtml(stageId)}" data-choice-index="${index}" value="${escapeHtml(choice.pendingAction?.delayProfile || "")}"></label>
+      ${renderSynthAudioSelect("Choice SFX", choice.sfxId, "sfx", `data-choice-field="sfxId" data-stage="${escapeHtml(stageId)}" data-choice-index="${index}"`)}
       <label class="check-chip"><input type="checkbox" data-choice-field="endEncounter" data-stage="${escapeHtml(stageId)}" data-choice-index="${index}"${checked(choice.endEncounter)}> Ends encounter</label>
     </div>
     ${renderOutcomeVisualEditor(choice, choicePath)}
@@ -1261,7 +1269,8 @@ function renderEncounter() {
     const choices = Array.isArray(stage.choices) ? stage.choices : [];
     return `<details class="stage-card" open>
       <summary>${escapeHtml(stageId)}${stage.resultStage ? " · result stage" : ""}</summary>
-      <label>Stage text<textarea data-stage-field="text" data-stage="${escapeHtml(stageId)}">${escapeHtml(stage.text || "")}</textarea></label>
+       <label>Stage text<textarea data-stage-field="text" data-stage="${escapeHtml(stageId)}">${escapeHtml(stage.text || "")}</textarea></label>
+       ${renderSynthAudioSelect("Stage SFX", stage.sfxId, "sfx", `data-stage-field="sfxId" data-stage="${escapeHtml(stageId)}"`)}
       ${renderOutcomeVisualEditor(stage, `stages.${stageId}`)}
       ${renderObjectCollection("Stage outcomes / effects", stage.outcomes, "stage-outcomes", stageId, -1, `stages.${stageId}`)}
       <div class="nested-heading"><span>Choices <span class="panel-count">${choices.length}</span></span><button type="button" class="small-button" data-action="add-choice" data-stage="${escapeHtml(stageId)}">Add choice</button></div>
@@ -1326,7 +1335,7 @@ function renderCampEvent() {
   const references = (liveReferences().campEvents || []).filter((reference) => reference.id === event.id);
   const stageMarkup = Object.entries(event.stages || {}).map(([stageId, stage]) => {
     const choices = Array.isArray(stage.choices) ? stage.choices : [];
-    return `<details class="stage-card" open><summary>${escapeHtml(stageId)}${stage.resultStage ? " · result stage" : ""}</summary><label>Stage text<textarea data-stage-field="text" data-stage="${escapeHtml(stageId)}">${escapeHtml(stage.text || "")}</textarea></label>${renderObjectCollection("Stage outcomes / effects", stage.outcomes, "stage-outcomes", stageId, -1, `stages.${stageId}`)}<div class="nested-heading"><span>Choices <span class="panel-count">${choices.length}</span></span><button type="button" class="small-button" data-action="add-choice" data-stage="${escapeHtml(stageId)}">Add choice</button></div>${choices.map((choice, index) => renderChoice(stageId, choice, index)).join("") || `<p class="hint">This result stage resolves automatically and has no choices.</p>`}<div class="button-row"><button type="button" class="small-button danger-outline" data-action="remove-stage" data-stage="${escapeHtml(stageId)}">Remove stage</button></div></details>`;
+    return `<details class="stage-card" open><summary>${escapeHtml(stageId)}${stage.resultStage ? " · result stage" : ""}</summary><label>Stage text<textarea data-stage-field="text" data-stage="${escapeHtml(stageId)}">${escapeHtml(stage.text || "")}</textarea></label>${renderSynthAudioSelect("Stage SFX", stage.sfxId, "sfx", `data-stage-field="sfxId" data-stage="${escapeHtml(stageId)}"`)}${renderObjectCollection("Stage outcomes / effects", stage.outcomes, "stage-outcomes", stageId, -1, `stages.${stageId}`)}<div class="nested-heading"><span>Choices <span class="panel-count">${choices.length}</span></span><button type="button" class="small-button" data-action="add-choice" data-stage="${escapeHtml(stageId)}">Add choice</button></div>${choices.map((choice, index) => renderChoice(stageId, choice, index)).join("") || `<p class="hint">This result stage resolves automatically and has no choices.</p>`}<div class="button-row"><button type="button" class="small-button danger-outline" data-action="remove-stage" data-stage="${escapeHtml(stageId)}">Remove stage</button></div></details>`;
   }).join("");
   return `<div class="editor-title"><div><h2>${escapeHtml(event.title || event.id || "New camp event")}</h2><p>${escapeHtml(event.id || "Unsaved ID")}</p></div><span class="schema-badge">Camp event schema</span></div>
     <section class="section"><div class="section-heading"><div><h3>Camp event identity</h3><p>Camp events are authored in <code>js/camp-data.js</code> and selected through expedition camp-event tables.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(event.id || "")}"></label><label>Title<input data-field="title" value="${escapeHtml(event.title || "")}"></label><label class="wide">Description<textarea data-field="description">${escapeHtml(event.description || "")}</textarea></label><label>Region<select data-field="regionId"><option value="">Select region...</option>${selectOptions(known.regions || [], event.regionId)}</select></label><label>Weight<input type="number" step="any" data-field="weight" value="${escapeHtml(event.weight ?? "")}" placeholder="optional"></label><label>Minimum distance (stadia)<input type="number" step="any" data-field="minimumDistance" value="${escapeHtml(event.minimumDistance ?? "")}" placeholder="optional"></label><label>Maximum distance (stadia)<input type="number" step="any" data-field="maximumDistance" value="${escapeHtml(event.maximumDistance ?? "")}" placeholder="optional"></label><label>Max occurrences per run<input type="number" step="1" data-field="maxOccurrencesPerRun" value="${escapeHtml(event.maxOccurrencesPerRun ?? "")}" placeholder="optional"></label><label class="wide">Tags<input data-array-field="tags" value="${escapeHtml((event.tags || []).join(", "))}" placeholder="camp, discovery"></label>${renderSynthAudioSelector("Camp event music", "musicTrackId", event.musicTrackId, "music")}${renderSynthAudioSelector("Camp event SFX", "stingSfxId", event.stingSfxId, "sfx")}</div><div class="section-heading" style="margin-top:14px"><div><h3>Paths</h3><p>Optional path applicability is stored as authored path IDs.</p></div></div>${renderReferenceChecks("pathIds", event.pathIds || [], known.paths || [], Object.fromEntries((known.paths || []).map((id) => [id, pathLabel(id)])))}${Object.prototype.hasOwnProperty.call(event, "expeditionIds") ? `<div class="section-heading" style="margin-top:14px"><div><h3>Expeditions</h3></div></div>${renderReferenceChecks("expeditionIds", event.expeditionIds || [], Object.keys(state.catalog.expeditions || {}).sort(), Object.fromEntries(Object.keys(state.catalog.expeditions || {}).map((id) => [id, expeditionLabel(id)])))}` : ""}${renderObjectCollection("Camp event requirements", event.requirements, "camp-event-requirements", "", -1, "")}</section>
@@ -1446,7 +1455,7 @@ function renderExpedition() {
   const references = (liveReferences().expeditions || []).filter((reference) => reference.id === expedition.id);
   const campEventLinks = [...new Set((expedition.campEventTableIds || []).flatMap((tableId) => (state.catalog.campEventTables?.[tableId]?.entries || []).map((entry) => entry.eventId)).filter((eventId) => state.catalog.campEvents?.[eventId]))].map((eventId) => `<button type="button" class="small-button inline-open" data-action="open-reference" data-reference-category="campEvents" data-reference-id="${escapeHtml(eventId)}">Open ${escapeHtml(campEventLabel(eventId))}</button>`).join(" ");
   return `<div class="editor-title"><div><h2>${escapeHtml(expedition.name || expedition.id || "New expedition")}</h2><p>${escapeHtml(expedition.id || "Unsaved ID")}</p></div><span class="schema-badge">Expedition schema</span></div>
-    <section class="section"><div class="section-heading"><div><h3>Expedition metadata</h3><p>These fields are authored in <code>js/expedition-data.js</code> and remain the canonical expedition definition.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(expedition.id || "")}"></label><label>Name<input data-field="name" value="${escapeHtml(expedition.name || "")}"></label><label class="wide">Description<textarea data-field="description">${escapeHtml(expedition.description || "")}</textarea></label><label>Danger<input type="number" min="0" step="any" data-field="danger" value="${escapeHtml(expedition.danger ?? "")}"></label><label>Minimum objective distance (stadia)<input type="number" min="0" step="any" data-field="minimumObjectiveDistance" value="${escapeHtml(expedition.minimumObjectiveDistance ?? "")}"></label><label>Region<select data-field="regionId"><option value="">Select region...</option>${selectOptions(known.regions || [], expedition.regionId)}</select></label><label>Kind<select data-field="kind"><option value="">Select kind...</option>${selectOptions(kinds, expedition.kind)}</select></label><label class="wide">Path${referenceInput("pathId", expedition.pathId, true)}</label></div>${renderSynthAudioSelector("Travel music", "travelMusicTrackId", expedition.travelMusicTrackId, "music")}${renderSynthAudioSelector("Camp music", "campMusicTrackId", expedition.campMusicTrackId, "music", true)}${renderAssetSelector("Travel visual", "travelVisualAssetId", expedition.travelVisualAssetId, "image", "expedition", expedition.name || expedition.id, "travel_panorama")}${renderAssetSelector("Travel foreground (aligned)", "travelParallaxAssetId", expedition.travelParallaxAssetId, "image", "expedition", expedition.name || expedition.id, "travel_panorama")}${renderAssetSelector("Travel Transition", "travelTransitionAssetId", expedition.travelTransitionAssetId, "image", "expedition", expedition.name || expedition.id)}${renderAssetSelector("Camp visual", "campVisualAssetId", expedition.campVisualAssetId, "image", "expedition", expedition.name || expedition.id)}${renderAssetSelector("Default Combat Background", "combatVisualAssetId", expedition.combatVisualAssetId, "image", "combat_scene", expedition.name || expedition.id, "scene")}</section>
+    <section class="section"><div class="section-heading"><div><h3>Expedition metadata</h3><p>These fields are authored in <code>js/expedition-data.js</code> and remain the canonical expedition definition.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(expedition.id || "")}"></label><label>Name<input data-field="name" value="${escapeHtml(expedition.name || "")}"></label><label class="wide">Description<textarea data-field="description">${escapeHtml(expedition.description || "")}</textarea></label><label>Danger<input type="number" min="0" step="any" data-field="danger" value="${escapeHtml(expedition.danger ?? "")}"></label><label>Minimum objective distance (stadia)<input type="number" min="0" step="any" data-field="minimumObjectiveDistance" value="${escapeHtml(expedition.minimumObjectiveDistance ?? "")}"></label><label>Region<select data-field="regionId"><option value="">Select region...</option>${selectOptions(known.regions || [], expedition.regionId)}</select></label><label>Kind<select data-field="kind"><option value="">Select kind...</option>${selectOptions(kinds, expedition.kind)}</select></label><label class="wide">Path${referenceInput("pathId", expedition.pathId, true)}</label></div>${renderSynthAudioSelector("Travel music", "travelMusicTrackId", expedition.travelMusicTrackId, "music")}${renderSynthAudioSelector("Camp music", "campMusicTrackId", expedition.campMusicTrackId, "music", true)}${renderSynthAudioSelector("Combat music", "combatMusicTrackId", expedition.combatMusicTrackId, "music", true)}${renderSynthAudioSelector("Combat start SFX", "combatStartSfxId", expedition.combatStartSfxId, "sfx")}${renderSynthAudioSelector("Combat victory SFX", "combatVictorySfxId", expedition.combatVictorySfxId, "sfx")}${renderAssetSelector("Travel visual", "travelVisualAssetId", expedition.travelVisualAssetId, "image", "expedition", expedition.name || expedition.id, "travel_panorama")}${renderAssetSelector("Travel foreground (aligned)", "travelParallaxAssetId", expedition.travelParallaxAssetId, "image", "expedition", expedition.name || expedition.id, "travel_panorama")}${renderAssetSelector("Travel Transition", "travelTransitionAssetId", expedition.travelTransitionAssetId, "image", "expedition", expedition.name || expedition.id)}${renderAssetSelector("Camp visual", "campVisualAssetId", expedition.campVisualAssetId, "image", "expedition", expedition.name || expedition.id)}${renderAssetSelector("Default Combat Background", "combatVisualAssetId", expedition.combatVisualAssetId, "image", "combat_scene", expedition.name || expedition.id, "scene")}</section>
     ${renderExpeditionCadence(expedition)}
     ${renderTravelScenes(expedition)}
     ${renderRouteBranches(expedition)}
@@ -1459,7 +1468,7 @@ function renderExpedition() {
 
 function collectClientReferences(value, source, references) {
   const scalarTypes = {
-    portraitAssetId: "imageAssets", visualAssetId: "imageAssets", backgroundAssetId: "imageAssets", travelVisualAssetId: "imageAssets", travelParallaxAssetId: "imageAssets", travelTransitionAssetId: "imageAssets", travelSeamForegroundAssetId: "imageAssets", campVisualAssetId: "imageAssets", combatVisualAssetId: "imageAssets", assetId: "imageAssets", musicTrackId: "musicTracks", travelMusicTrackId: "musicTracks", campMusicTrackId: "musicTracks", stingSfxId: "sfx",
+    portraitAssetId: "imageAssets", visualAssetId: "imageAssets", backgroundAssetId: "imageAssets", travelVisualAssetId: "imageAssets", travelParallaxAssetId: "imageAssets", travelTransitionAssetId: "imageAssets", travelSeamForegroundAssetId: "imageAssets", campVisualAssetId: "imageAssets", combatVisualAssetId: "imageAssets", assetId: "imageAssets", musicTrackId: "musicTracks", travelMusicTrackId: "musicTracks", campMusicTrackId: "musicTracks", combatMusicTrackId: "musicTracks", stingSfxId: "sfx", combatStartSfxId: "sfx", combatVictorySfxId: "sfx", useSfxId: "sfx", impactSfxId: "sfx", sfxId: "sfx",
     itemId: "items", treatmentItemId: "items", combatId: "combats", abilityId: "abilities", statusId: "combatStatuses", injuryId: "injuries",
     tableId: "lootTables", lootTableId: "lootTables", pathId: "paths", expeditionId: "expeditions", selectedExpeditionId: "expeditions",
     nextExpeditionId: "expeditions", materialId: "materials", recipeId: "recipes",
@@ -1856,7 +1865,7 @@ function renderItem() {
     : "";
   const abilityMarkup = (known.abilities || []).map((abilityId) => `<label class="check-chip"><input type="checkbox" data-item-ability-toggle="${escapeHtml(abilityId)}"${checked((effects.grantedAbilityIds || []).includes(abilityId))}>${escapeHtml(state.catalog.abilityLabels?.[abilityId] || abilityId)}</label>`).join("");
   const treatmentMarkup = Object.prototype.hasOwnProperty.call(effects, "treatment") ? `<section class="section"><div class="section-heading"><div><h3>Treatment effect</h3><p>Select injuries this item can treat.</p></div></div><div class="check-grid">${(known.injuries || []).map((injuryId) => `<label class="check-chip"><input type="checkbox" data-item-treatment-toggle="${escapeHtml(injuryId)}"${checked((treatment.injuryIds || []).includes(injuryId))}>${escapeHtml(injuryId)}</label>`).join("")}</div></section>` : "";
-  const combatMarkup = Object.prototype.hasOwnProperty.call(effects, "combat") ? `<section class="section"><div class="section-heading"><div><h3>Combat use effect</h3><p>Common healing and consumable fields.</p></div></div><div class="form-grid"><label>Effect type<input data-item-combat-field="effectType" value="${escapeHtml(combat.effectType || "")}"></label><label>Amount<input type="number" min="0" step="any" data-item-combat-field="amount" value="${escapeHtml(combat.amount ?? "")}"></label><label>Target<input data-item-combat-field="target" value="${escapeHtml(combat.target || "")}"></label><label>Selection prompt<input data-item-combat-field="selectionPrompt" value="${escapeHtml(combat.selectionPrompt || "")}"></label><label class="wide">Description<textarea data-item-combat-field="description">${escapeHtml(combat.description || "")}</textarea></label><label class="check-chip"><input type="checkbox" data-item-combat-field="usable"${checked(combat.usable)}> Usable in combat</label></div></section>` : "";
+  const combatMarkup = Object.prototype.hasOwnProperty.call(effects, "combat") ? `<section class="section"><div class="section-heading"><div><h3>Combat use effect</h3><p>Common healing and consumable fields.</p></div></div><div class="form-grid"><label>Effect type<input data-item-combat-field="effectType" value="${escapeHtml(combat.effectType || "")}"></label><label>Amount<input type="number" min="0" step="any" data-item-combat-field="amount" value="${escapeHtml(combat.amount ?? "")}"></label><label>Target<input data-item-combat-field="target" value="${escapeHtml(combat.target || "")}"></label><label>Selection prompt<input data-item-combat-field="selectionPrompt" value="${escapeHtml(combat.selectionPrompt || "")}"></label><label class="wide">Description<textarea data-item-combat-field="description">${escapeHtml(combat.description || "")}</textarea></label><label class="check-chip"><input type="checkbox" data-item-combat-field="usable"${checked(combat.usable)}> Usable in combat</label></div>${renderSynthAudioSelect("Use SFX", combat.useSfxId, "sfx", "data-item-combat-field=\"useSfxId\"")}</section>` : "";
   const sourceLabels = { encounters: "Encounter", shops: "Shop", lootTables: "Loot table", recipes: "Recipe", expeditions: "Expedition", campEvents: "Camp event", locations: "Location" };
   const references = (liveReferences().items || []).filter((reference) => reference.id === item.id);
   const referenceMarkup = renderReferenceRows(references);
@@ -2460,7 +2469,7 @@ function renderEnemyActionDefinition() {
   const references = (liveReferences().enemyActions || []).filter((reference) => reference.id === action.id);
   return `<div class="editor-title"><div><h2>${escapeHtml(action.name || action.id || "New enemy action")}</h2><p>${escapeHtml(action.id || "Unsaved ID")}</p></div><span class="schema-badge">Enemy Action schema</span></div>
     <section class="section"><div class="section-heading"><div><h3>Action identity and damage</h3><p>Enemy Actions are reusable definitions authored in <code>COMBAT_ENEMY_ACTION_DEFINITIONS</code>.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(action.id || "")}"></label><label>Name / intent text<input data-enemy-action-field="name" value="${escapeHtml(action.name || "")}"></label><label>Damage minimum<input type="number" min="0" step="any" data-enemy-action-field="damage.minimum" value="${escapeHtml(damage.minimum ?? "")}"></label><label>Damage maximum<input type="number" min="0" step="any" data-enemy-action-field="damage.maximum" value="${escapeHtml(damage.maximum ?? "")}"></label><label>Target mode<select data-enemy-action-field="target"><option value="">Select target...</option>${selectOptions(targetModes, action.target)}</select></label></div></section>
-    <section class="section"><div class="section-heading"><div><h3>Injury effect</h3><p>Optional injury references use the live Injury catalog.</p></div></div><div class="form-grid"><label>Injury${referenceInput("injuryId", action.injuryId, true)}</label><label>Injury chance<input type="number" min="0" max="1" step="any" data-enemy-action-field="injuryChance" value="${escapeHtml(action.injuryChance ?? "")}"></label><label class="check-chip"><input type="checkbox" data-enemy-action-field="telegraphed"${action.telegraphed ? " checked" : ""}>Telegraphed heavy attack</label></div></section>
+    <section class="section"><div class="section-heading"><div><h3>Injury effect</h3><p>Optional injury references use the live Injury catalog.</p></div></div><div class="form-grid"><label>Injury${referenceInput("injuryId", action.injuryId, true)}</label><label>Injury chance<input type="number" min="0" max="1" step="any" data-enemy-action-field="injuryChance" value="${escapeHtml(action.injuryChance ?? "")}"></label><label class="check-chip"><input type="checkbox" data-enemy-action-field="telegraphed"${action.telegraphed ? " checked" : ""}>Telegraphed heavy attack</label></div>${renderSynthAudioSelect("Use SFX", action.useSfxId, "sfx", "data-enemy-action-field=\"useSfxId\"")}${renderSynthAudioSelect("Impact SFX", action.impactSfxId, "sfx", "data-enemy-action-field=\"impactSfxId\"")}</section>
     <section class="section"><div class="section-heading"><div><h3>Used by</h3><p>Enemy action patterns that reference this action.</p></div></div><div class="reference-list">${renderReferenceRows(references, "No enemy currently uses this action.")}</div></section>
     <section class="section"><details><summary>Raw Enemy Action JSON (advanced)</summary><p class="hint">Use this for uncommon future effect, weight, or presentation fields.</p><textarea id="raw-json" class="raw-editor">${jsonText(action)}</textarea><div class="button-row"><button type="button" class="small-button" data-action="apply-raw">Apply raw JSON</button></div></details></section>`;
 }
@@ -2611,6 +2620,7 @@ function renderAbility() {
       <label>Target<select data-ability-field="target">${selectOptions(["enemy", "ally", "self", "menu", "none"], ability.target || "none")}</select></label>
       <label>Target mode<select data-ability-field="targetMode">${selectOptions(["self", "singleEnemy", "singleAlly", "allEnemies", "allAllies", "none"], ability.targetMode || "none")}</select></label>
       <label class="wide">Selection prompt<input data-ability-field="selectionPrompt" value="${escapeHtml(ability.selectionPrompt || "")}"></label>
+      ${ability.kind === "active" ? `${renderSynthAudioSelect("Use SFX", ability.useSfxId, "sfx", "data-ability-field=\"useSfxId\"")}${renderSynthAudioSelect("Impact SFX", ability.impactSfxId, "sfx", "data-ability-field=\"impactSfxId\"")}` : ""}
     </div></section>
     ${ability.kind === "passive" ? `<section class="section"><div class="section-heading"><div><h3>Passive trigger</h3><p>Choose from the runtime combat lifecycle. Conditions use source/target sides, health, statuses, action/event, chance, and once-per-combat gates.</p></div></div><div class="form-grid"><label>Event<select data-ability-trigger-field="event"><option value="">Select event...</option>${selectOptions(COMBAT_EVENT_TYPES, trigger.event)}</select></label><label class="check-chip"><input type="checkbox" data-ability-trigger-field="oncePerCombat"${checked(trigger.oncePerCombat)}> Once per combat</label></div>${renderAbilityConditionEditor(trigger.conditions, "trigger.conditions")}${renderAbilityEffects(trigger.effects, "trigger.effects")}</section>` : `<section class="section"><div class="section-heading"><div><h3>Active cost and timing</h3><p>Costs are paid before effects resolve. Cooldowns count completed activations; charges reset for each combat.</p></div></div><div class="form-grid"><label>Cost resource<select data-ability-cost-field="resource"><option value="">No cost</option><option value="faith"${selected("faith", ability.cost?.resource)}>Faith</option><option value="health"${selected("health", ability.cost?.resource)}>Health</option><option value="provisions"${selected("provisions", ability.cost?.resource)}>Provisions</option></select></label><label>Cost amount<input type="number" min="0" step="1" data-ability-cost-field="amount" value="${escapeHtml(ability.cost?.amount ?? "")}"></label><label>Cooldown activations<input type="number" min="1" step="1" data-ability-field="cooldownActivations" value="${escapeHtml(ability.cooldownActivations ?? "")}"></label><label>Charges per combat<input type="number" min="1" step="1" data-ability-field="chargesPerCombat" value="${escapeHtml(ability.chargesPerCombat ?? "")}"></label></div></section>${renderAbilityEffects(effects, "effects")}`}
     <section class="section"><div class="section-heading"><div><h3>Used by / references</h3><p>Items, companions, encounters, and other authored content that grants or teaches this ability.</p></div></div><div class="reference-list">${renderReferenceRows(references, "No current references.")}</div></section>
@@ -2838,9 +2848,12 @@ function renderLocationBase() {
 function renderDestination() {
   const markup = renderDestinationBase();
   const marker = '<section class="section"><div class="nested-heading"><span>NPCs';
+  const musicMarkup = state.draft
+    ? renderSynthAudioSelector("Music track", "musicTrackId", state.draft.musicTrackId, "music", true)
+    : "";
   return state.draft && markup.includes(marker)
-    ? markup.replace(marker, `${renderDestinationRestConfig(state.draft)}${marker}`)
-    : markup;
+    ? markup.replace(marker, `${renderDestinationRestConfig(state.draft)}${musicMarkup}${marker}`)
+    : `${musicMarkup}${markup}`;
 }
 
 function renderLocationServiceConfig(location) {
@@ -4314,12 +4327,12 @@ function handleInput(input) {
       return;
     }
     const field = input.dataset.field;
-    if (field === "campMusicTrackId" && input.value === "__inherit__") {
+    if (["campMusicTrackId", "combatMusicTrackId", "musicTrackId"].includes(field) && input.value === "__inherit__") {
       delete state.draft[field];
       markDirty();
       return;
     }
-    const value = (field === "combatVisualAssetId" || ["musicTrackId", "travelMusicTrackId", "campMusicTrackId"].includes(field)) && input.value === ""
+    const value = (field === "combatVisualAssetId" || ["musicTrackId", "travelMusicTrackId", "campMusicTrackId", "combatMusicTrackId"].includes(field)) && input.value === ""
       ? null
       : parseInputValue(input, field);
     setNested(state.draft, field, value);
@@ -4348,6 +4361,13 @@ function handleInput(input) {
   if (input.dataset.choiceField) {
     const choice = getChoice(input.dataset.stage, input.dataset.choiceIndex);
     setNested(choice, input.dataset.choiceField, parseInputValue(input, input.dataset.choiceField));
+    markDirty();
+    return;
+  }
+  if (input.dataset.objectAudioField && input.closest("[data-object-row]")) {
+    const { collection, index } = getObjectRow(input.closest("[data-object-row]"));
+    if (!collection[index]) return;
+    setNested(collection[index], input.dataset.objectAudioField, parseInputValue(input, input.dataset.objectAudioField));
     markDirty();
     return;
   }

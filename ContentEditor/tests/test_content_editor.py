@@ -112,6 +112,9 @@ class ContentEditorTests(unittest.TestCase):
         expedition = clone(catalog["expeditions"])
         expedition["old_forest_road"]["travelMusicTrackId"] = "camelot_twilight"
         expedition["old_forest_road"]["campMusicTrackId"] = None
+        expedition["old_forest_road"]["combatMusicTrackId"] = "camelot_twilight"
+        expedition["old_forest_road"]["combatStartSfxId"] = "pickup_confirm"
+        expedition["old_forest_road"]["combatVictorySfxId"] = "pickup_confirm"
         self.assertEqual(validate_catalog({"expeditions": expedition}, catalog["known"], catalog["references"])["errors"], [])
 
         invalid = clone(expedition)
@@ -122,10 +125,35 @@ class ContentEditorTests(unittest.TestCase):
         invalid["old_forest_road"]["travelMusicTrackId"] = 3
         errors = validate_catalog({"expeditions": invalid}, catalog["known"], catalog["references"])["errors"]
         self.assertTrue(any("travelMusicTrackId must be a synth music track ID or null" in issue["message"] for issue in errors))
+        invalid["old_forest_road"]["combatStartSfxId"] = 3
+        errors = validate_catalog({"expeditions": invalid}, catalog["known"], catalog["references"])["errors"]
+        self.assertTrue(any("combatStartSfxId must be a synth ID or null" in issue["message"] for issue in errors))
         app = (CONTENT_EDITOR / "static" / "app.js").read_text(encoding="utf-8")
         self.assertIn('renderSynthAudioSelector("Travel music", "travelMusicTrackId"', app)
         self.assertIn('renderSynthAudioSelector("Camp music", "campMusicTrackId"', app)
+        self.assertIn('renderSynthAudioSelector("Combat music", "combatMusicTrackId"', app)
+        self.assertIn('renderSynthAudioSelector("Combat start SFX", "combatStartSfxId"', app)
+        self.assertIn('renderSynthAudioSelector("Combat victory SFX", "combatVictorySfxId"', app)
         self.assertIn("Inherit travel music", app)
+
+    def test_synth_audio_selectors_validate_and_surface_across_combat_content(self) -> None:
+        catalog = load_catalog(GRAIL)
+        ability_id, ability = next((item for item in catalog["abilities"].items() if item[1].get("kind") == "active"))
+        abilities = clone(catalog["abilities"])
+        abilities[ability_id]["useSfxId"] = "pickup_confirm"
+        abilities[ability_id]["impactSfxId"] = "pickup_confirm"
+        self.assertEqual(validate_catalog({"abilities": abilities}, catalog["known"], catalog["references"])["errors"], [])
+
+        invalid = clone(abilities)
+        invalid[ability_id]["useSfxId"] = "missing_sfx"
+        errors = validate_catalog({"abilities": invalid}, catalog["known"], catalog["references"])["errors"]
+        self.assertTrue(any("Unknown SFX ID 'missing_sfx'" in issue["message"] for issue in errors))
+
+        app = (CONTENT_EDITOR / "static" / "app.js").read_text(encoding="utf-8")
+        for label in ("Use SFX", "Impact SFX", "Resolution SFX", "Choice SFX", "Stage SFX"):
+            self.assertIn(label, app)
+        self.assertIn('renderSynthAudioSelect("Use SFX", combat.useSfxId', app)
+        self.assertIn('renderSynthAudioSelect("Use SFX", action.useSfxId', app)
 
     def test_encounter_milestone_fields_load_validate_and_save_surgically(self) -> None:
         catalog = load_catalog(GRAIL)

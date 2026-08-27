@@ -81,11 +81,11 @@ The default project is discovered as the sibling `../../Grail` relative to
   modeled as an inventory item.
 - Items: identity, category, rarity, tags, inventory flags, equipment slots,
   stack limits, weapon damage, armor defense, granted combat abilities,
-  current combat-use and treatment fields, used-by references, and raw effect
-  or item JSON. The list supports combinable text search, category, rarity,
-  equipment, tri-state inventory flags, and all/any tag filters. A focused
-  drop panel can add/remove this item in an existing loot table and edit its
-  weight.
+  current combat-use and treatment fields, an optional synthesized use SFX
+  selector, used-by references, and raw effect or item JSON. The list
+  supports combinable text search, category, rarity, equipment, tri-state
+  inventory flags, and all/any tag filters. A focused drop panel can
+  add/remove this item in an existing loot table and edit its weight.
 - Combat: combat metadata and reusable enemy roster composition, with Open
   Enemy navigation, repeated enemy occurrences, reordering, and multi-enemy
   combats.
@@ -93,14 +93,15 @@ The default project is discovered as the sibling `../../Grail` relative to
   speed, defense, ordered action-pattern references, used-by navigation, and
   safe deletion.
 - Enemy Actions: the canonical COMBAT_ENEMY_ACTION_DEFINITIONS editor for
-  identity, damage range, target mode, optional injury/chance, used-by
-  navigation, and safe deletion. Uncommon future fields remain available in
-  Advanced JSON.
+  identity, damage range, target mode, optional injury/chance, synthesized
+  use/impact SFX, used-by navigation, and safe deletion. Uncommon future
+  fields remain available in Advanced JSON.
 - Abilities: one schema-aware active/passive editor for shared identity,
   description, kind, tags, target mode, prompt, generic resource cost,
-  cooldowns, charges, lifecycle trigger, conditions, structured effects,
-  nested effect branches, used-by references, and raw JSON fallback. Filters
-  cover kind, resource, tags, and tag matching mode.
+  cooldowns, charges, optional synthesized use/impact SFX, lifecycle trigger,
+  conditions, structured effects, nested effect branches, used-by references,
+  and raw JSON fallback. Filters cover kind, resource, tags, and tag matching
+  mode.
 - Loot Tables: rolls and ordered weighted gold, item, material, recipe, and
   nested loot-table entries, including fixed or min/max quantities.
 - Return Rewards: ordered expedition return reward tiers with editable minimum
@@ -112,8 +113,9 @@ The default project is discovered as the sibling `../../Grail` relative to
   operations without creating a duplicate path database.
 - Expeditions: the canonical `EXPEDITION_DEFINITIONS` editor, including ID,
   name, description, danger, region, path, kind, camp-event table IDs,
-  prerequisites, repeatable bounded route branches with entry/map/rejoin path
-  and distance fields, used-by references, and advanced raw JSON.
+  prerequisites, travel/camp/combat music, optional combat-start/victory SFX,
+  repeatable bounded route branches with entry/map/rejoin path and distance
+  fields, used-by references, and advanced raw JSON.
 - Recipes: canonical `RECIPE_DEFINITIONS` editing with typed item/material
   ingredient rows, quantities, selectors, duplicate/reorder/remove controls,
   item or provisions outputs, provider, rarity, starter flag, gold cost,
@@ -129,9 +131,9 @@ The default project is discovered as the sibling `../../Grail` relative to
   effect shapes. References are checked before deletion.
 - Camp Events: the canonical `CAMP_EVENT_DEFINITIONS` editor, including
   identity, region/path applicability, optional occurrence and distance
-  limits, staged choices, requirements, costs, and recursively editable
-  outcomes. Camp-event table references remain linked to the editable event
-  entries.
+  limits, staged choices with optional SFX, requirements, costs, and
+  recursively editable outcomes with optional resolution SFX. Camp-event
+  table references remain linked to the editable event entries.
 - Dialogue: reusable `DIALOGUE_DEFINITIONS` sequences with searchable CRUD,
   node and choice branching, speaker and node-link selectors, shared
   requirement/effect editing, reverse references, and safe deletion.
@@ -139,7 +141,7 @@ The default project is discovered as the sibling `../../Grail` relative to
   rumors, dialogue-sequence hooks, and location membership with Open buttons.
 - Destinations: the canonical `DESTINATION_DEFINITIONS` editor for scene
   metadata, shops, crafting providers, NPCs, actions, intro gating, and
-  destination-specific inn/rest overrides.
+  destination-specific music inheritance/override and inn/rest overrides.
 - Locations: the canonical `LOCATION_DEFINITIONS` editor for chapter/region
   metadata, visual keys, destination/NPC/shop/expedition/quest lists, shared
   requirements, and the runtime `serviceConfig` provision-shop, restock-shop,
