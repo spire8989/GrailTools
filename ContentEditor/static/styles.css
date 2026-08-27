@@ -190,6 +190,16 @@ h2, h3, h4 { margin: 0; }
 .outcome-layout-advanced { max-width: 32rem; }
 .outcome-layout-advanced > summary { color: var(--muted); cursor: pointer; font-size: 10px; }
 .asset-browser-card { display: grid; grid-template-columns: minmax(180px, 260px) minmax(0, 1fr); gap: 16px; align-items: center; padding: 14px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 5px; }
+.audio-category-tabs { display: flex; gap: 6px; margin-top: 9px; }
+.audio-category-tabs button { flex: 1; text-align: left; }
+.audio-category-tabs button.active { background: var(--accent-soft); color: #f2d79f; border-color: #6b5434; }
+.audio-json-editor { min-height: 390px; font: 12px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; tab-size: 2; }
+.audio-json-actions { margin-top: 9px; }
+.audio-preview-panel { border-left: 3px solid #80653b; padding-left: 12px; }
+.audio-status { color: var(--accent); font: 11px ui-monospace, SFMono-Regular, Consolas, monospace; text-transform: uppercase; }
+.audio-volume-control { display: grid; grid-template-columns: auto minmax(160px, 1fr) 45px; gap: 10px; align-items: center; max-width: 440px; margin-top: 13px; }
+.audio-volume-control input { padding: 0; }
+.audio-volume-control output { color: #d9bd7d; text-align: right; }
 .asset-browser-card > div { display: grid; gap: 8px; align-content: start; }
 .asset-browser-card audio { width: 100%; }
 .asset-browser-preview { display: block; width: 100%; max-height: 220px; object-fit: contain; background: #101319; border: 1px solid var(--border); border-radius: 4px; }

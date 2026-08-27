@@ -479,6 +479,11 @@ CONTENT_FILES = {
     "returnRewards": ("js/loot-data.js", "EXPEDITION_RETURN_REWARD_TIERS"),
 }
 EXPEDITION_TUNING_FILE = ("js/tuning.js", "EXPEDITION_TUNING")
+AUDIO_DEFINITIONS_PATH = Path(__file__).resolve().parent / "audio-definitions.json"
+AUDIO_DEFINITIONS_SOURCE = "ContentEditor/audio-definitions.json"
+AUDIO_DEFINITION_CATEGORIES = ("musicTracks", "sfx")
+AUDIO_OSCILLATOR_WAVES = {"sine", "triangle", "square", "sawtooth"}
+AUDIO_SFX_WAVES = AUDIO_OSCILLATOR_WAVES | {"noise"}
 
 ASSET_IMAGE_CATEGORIES = ("location", "town", "expedition", "encounter", "combat", "combat_scene", "portrait", "ui")
 ASSET_AUDIO_CATEGORIES = ("ambience", "sfx", "music")
@@ -665,6 +670,29 @@ def _id_map(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
 
 
+def load_audio_definitions(path: Path | None = None) -> dict[str, Any]:
+    """Load the editor-only synthesized audio catalog.
+
+    These definitions intentionally live beside the Content Editor rather than
+    in the sibling Grail project.  Keeping this loader separate from the
+    JavaScript constant parser also means the editor can preserve ordinary JSON
+    formatting and keep the experimental catalog easy to copy from source
+    control.
+    """
+    path = path or AUDIO_DEFINITIONS_PATH
+    if not path.is_file():
+        return {"musicTracks": {}, "sfx": {}}
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        raise JsParseError(f"Invalid audio definitions JSON: {error.msg} at line {error.lineno}, column {error.colno}") from error
+    if not isinstance(value, dict):
+        raise JsParseError("Audio definitions file must contain a JSON object.")
+    for category in AUDIO_DEFINITION_CATEGORIES:
+        value.setdefault(category, {})
+    return value
+
+
 def _humanize_id(value: str) -> str:
     return " ".join(part.capitalize() for part in value.replace("_", " ").split())
 
@@ -734,6 +762,12 @@ def load_catalog(project_root: Path) -> dict[str, Any]:
         source_paths[category] = relative
         for duplicate in parsed.duplicate_keys:
             parse_duplicates.append({"source": relative, "id": duplicate})
+
+    audio_definitions = load_audio_definitions()
+    values["audioDefinitions"] = audio_definitions
+    if AUDIO_DEFINITIONS_PATH.is_file():
+        source_hashes[AUDIO_DEFINITIONS_SOURCE] = _source_hash(AUDIO_DEFINITIONS_PATH.read_bytes())
+    source_paths["audioDefinitions"] = AUDIO_DEFINITIONS_SOURCE
 
     try:
         tuning, _source, raw, _parsed = _read_constant(project_root, *EXPEDITION_TUNING_FILE)
@@ -850,6 +884,7 @@ def load_catalog(project_root: Path) -> dict[str, Any]:
         "files": source_paths,
         "sourceHashes": source_hashes,
         "tuning": tuning,
+        "audioDefinitions": values["audioDefinitions"],
         "imageAssets": values["imageAssets"],
         "audioAssets": values["audioAssets"],
         "playerCharacter": values["playerCharacter"],
@@ -2883,6 +2918,127 @@ def _validate_locations(locations: Any, known: dict[str, list[str]], errors: lis
                         errors.append(_issue("error", f"Location {field_name} references unknown shop ID {shop_id!r}.", source, f"serviceConfig.{field_name}"))
 
 
+def _audio_number(value: Any) -> bool:
+    return _is_number(value) and math.isfinite(float(value))
+
+
+def _note_midi(pitch: Any) -> int | None:
+    if not isinstance(pitch, str):
+        return None
+    match = re.fullmatch(r"([A-Ga-g])([#b]?)(-?\d+)", pitch.strip())
+    if not match:
+        return None
+    semitones = {"C": 0, "D": 2, "E": 4, "F": 5, "G": 7, "A": 9, "B": 11}
+    accidental = {"": 0, "#": 1, "b": -1}[match.group(2)]
+    midi = (int(match.group(3)) + 1) * 12 + semitones[match.group(1).upper()] + accidental
+    return midi if 0 <= midi <= 127 else None
+
+
+def _validate_audio_definitions(audio_definitions: Any, errors: list[dict[str, str]]) -> None:
+    """Validate the small, human-writable schema used by the synth sandbox."""
+    if not isinstance(audio_definitions, dict):
+        errors.append(_issue("error", "Audio definitions must be an object with musicTracks and sfx maps.", "audio"))
+        return
+
+    for category in AUDIO_DEFINITION_CATEGORIES:
+        entries = audio_definitions.get(category)
+        if not isinstance(entries, dict):
+            errors.append(_issue("error", f"Audio {category} must be an object keyed by stable IDs.", "audio", category))
+            continue
+        for entry_id, definition in entries.items():
+            source = f"audio:{category}:{entry_id}"
+            if not isinstance(entry_id, str) or not entry_id:
+                errors.append(_issue("error", "Audio definition IDs must be non-empty strings.", source, "id"))
+            elif not ASSET_ID_PATTERN.fullmatch(entry_id):
+                errors.append(_issue("error", f"Audio definition ID {entry_id!r} must be lowercase slug-like text.", source, "id"))
+            if not isinstance(definition, dict):
+                errors.append(_issue("error", "Audio definition must be an object.", source))
+                continue
+            if definition.get("id") != entry_id:
+                errors.append(_issue("error", f"Definition key {entry_id!r} does not match its id field.", source, "id"))
+            if not isinstance(definition.get("name"), str) or not definition.get("name"):
+                errors.append(_issue("error", "Audio definition name is required.", source, "name"))
+
+            if category == "musicTracks":
+                bpm = definition.get("bpm")
+                if not _audio_number(bpm) or not 20 <= bpm <= 300:
+                    errors.append(_issue("error", "Music BPM must be a finite number from 20 to 300.", source, "bpm"))
+                loop_beats = definition.get("loopBeats")
+                if not _audio_number(loop_beats) or loop_beats <= 0:
+                    errors.append(_issue("error", "Music loopBeats must be a positive finite number.", source, "loopBeats"))
+                voices = definition.get("voices")
+                if not isinstance(voices, list) or not voices:
+                    errors.append(_issue("error", "Music voices must be a non-empty array.", source, "voices"))
+                    continue
+                for voice_index, voice in enumerate(voices):
+                    voice_path = f"voices[{voice_index}]"
+                    if not isinstance(voice, dict):
+                        errors.append(_issue("error", "Each music voice must be an object.", source, voice_path))
+                        continue
+                    wave = voice.get("wave", "sine")
+                    if wave not in AUDIO_OSCILLATOR_WAVES:
+                        errors.append(_issue("error", f"Invalid music waveform {wave!r}; use sine, triangle, square, or sawtooth.", source, f"{voice_path}.wave"))
+                    for field_name in ("gain", "attack", "release"):
+                        value = voice.get(field_name, 0 if field_name != "gain" else 0.1)
+                        if not _audio_number(value) or value < 0 or (field_name == "gain" and value > 1):
+                            limit = "from 0 to 1" if field_name == "gain" else "non-negative"
+                            errors.append(_issue("error", f"Music voice {field_name} must be a finite number {limit}.", source, f"{voice_path}.{field_name}"))
+                    notes = voice.get("notes")
+                    if not isinstance(notes, list):
+                        errors.append(_issue("error", "Music voice notes must be an array of [pitch, startBeat, durationBeat].", source, f"{voice_path}.notes"))
+                        continue
+                    for note_index, note in enumerate(notes):
+                        note_path = f"{voice_path}.notes[{note_index}]"
+                        if not isinstance(note, list) or len(note) != 3:
+                            errors.append(_issue("error", "Each music note must be [pitch, startBeat, durationBeat].", source, note_path))
+                            continue
+                        pitch, start, duration = note
+                        if _note_midi(pitch) is None:
+                            errors.append(_issue("error", f"Invalid note name {pitch!r}; use names such as C4, F#3, or Bb2.", source, f"{note_path}[0]"))
+                        if not _audio_number(start) or start < 0:
+                            errors.append(_issue("error", "Note startBeat must be a non-negative finite number.", source, f"{note_path}[1]"))
+                        if not _audio_number(duration) or duration <= 0:
+                            errors.append(_issue("error", "Note durationBeat must be a positive finite number.", source, f"{note_path}[2]"))
+                        if _audio_number(loop_beats) and _audio_number(start) and _audio_number(duration) and start >= 0 and duration > 0 and start + duration > loop_beats:
+                            errors.append(_issue("error", "Note extends beyond the music loop length.", source, note_path))
+            else:
+                duration = definition.get("duration")
+                if not _audio_number(duration) or duration <= 0 or duration > 10:
+                    errors.append(_issue("error", "SFX duration must be a finite number greater than 0 and no more than 10 seconds.", source, "duration"))
+                layers = definition.get("layers")
+                if not isinstance(layers, list) or not layers:
+                    errors.append(_issue("error", "SFX layers must be a non-empty array.", source, "layers"))
+                    continue
+                for layer_index, layer in enumerate(layers):
+                    layer_path = f"layers[{layer_index}]"
+                    if not isinstance(layer, dict):
+                        errors.append(_issue("error", "Each SFX layer must be an object.", source, layer_path))
+                        continue
+                    wave = layer.get("wave", "sine")
+                    if wave not in AUDIO_SFX_WAVES:
+                        errors.append(_issue("error", f"Invalid SFX waveform {wave!r}; use sine, triangle, square, sawtooth, or noise.", source, f"{layer_path}.wave"))
+                    gain = layer.get("gain", 0.1)
+                    if not _audio_number(gain) or not 0 <= gain <= 1:
+                        errors.append(_issue("error", "SFX layer gain must be a finite number from 0 to 1.", source, f"{layer_path}.gain"))
+                    for field_name in ("attack", "release"):
+                        value = layer.get(field_name, 0)
+                        if not _audio_number(value) or value < 0:
+                            errors.append(_issue("error", f"SFX layer {field_name} must be a non-negative finite number.", source, f"{layer_path}.{field_name}"))
+                    start = layer.get("start", 0)
+                    layer_duration = layer.get("duration", duration)
+                    if not _audio_number(start) or start < 0:
+                        errors.append(_issue("error", "SFX layer start must be a non-negative finite number.", source, f"{layer_path}.start"))
+                    if not _audio_number(layer_duration) or layer_duration <= 0:
+                        errors.append(_issue("error", "SFX layer duration must be a positive finite number.", source, f"{layer_path}.duration"))
+                    if _audio_number(duration) and _audio_number(start) and _audio_number(layer_duration) and start >= 0 and layer_duration > 0 and start + layer_duration > duration:
+                        errors.append(_issue("error", "SFX layer ends beyond the effect duration.", source, layer_path))
+                    if wave != "noise":
+                        for field_name in ("startHz", "endHz"):
+                            value = layer.get(field_name)
+                            if not _audio_number(value) or value <= 0:
+                                errors.append(_issue("error", f"SFX oscillator {field_name} must be a positive finite frequency.", source, f"{layer_path}.{field_name}"))
+
+
 def _validate_asset_map(
     assets: Any,
     asset_type: str,
@@ -3079,6 +3235,8 @@ def validate_catalog(values: dict[str, Any], known: dict[str, list[str]], refere
         _validate_loot_tables(values.get("lootTables"), effective_known, errors)
     if "returnRewards" in values:
         _validate_return_reward_tiers(values.get("returnRewards"), effective_known, errors)
+    if "audioDefinitions" in values:
+        _validate_audio_definitions(values.get("audioDefinitions"), errors)
     if "imageAssets" in values:
         _validate_asset_map(values.get("imageAssets"), "image", project_root, errors)
     if "audioAssets" in values:
@@ -3130,6 +3288,7 @@ def merged_state(current: dict[str, Any], incoming: dict[str, Any]) -> dict[str,
     for category in result:
         if category in incoming:
             result[category] = incoming[category]
+    result["audioDefinitions"] = incoming.get("audioDefinitions", current.get("audioDefinitions", {}))
     return result
 
 
@@ -3329,6 +3488,39 @@ def _write_constant(project_root: Path, category: str, value: Any, backup_dir: P
     return _write_source_constants(project_root, relative, {name: value}, backup_dir, expected_hash)
 
 
+def _write_audio_definitions(value: Any, backup_dir: Path, expected_hash: str | None = None) -> dict[str, str]:
+    path = AUDIO_DEFINITIONS_PATH
+    raw = path.read_bytes() if path.is_file() else b""
+    if expected_hash and _source_hash(raw) != expected_hash:
+        raise RuntimeError(f"Conflict: {AUDIO_DEFINITIONS_SOURCE} changed on disk since the editor loaded it. Reload before saving.")
+    updated_bytes = (json.dumps(value, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+    if updated_bytes == raw:
+        return {"file": AUDIO_DEFINITIONS_SOURCE, "status": "unchanged"}
+
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    if raw:
+        backup_path = backup_dir / f"audio-definitions.json.{stamp}.bak"
+        shutil.copy2(path, backup_path)
+    else:
+        backup_path = None
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temp_name = tempfile.mkstemp(prefix=".audio-definitions.", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(updated_bytes)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp_name, path)
+    finally:
+        if os.path.exists(temp_name):
+            os.unlink(temp_name)
+    result = {"file": AUDIO_DEFINITIONS_SOURCE, "status": "updated"}
+    if backup_path:
+        result["backup"] = str(backup_path)
+    return result
+
+
 def save_catalog(project_root: Path, incoming: dict[str, Any], expected_hashes: dict[str, str] | None = None, backup_dir: Path | None = None) -> dict[str, Any]:
     current = load_catalog(project_root)
     expected_hashes = expected_hashes or {}
@@ -3339,10 +3531,16 @@ def save_catalog(project_root: Path, incoming: dict[str, Any], expected_hashes: 
         actual = current["sourceHashes"].get(relative)
         if expected and actual != expected:
             raise RuntimeError(f"Conflict: {relative} changed on disk since the editor loaded it. Reload before saving.")
+    audio_expected = expected_hashes.get(AUDIO_DEFINITIONS_SOURCE)
+    if "audioDefinitions" in incoming and audio_expected and current["sourceHashes"].get(AUDIO_DEFINITIONS_SOURCE) != audio_expected:
+        raise RuntimeError(f"Conflict: {AUDIO_DEFINITIONS_SOURCE} changed on disk since the editor loaded it. Reload before saving.")
 
     merged = merged_state(current, incoming)
     validation = validate_catalog(merged, current["known"], current["references"], project_root=project_root)
     changed_categories = [category for category in CONTENT_FILES if category in incoming and incoming[category] != current[category]]
+    audio_changed = "audioDefinitions" in incoming and incoming["audioDefinitions"] != current["audioDefinitions"]
+    if audio_changed:
+        changed_categories.append("audioDefinitions")
     current_error_keys = {_validation_issue_key(issue) for issue in current["validation"].get("errors", [])}
     blocking_errors = [
         issue for issue in validation["errors"]
@@ -3363,10 +3561,14 @@ def save_catalog(project_root: Path, incoming: dict[str, Any], expected_hashes: 
     backup_dir = backup_dir or (Path(__file__).resolve().parent / ".backups")
     updates_by_file: dict[str, dict[str, Any]] = {}
     for category in changed_categories:
+        if category not in CONTENT_FILES:
+            continue
         relative, name = CONTENT_FILES[category]
         updates_by_file.setdefault(relative, {})[name] = incoming[category]
     for relative, definitions in updates_by_file.items():
         results.append(_write_source_constants(project_root, relative, definitions, backup_dir, current["sourceHashes"].get(relative)))
+    if audio_changed:
+        results.append(_write_audio_definitions(incoming["audioDefinitions"], backup_dir, current["sourceHashes"].get(AUDIO_DEFINITIONS_SOURCE)))
     result = load_catalog(project_root)
     result["saveResults"] = results
     return result

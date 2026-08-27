@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Grail Content Editor</title>
     <link rel="stylesheet" href="/static/styles.css">
+    <script defer src="/static/audio_synth.js"></script>
     <script defer src="/static/app.js"></script>
   </head>
   <body>
@@ -24,11 +25,11 @@
 
       <main class="workspace">
         <aside class="category-panel panel">
-            <div class="panel-heading"><span>Content</span><span class="panel-count">Phase 6</span></div>
+            <div class="panel-heading"><span>Content</span><span class="panel-count">Audio Lab</span></div>
           <nav id="category-nav" class="category-nav" aria-label="Content categories"></nav>
           <div class="source-note">
             <strong>Source of truth</strong>
-            <p>Edits stay in memory until Save Changes. The editor writes only the targeted Grail definitions.</p>
+            <p>Edits stay in memory until Save Changes. The editor writes only the targeted definition; Audio Lab data stays inside ContentEditor.</p>
           </div>
         </aside>
 
@@ -55,7 +56,7 @@
       </main>
 
       <section id="validation-panel" class="validation-panel panel" aria-live="polite"></section>
-      <footer class="footer-note">Phase 6 adds structured Item and Encounter filters to the local content editor. See <code>ContentEditor/README.md</code> for setup and limitations.</footer>
+      <footer class="footer-note">Audio Lab definitions are experimental and stay in <code>ContentEditor/audio-definitions.json</code>. See <code>ContentEditor/README.md</code> for setup and limitations.</footer>
     </div>
 
     <section id="asset-import-dialog" class="asset-import-dialog" hidden aria-labelledby="asset-import-title">

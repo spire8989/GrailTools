@@ -185,6 +185,66 @@ class Phase6FilterBrowserTests(unittest.TestCase):
         if self.browser.evaluate("Boolean(document.querySelector('.filter-clear:not([disabled])'))"):
             self.browser.evaluate("document.querySelector('.filter-clear').click()")
 
+    def test_audio_synth_editor_has_music_and_sfx_workflows(self) -> None:
+        self.click_category("audio")
+        self.assertEqual(self.browser.evaluate("document.querySelector('#entry-heading').textContent.trim()"), "Music Tracks")
+        self.assertTrue(self.browser.evaluate("Boolean(document.querySelector('[data-audio-json]'))"))
+        self.assertTrue(self.browser.evaluate("Boolean(window.GrailAudioSynth?.SynthPlayer)"))
+        self.assertTrue(self.browser.evaluate("Boolean(document.querySelector('[data-action=play-audio]')) && Boolean(document.querySelector('[data-action=pause-audio]')) && Boolean(document.querySelector('[data-action=restart-audio]'))"))
+        self.browser.evaluate("(() => { const volume=document.querySelector('[data-audio-volume]'); volume.value='0.31'; volume.dispatchEvent(new Event('input',{bubbles:true})); })()")
+        self.assertTrue(self.browser.evaluate("document.querySelector('#dirty-indicator').textContent === 'All changes saved' && Math.abs(state.audioPreviewVolume - 0.31) < 0.001"))
+
+        self.browser.evaluate("document.querySelector('[data-action=audio-category][data-audio-category=sfx]').click()")
+        self.assertEqual(self.browser.evaluate("document.querySelector('#entry-heading').textContent.trim()"), "SFX")
+        self.assertTrue(self.browser.evaluate("Boolean(document.querySelector('[data-action=play-audio]')) && !document.querySelector('[data-action=pause-audio]') && Boolean(document.querySelector('[data-audio-volume]'))"))
+
+    def test_audio_synth_lifecycle_does_not_stack_preview_nodes(self) -> None:
+        result = self.browser.evaluate(r"""
+            (async () => {
+              class Param {
+                setValueAtTime() {}
+                linearRampToValueAtTime() {}
+                exponentialRampToValueAtTime() {}
+                setTargetAtTime() {}
+              }
+              class Node {
+                constructor() { this.frequency = new Param(); this.gain = new Param(); }
+                connect() { return this; }
+                disconnect() {}
+                start() {}
+                stop() {}
+              }
+              class FakeAudioContext {
+                constructor() { this.state = 'running'; this.currentTime = 0; this.sampleRate = 8000; this.destination = {}; }
+                resume() { return Promise.resolve(); }
+                createGain() { return new Node(); }
+                createOscillator() { return new Node(); }
+                createBufferSource() { return new Node(); }
+                createBuffer(_channels, length) { return { getChannelData: () => new Float32Array(length) }; }
+              }
+              window.AudioContext = FakeAudioContext;
+              const player = new window.GrailAudioSynth.SynthPlayer();
+              const music = { bpm: 120, loopBeats: 2, voices: [{ wave: 'triangle', gain: 0.1, notes: [['C4', 0, 1]] }] };
+              const sfx = { duration: 0.05, layers: [{ wave: 'square', startHz: 440, endHz: 660, gain: 0.1 }] };
+              await player.playMusic(music);
+              const playing = player.status().music;
+              player.pauseMusic();
+              const paused = player.status().music;
+              await player.resumeMusic();
+              const resumed = player.status().music;
+              await player.playSfx(sfx);
+              const sfxPlaying = player.status().sfx;
+              player.stopAll();
+              return { playing, paused, resumed, sfxPlaying, final: player.status() };
+            })()
+        """)
+        self.assertEqual(result["playing"], "playing")
+        self.assertEqual(result["paused"], "paused")
+        self.assertEqual(result["resumed"], "playing")
+        self.assertTrue(result["sfxPlaying"])
+        self.assertEqual(result["final"]["music"], "stopped")
+        self.assertFalse(result["final"]["sfx"])
+
     def test_recipe_provider_change_updates_draft_for_navigation_and_save(self) -> None:
         self.click_category("recipes")
         self.browser.evaluate("document.querySelector('[data-action=select][data-id=repair_kit]').click()")

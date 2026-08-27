@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 CONTENT_EDITOR = Path(__file__).resolve().parents[1]
@@ -24,6 +25,7 @@ from content_editor_core import (  # noqa: E402
     serialize_js,
     validate_catalog,
 )
+import content_editor_core  # noqa: E402
 
 
 GRAIL = CONTENT_EDITOR.parents[1] / "Grail"
@@ -48,6 +50,43 @@ class ContentEditorTests(unittest.TestCase):
         )
         self.assertEqual(catalog["validation"]["errors"][0]["source"], "encounter:lost_purse")
         self.assertEqual(catalog["validation"]["warnings"], [])
+
+    def test_audio_definitions_load_validate_and_save_without_touching_grail(self) -> None:
+        catalog = load_catalog(GRAIL)
+        self.assertIn("moonlit_court", catalog["audioDefinitions"]["musicTracks"])
+        self.assertIn("pickup_confirm", catalog["audioDefinitions"]["sfx"])
+        self.assertIn("ContentEditor/audio-definitions.json", catalog["sourceHashes"])
+        app = (CONTENT_EDITOR / "static" / "app.js").read_text(encoding="utf-8")
+        synth = (CONTENT_EDITOR / "static" / "audio_synth.js").read_text(encoding="utf-8")
+        self.assertIn('["audio", "Audio"]', app)
+        self.assertIn("function renderAudio()", app)
+        self.assertIn("class SynthPlayer", synth)
+        self.assertIn("AudioContext", synth)
+
+        invalid = clone(catalog["audioDefinitions"])
+        invalid["musicTracks"]["moonlit_court"]["bpm"] = 0
+        invalid["musicTracks"]["moonlit_court"]["voices"][0]["wave"] = "organ"
+        invalid["musicTracks"]["moonlit_court"]["voices"][0]["notes"][0] = ["H9", -1, 20]
+        invalid["sfx"]["pickup_confirm"]["layers"][0]["gain"] = 2
+        messages = [issue["message"] for issue in validate_catalog({"audioDefinitions": invalid}, catalog["known"], catalog["references"])["errors"]]
+        self.assertTrue(any("BPM" in message for message in messages))
+        self.assertTrue(any("waveform" in message for message in messages))
+        self.assertTrue(any("Invalid note name" in message for message in messages))
+        self.assertTrue(any("gain" in message for message in messages))
+
+        temp, project = self.temporary_grail()
+        self.addCleanup(temp.cleanup)
+        local_audio = Path(temp.name) / "audio-definitions.json"
+        shutil.copy2(content_editor_core.AUDIO_DEFINITIONS_PATH, local_audio)
+        with patch.object(content_editor_core, "AUDIO_DEFINITIONS_PATH", local_audio):
+            before = load_catalog(project)
+            incoming = clone(before["audioDefinitions"])
+            incoming["musicTracks"]["moonlit_court"]["name"] = "Moonlit Court (test)"
+            result = save_catalog(project, {"audioDefinitions": incoming}, before["sourceHashes"], Path(temp.name) / "backups")
+            after = load_catalog(project)
+        self.assertEqual(after["audioDefinitions"]["musicTracks"]["moonlit_court"]["name"], "Moonlit Court (test)")
+        self.assertTrue(any(item["file"] == "ContentEditor/audio-definitions.json" and item["status"] == "updated" for item in result["saveResults"]))
+        self.assertTrue(list((Path(temp.name) / "backups").glob("audio-definitions.json.*.bak")))
 
     def test_encounter_milestone_fields_load_validate_and_save_surgically(self) -> None:
         catalog = load_catalog(GRAIL)

@@ -17,7 +17,8 @@ const COMMON_EFFECT_TYPES = [
 
 const CONTENT_CATEGORIES = [
   ["imageAssets", "Images"],
-  ["audioAssets", "Audio"],
+  ["audio", "Audio"],
+  ["audioAssets", "Audio Assets"],
   ["playerCharacter", "Player Character"],
   ["startingState", "Starting State"],
   ["companions", "Companions"],
@@ -51,6 +52,7 @@ const EDITABLE_REFERENCE_SOURCES = new Set([
 const state = {
   catalog: null,
   category: "encounters",
+  audioMode: "musicTracks",
   selectedId: null,
   originalSelectedId: null,
   draft: null,
@@ -107,9 +109,24 @@ const state = {
   encounterLayoutSelectedSlot: "arthur",
   encounterPreviewCompanions: {},
   outcomeLayoutDrag: null,
+  audioPreviewVolume: 0.7,
+  audioJsonEditing: false,
+  audioPlayer: window.GrailAudioSynth ? new window.GrailAudioSynth.SynthPlayer() : null,
 };
 
 const $ = (selector) => document.querySelector(selector);
+
+function audioEntries() {
+  return state.catalog?.audioDefinitions?.[state.audioMode] || {};
+}
+
+function audioCategoryLabel() {
+  return state.audioMode === "sfx" ? "SFX" : "Music Tracks";
+}
+
+function stopAudioPreview() {
+  state.audioPlayer?.stopAll();
+}
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
@@ -2840,6 +2857,37 @@ function renderLocation() {
     : markup;
 }
 
+function renderAudioCategoryControls() {
+  return `<div class="audio-category-tabs" role="tablist" aria-label="Audio definition categories">
+    <button type="button" class="small-button ${state.audioMode === "musicTracks" ? "active" : ""}" data-action="audio-category" data-audio-category="musicTracks">Music Tracks <span class="panel-count">${Object.keys(state.catalog.audioDefinitions?.musicTracks || {}).length}</span></button>
+    <button type="button" class="small-button ${state.audioMode === "sfx" ? "active" : ""}" data-action="audio-category" data-audio-category="sfx">SFX <span class="panel-count">${Object.keys(state.catalog.audioDefinitions?.sfx || {}).length}</span></button>
+  </div>`;
+}
+
+function audioDefinitionDisplayName(definition, fallback = "Audio definition") {
+  return definition?.name || definition?.displayName || definition?.id || fallback;
+}
+
+function renderAudio() {
+  const definition = state.draft;
+  if (!definition) return `<div class="empty-state">Choose an audio definition to edit, or add one to begin.</div>`;
+  const music = state.audioMode === "musicTracks";
+  const status = state.audioPlayer?.status() || { music: "stopped", sfx: false };
+  const pauseLabel = status.music === "paused" ? "Resume" : "Pause";
+  return `<div class="editor-title"><div><p class="eyebrow">WEB AUDIO SYNTH SANDBOX</p><h2>${escapeHtml(audioDefinitionDisplayName(definition))}</h2><p>${escapeHtml(definition.id || "Unsaved ID")}</p></div><span class="schema-badge">${music ? "Music track" : "SFX"}</span></div>
+    <section class="section audio-definition-editor"><div class="section-heading"><div><h3>Definition</h3><p>Paste or edit human-writable JSON. Changes stay in memory until Save Changes.</p></div></div>
+      <div class="form-grid"><label>ID<input data-audio-meta-field="id" value="${escapeHtml(definition.id || "")}"></label><label>Display name<input data-audio-meta-field="name" value="${escapeHtml(definition.name || definition.displayName || "")}"></label>
+        <label class="wide">JSON<textarea id="audio-json" class="audio-json-editor" data-audio-json spellcheck="false">${jsonText(definition)}</textarea></label>
+      </div>
+      <div class="button-row audio-json-actions"><button type="button" class="small-button" data-action="validate-audio">Validate</button><button type="button" class="small-button" data-action="apply-audio-json">Apply JSON</button><button type="button" class="small-button" data-action="copy-audio-json">Copy JSON</button></div>
+    </section>
+    <section class="section audio-preview-panel"><div class="section-heading"><div><h3>Preview</h3><p>Preview volume is temporary and never changes the saved JSON.</p></div><span class="audio-status">${music ? escapeHtml(status.music) : (status.sfx ? "playing" : "stopped")}</span></div>
+      <div class="button-row"><button type="button" class="small-button primary" data-action="play-audio">Play</button>${music ? `<button type="button" class="small-button" data-action="pause-audio">${pauseLabel}</button><button type="button" class="small-button" data-action="restart-audio">Restart</button>` : ""}<button type="button" class="small-button" data-action="stop-audio">Stop</button></div>
+      <label class="audio-volume-control">Preview volume <input type="range" min="0" max="1" step="0.01" value="${escapeHtml(state.audioPreviewVolume)}" data-audio-volume><output>${Math.round(state.audioPreviewVolume * 100)}%</output></label>
+    </section>
+    <section class="section"><div class="notice"><strong>Supported schema</strong><p>${music ? "Music uses bpm, loopBeats, and one or more voices with oscillator waveforms plus [pitch, startBeat, durationBeat] notes." : "SFX uses duration and layers. Oscillator layers can sweep startHz to endHz; use wave: noise for simple impacts."} Supported waves: sine, triangle, square, sawtooth${music ? "" : ", and noise for SFX"}.</p></div></section>`;
+}
+
 function currentEntries() {
   if (!state.catalog) return {};
   if (["playerCharacter", "startingState"].includes(state.category)) {
@@ -2861,8 +2909,18 @@ function currentEntries() {
     }
     return entries;
   }
+  if (state.category === "audio") {
+    const entries = { ...audioEntries() };
+    if (state.draft) {
+      delete entries[state.originalSelectedId];
+      const draftId = state.draft.id || state.originalSelectedId;
+      if (!entries[draftId] || draftId === state.originalSelectedId) entries[draftId] = state.draft;
+      else entries[state.originalSelectedId] = state.draft;
+    }
+    return entries;
+  }
   const entries = { ...state.catalog[state.category] };
-  if (state.draft && !["paths", "imageAssets", "audioAssets"].includes(state.category)) {
+  if (state.draft && !["paths", "imageAssets", "audioAssets", "audio"].includes(state.category)) {
     delete entries[state.originalSelectedId];
     const draftId = state.draft.id || state.originalSelectedId;
     if (!entries[draftId] || draftId === state.originalSelectedId) entries[draftId] = state.draft;
@@ -2876,6 +2934,8 @@ function categoryCount(category) {
     ? (state.catalog?.[category] ? 1 : 0)
     : category === "returnRewards"
       ? (state.catalog?.returnRewards || []).length
+    : category === "audio"
+      ? Object.keys(state.catalog?.audioDefinitions?.musicTracks || {}).length + Object.keys(state.catalog?.audioDefinitions?.sfx || {}).length
     : Object.keys(state.catalog?.[category] || {}).length;
 }
 
@@ -2938,6 +2998,7 @@ function renderAbilityFilters(entries) {
 
 function renderFilterControls(entries, filtered) {
   const category = state.category;
+  if (category === "audio") return renderAudioCategoryControls();
   if (!filterState(category)) return "";
   const active = activeFilterCount(category);
   const drawer = state.filterOpen ? (category === "items" ? renderItemFilters(entries) : category === "encounters" ? renderEncounterFilters(entries) : renderAbilityFilters(entries)) : "";
@@ -2954,7 +3015,7 @@ function renderEntryPaneOnly() {
   if (!state.catalog || !$("#entry-list")) return;
   const entries = currentEntries();
   const filtered = filterEntries(state.category, entries).sort((a, b) => String(a[1].title || a[1].displayName || a[1].name || a[0]).localeCompare(String(b[1].title || b[1].displayName || b[1].name || b[0])));
-  $("#entry-heading").textContent = CONTENT_CATEGORIES.find(([id]) => id === state.category)?.[1] || "Content";
+  $("#entry-heading").textContent = state.category === "audio" ? audioCategoryLabel() : CONTENT_CATEGORIES.find(([id]) => id === state.category)?.[1] || "Content";
   $("#entry-count").textContent = `${filtered.length} / ${Object.keys(entries).length}`;
   $("#entry-search").value = currentSearch();
   const filterRoot = $("#filter-controls");
@@ -2976,7 +3037,7 @@ function render() {
       : "";
     return !query || `${id} ${entry.title || entry.displayName || entry.name || ""} ${entry.category || ""} ${entry.rarity || ""}${recipeSearch}`.toLowerCase().includes(query);
   }).sort((a, b) => String(a[1].title || a[1].displayName || a[1].name || a[0]).localeCompare(String(b[1].title || b[1].displayName || b[1].name || b[0])));
-  $("#entry-heading").textContent = CONTENT_CATEGORIES.find(([id]) => id === state.category)?.[1] || "Content";
+  $("#entry-heading").textContent = state.category === "audio" ? audioCategoryLabel() : CONTENT_CATEGORIES.find(([id]) => id === state.category)?.[1] || "Content";
   $("#entry-count").textContent = `${filtered.length} / ${Object.keys(entries).length}`;
   $("#entry-search").value = currentSearch();
   const filterRoot = $("#filter-controls");
@@ -2989,7 +3050,9 @@ function render() {
   $("[data-action='add']").disabled = readonlyPaths;
   $("[data-action='duplicate']").disabled = readonlyPaths;
   $("[data-action='delete']").disabled = readonlyPaths;
-  $("#editor-root").innerHTML = state.category === "imageAssets" || state.category === "audioAssets"
+  $("#editor-root").innerHTML = state.category === "audio"
+    ? renderAudio()
+    : state.category === "imageAssets" || state.category === "audioAssets"
     ? renderAsset()
     : state.category === "encounters"
     ? renderEncounter()
@@ -3089,6 +3152,7 @@ function renderValidation() {
 
 function draftSnapshot() {
   const snapshot = {
+    audioDefinitions: clone(state.catalog.audioDefinitions),
     playerCharacter: clone(state.catalog.playerCharacter),
     startingState: clone(state.catalog.startingState),
     companions: clone(state.catalog.companions),
@@ -3131,6 +3195,16 @@ function draftSnapshot() {
     const originalIndex = tiers.findIndex((tier) => tier?.id === state.originalSelectedId);
     if (originalIndex >= 0) tiers[originalIndex] = clone(state.draft);
     else tiers.push(clone(state.draft));
+  } else if (state.draft && state.category === "audio") {
+    const entries = snapshot.audioDefinitions[state.audioMode] || (snapshot.audioDefinitions[state.audioMode] = {});
+    const draftId = state.draft.id || state.originalSelectedId;
+    const draftCopy = clone(state.draft);
+    if (draftId === state.originalSelectedId || !Object.prototype.hasOwnProperty.call(entries, draftId)) {
+      delete entries[state.originalSelectedId];
+      entries[draftId] = draftCopy;
+    } else {
+      entries[state.originalSelectedId] = draftCopy;
+    }
   } else if (state.draft && !["paths", "imageAssets", "audioAssets"].includes(state.category)) {
     const map = snapshot[state.category];
     const draftId = state.draft.id || state.originalSelectedId;
@@ -3197,6 +3271,16 @@ function commitDraftToCatalog() {
     state.draft = clone(tiers[index >= 0 ? index : tiers.length - 1]);
     return;
   }
+  if (state.category === "audio") {
+    const entries = state.catalog.audioDefinitions[state.audioMode] || (state.catalog.audioDefinitions[state.audioMode] = {});
+    const draftId = state.draft.id || state.originalSelectedId;
+    delete entries[state.originalSelectedId];
+    entries[draftId] = clone(state.draft);
+    state.selectedId = draftId;
+    state.originalSelectedId = draftId;
+    state.draft = clone(entries[draftId]);
+    return;
+  }
   const map = state.catalog[state.category];
   const draftId = state.draft.id || state.originalSelectedId;
   delete map[state.originalSelectedId];
@@ -3208,11 +3292,14 @@ function commitDraftToCatalog() {
 
 function selectEntry(id, discard = false) {
   if (!state.catalog) return;
+  if (state.category === "audio") stopAudioPreview();
   if (state.draftDirty && state.category !== "paths" && !discard && !window.confirm("Discard unsaved changes?")) return;
   const entry = ["playerCharacter", "startingState"].includes(state.category)
     ? state.catalog[state.category]
     : state.category === "returnRewards"
       ? state.catalog.returnRewards?.find((tier) => tier?.id === id)
+      : state.category === "audio"
+        ? audioEntries()[id]
       : state.catalog[state.category]?.[id];
   if (!entry) return;
   state.selectedId = id;
@@ -3226,6 +3313,20 @@ function selectEntry(id, discard = false) {
 function defaultEntry(category) {
   if (category === "playerCharacter") return { id: "arthur", name: "Arthur", portraitAssetId: null, combatVisualAssetId: null, provisionCapacity: 20, provisionConsumptionMultiplier: 1, combat: { maxHp: 45, speed: 10 } };
   if (category === "startingState") return clone(state.catalog.startingState);
+  if (category === "audio") return state.audioMode === "sfx"
+    ? {
+      id: "new_sfx",
+      name: "New SFX",
+      duration: 0.2,
+      layers: [{ wave: "square", startHz: 440, endHz: 660, gain: 0.1, attack: 0.005, release: 0.08 }],
+    }
+    : {
+      id: "new_music",
+      name: "New Music",
+      bpm: 100,
+      loopBeats: 8,
+      voices: [{ wave: "triangle", gain: 0.12, attack: 0.01, release: 0.1, notes: [["C4", 0, 1]] }],
+    };
   if (category === "companions") return {
     id: "new_companion",
     name: "New Companion",
@@ -3367,7 +3468,20 @@ function uniqueId(base, map) {
 
 function addEntry() {
   if (["paths", "playerCharacter", "startingState"].includes(state.category)) return;
+  if (state.category === "audio" && state.audioJsonEditing && !applyAudioJsonFromEditor()) return;
   commitDraftToCatalog();
+  if (state.category === "audio") {
+    const entries = state.catalog.audioDefinitions[state.audioMode] || (state.catalog.audioDefinitions[state.audioMode] = {});
+    const entry = defaultEntry(state.category);
+    entry.id = uniqueId(entry.id, entries);
+    entries[entry.id] = entry;
+    state.selectedId = entry.id;
+    state.originalSelectedId = entry.id;
+    state.draft = clone(entry);
+    markDirty();
+    render();
+    return;
+  }
   if (state.category === "returnRewards") {
     const tiers = state.catalog.returnRewards || (state.catalog.returnRewards = []);
     const entry = defaultEntry(state.category);
@@ -3395,7 +3509,21 @@ function addEntry() {
 
 function duplicateEntry() {
   if (!state.draft || ["paths", "playerCharacter", "startingState"].includes(state.category)) return;
+  if (state.category === "audio" && state.audioJsonEditing && !applyAudioJsonFromEditor()) return;
   commitDraftToCatalog();
+  if (state.category === "audio") {
+    const entries = state.catalog.audioDefinitions[state.audioMode] || (state.catalog.audioDefinitions[state.audioMode] = {});
+    const entry = clone(state.draft);
+    entry.id = uniqueId(`${entry.id || "audio"}_copy`, entries);
+    entry.name = `${audioDefinitionDisplayName(entry)} Copy`;
+    entries[entry.id] = entry;
+    state.selectedId = entry.id;
+    state.originalSelectedId = entry.id;
+    state.draft = clone(entry);
+    markDirty();
+    render();
+    return;
+  }
   if (state.category === "returnRewards") {
     const tiers = state.catalog.returnRewards || (state.catalog.returnRewards = []);
     const entry = clone(state.draft);
@@ -3430,6 +3558,21 @@ function duplicateEntry() {
 
 function deleteEntry() {
   if (!state.draft || !state.catalog || ["paths", "playerCharacter", "startingState"].includes(state.category)) return;
+  if (state.category === "audio" && state.audioJsonEditing && !applyAudioJsonFromEditor()) return;
+  if (state.category === "audio") {
+    const id = state.draft.id || state.originalSelectedId;
+    if (!window.confirm(`Delete ${id}? This is an in-memory deletion until you explicitly save.`)) return;
+    commitDraftToCatalog();
+    const entries = state.catalog.audioDefinitions[state.audioMode] || {};
+    delete entries[id];
+    const nextId = Object.keys(entries)[0] || null;
+    state.selectedId = nextId;
+    state.originalSelectedId = nextId;
+    state.draft = nextId ? clone(entries[nextId]) : null;
+    markDirty();
+    render();
+    return;
+  }
   if (state.category === "returnRewards") {
     const id = state.draft.id || state.originalSelectedId;
     if (!window.confirm(`Delete ${id}? This is an in-memory deletion until you explicitly save.`)) return;
@@ -3531,6 +3674,68 @@ function commitRouteBranchId(input) {
   render();
 }
 
+function setAudioValidationError(message) {
+  state.validationPending = false;
+  state.validation = { errors: [{ severity: "error", source: `audio:${state.audioMode}`, message }], warnings: [] };
+  renderValidation();
+}
+
+function applyAudioJsonFromEditor() {
+  const textarea = $("#audio-json");
+  if (!textarea) return false;
+  try {
+    const parsed = JSON.parse(textarea.value);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Audio JSON must be an object.");
+    state.draft = parsed;
+    state.audioJsonEditing = false;
+    markDirty();
+    render();
+    return true;
+  } catch (error) {
+    setAudioValidationError(`Could not parse audio JSON: ${error.message}`);
+    return false;
+  }
+}
+
+function copyAudioJson() {
+  const text = $("#audio-json")?.value || JSON.stringify(state.draft, null, 2);
+  const finish = () => window.alert("Audio JSON copied to the clipboard.");
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(text).then(finish).catch(() => window.alert("Clipboard access was denied."));
+    return;
+  }
+  const helper = document.createElement("textarea");
+  helper.value = text;
+  helper.style.position = "fixed";
+  helper.style.opacity = "0";
+  document.body.appendChild(helper);
+  helper.select();
+  try { document.execCommand("copy"); finish(); } catch (_error) { window.alert("Could not copy audio JSON."); }
+  helper.remove();
+}
+
+function previewAudio(action) {
+  if (!state.audioPlayer) return;
+  if (action === "stop") {
+    state.audioMode === "musicTracks" ? state.audioPlayer.stopMusic() : state.audioPlayer.stopSfx();
+    render();
+    return;
+  }
+  if (action === "pause") {
+    state.audioPlayer.setVolume(state.audioPreviewVolume);
+    const status = state.audioPlayer.status().music;
+    const promise = status === "paused" ? state.audioPlayer.resumeMusic() : state.audioPlayer.pauseMusic();
+    if (promise?.then) promise.then(() => render()).catch((error) => window.alert(error.message));
+    else render();
+    return;
+  }
+  if (!applyAudioJsonFromEditor()) return;
+  state.audioPlayer.setVolume(state.audioPreviewVolume);
+  const definition = state.draft;
+  const promise = state.audioMode === "musicTracks" ? state.audioPlayer.playMusic(definition) : state.audioPlayer.playSfx(definition);
+  if (promise?.then) promise.then(() => render()).catch((error) => window.alert(error.message));
+}
+
 function handleInput(input) {
   if (input.dataset.pathFilter) {
     state.pathFilters[input.dataset.pathFilter] = input.value;
@@ -3554,7 +3759,35 @@ function handleInput(input) {
     return;
   }
   if (input.dataset.townHotspotInput) return;
+  if (input.dataset.audioVolume !== undefined) {
+    state.audioPreviewVolume = Number(input.value);
+    state.audioPlayer?.setVolume(state.audioPreviewVolume);
+    const output = input.parentElement?.querySelector("output");
+    if (output) output.textContent = `${Math.round(state.audioPreviewVolume * 100)}%`;
+    return;
+  }
+  if (input.dataset.audioJson !== undefined) {
+    try {
+      const parsed = JSON.parse(input.value);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("Audio JSON must be an object.");
+      state.draft = parsed;
+      state.audioJsonEditing = false;
+    } catch (_error) {
+      state.audioJsonEditing = true;
+    }
+    markDirty();
+    return;
+  }
   if (!state.draft) return;
+  if (input.dataset.audioMetaField) {
+    const field = input.dataset.audioMetaField;
+    if (input.value === "") delete state.draft[field];
+    else state.draft[field] = input.value;
+    const textarea = $("#audio-json");
+    if (textarea && document.activeElement !== textarea) textarea.value = JSON.stringify(state.draft, null, 2);
+    markDirty();
+    return;
+  }
   if (input.dataset.returnRewardTierField) {
     const field = input.dataset.returnRewardTierField;
     const value = parseInputValue(input, field);
@@ -4192,7 +4425,10 @@ function handleObjectJson(textarea) {
 }
 
 function switchCategory(category, id = null) {
-  if (!state.catalog?.[category]) return;
+  if (state.category === "audio" && state.audioJsonEditing && !applyAudioJsonFromEditor()) return;
+  if (category === "audio" && state.category !== "audio") stopAudioPreview();
+  if (state.category === "audio" && category !== "audio") stopAudioPreview();
+  if (category !== "audio" && !state.catalog?.[category]) return;
   if (state.dirty) commitDraftToCatalog();
   state.searchByCategory[state.category] = state.search;
   state.draftDirty = false;
@@ -4202,7 +4438,9 @@ function switchCategory(category, id = null) {
     ? (category === "playerCharacter" ? state.catalog.playerCharacter?.id || "arthur" : "startingState")
     : category === "returnRewards"
       ? (id && state.catalog.returnRewards.some((tier) => tier?.id === id) ? id : state.catalog.returnRewards[0]?.id || null)
-      : id && state.catalog[category][id] ? id : Object.keys(state.catalog[category])[0] || null;
+      : category === "audio"
+        ? (id && audioEntries()[id] ? id : Object.keys(audioEntries())[0] || null)
+        : id && state.catalog[category][id] ? id : Object.keys(state.catalog[category])[0] || null;
   state.selectedId = nextId;
   state.originalSelectedId = nextId;
   state.draft = nextId ? clone(
@@ -4210,8 +4448,24 @@ function switchCategory(category, id = null) {
       ? state.catalog[category]
       : category === "returnRewards"
         ? state.catalog.returnRewards.find((tier) => tier?.id === nextId)
+        : category === "audio"
+          ? audioEntries()[nextId]
         : state.catalog[category][nextId],
   ) : null;
+  state.validation = state.catalog.validation;
+  render();
+}
+
+function switchAudioCategory(mode) {
+  if (!(mode in (state.catalog?.audioDefinitions || {})) || mode === state.audioMode) return;
+  if (state.audioJsonEditing && !applyAudioJsonFromEditor()) return;
+  if (state.dirty) commitDraftToCatalog();
+  stopAudioPreview();
+  state.audioMode = mode;
+  state.selectedId = Object.keys(audioEntries())[0] || null;
+  state.originalSelectedId = state.selectedId;
+  state.draft = state.selectedId ? clone(audioEntries()[state.selectedId]) : null;
+  state.draftDirty = false;
   state.validation = state.catalog.validation;
   render();
 }
@@ -4391,7 +4645,15 @@ async function uploadSelectedAsset(file) {
 
 function handleAction(button) {
   const action = button.dataset.action;
-  if (action === "reset-encounter-layout-slot") {
+  if (action === "audio-category") {
+    switchAudioCategory(button.dataset.audioCategory);
+  } else if (action === "validate-audio" || action === "apply-audio-json") {
+    applyAudioJsonFromEditor();
+  } else if (action === "copy-audio-json") {
+    copyAudioJson();
+  } else if (["play-audio", "pause-audio", "restart-audio", "stop-audio"].includes(action)) {
+    previewAudio(action.replace("-audio", ""));
+  } else if (action === "reset-encounter-layout-slot") {
     resetEncounterLayoutSlot(button.dataset.encounterLayoutSlot);
   } else if (action === "reset-encounter-layout") {
     resetEncounterLayout();
@@ -4975,6 +5237,7 @@ function handleAction(button) {
 }
 
 async function loadCatalog() {
+  stopAudioPreview();
   try {
     const response = await fetch("/api/catalog", { cache: "no-store" });
     if (!response.ok) throw new Error(await response.text());
@@ -5000,6 +5263,7 @@ async function loadCatalog() {
 
 async function saveChanges() {
   if (!state.catalog) return;
+  if (state.category === "audio" && !applyAudioJsonFromEditor()) return;
   const snapshot = draftSnapshot();
   state.validationPending = true;
   renderValidation();
@@ -5018,9 +5282,11 @@ async function saveChanges() {
     state.category = state.category;
     state.selectedId = ["playerCharacter", "startingState"].includes(state.category)
       ? (state.category === "playerCharacter" ? state.catalog.playerCharacter?.id || "arthur" : "startingState")
-      : selectedAfterSave && state.catalog[state.category][selectedAfterSave] ? selectedAfterSave : Object.keys(state.catalog[state.category])[0] || null;
+      : state.category === "audio"
+        ? selectedAfterSave && audioEntries()[selectedAfterSave] ? selectedAfterSave : Object.keys(audioEntries())[0] || null
+        : selectedAfterSave && state.catalog[state.category][selectedAfterSave] ? selectedAfterSave : Object.keys(state.catalog[state.category])[0] || null;
     state.originalSelectedId = state.selectedId;
-    state.draft = state.selectedId ? clone(["playerCharacter", "startingState"].includes(state.category) ? state.catalog[state.category] : state.catalog[state.category][state.selectedId]) : null;
+    state.draft = state.selectedId ? clone(["playerCharacter", "startingState"].includes(state.category) ? state.catalog[state.category] : state.category === "audio" ? audioEntries()[state.selectedId] : state.catalog[state.category][state.selectedId]) : null;
     state.dirty = false;
     state.draftDirty = false;
     state.validation = state.catalog.validation;
@@ -5211,6 +5477,9 @@ document.addEventListener("change", (event) => {
   else handleInput(event.target);
 });
 $("#entry-search").addEventListener("input", (event) => { setCurrentSearch(event.target.value); renderEntryPaneOnly(); });
-window.addEventListener("beforeunload", (event) => { if (state.dirty) { event.preventDefault(); event.returnValue = ""; } });
+window.addEventListener("beforeunload", (event) => {
+  stopAudioPreview();
+  if (state.dirty) { event.preventDefault(); event.returnValue = ""; }
+});
 
 loadCatalog();

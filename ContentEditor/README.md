@@ -144,6 +144,10 @@ The default project is discovered as the sibling `../../Grail` relative to
   metadata, visual keys, destination/NPC/shop/expedition/quest lists, shared
   requirements, and the runtime `serviceConfig` provision-shop, restock-shop,
   and auto-grant fields.
+- Audio: an editor-only Web Audio synth sandbox with Music Tracks and SFX
+  categories. Definitions are small JSON objects in
+  `ContentEditor/audio-definitions.json`; the editor validates, previews,
+  duplicates, and saves them without touching the Grail repository.
 
 The left content category list is alphabetized by display label and the
 workspace keeps a wider category column so longer authoring categories remain
@@ -209,6 +213,10 @@ are retained for each changed source file. If the preferred backup directory
 is not writable in the local environment, the server falls back to an
 OS-temporary recovery directory rather than making the content write unsafe.
 
+Synthesized audio definitions are the exception to the Grail-source workflow:
+they are stored only in `ContentEditor/audio-definitions.json`, with an atomic
+write and recovery backup. They are not consumed by the game yet.
+
 Validation reports duplicate keys, missing required encounter structure,
 unknown item/combat/ability/enemy-action/injury/path/region/loot references,
 unknown recipe/provider/material/dialogue/NPC/destination/location references,
@@ -224,7 +232,7 @@ The editor never silently repairs authored content.
 
 ## Asset browser and upload workflow
 
-The Images and Audio categories browse the canonical maps in
+The Images and Audio Assets categories browse the canonical maps in
 `Grail/js/asset-data.js`. Upload New validates the stable lowercase asset ID,
 category, filename, and supported extension, writes the binary file under the
 matching `Grail/assets/images/...` or `Grail/assets/audio/...` folder, and then
@@ -272,6 +280,11 @@ the runtime assets folder.
 - Smaller sources are not unnecessarily upscaled. The review shows source and
   output dimensions, format, file size, profile, and soft size warnings.
 - Turning optimization off keeps the existing raw-copy upload behavior.
+- The Audio sandbox uses only the native Web Audio API. Music supports sine,
+  triangle, square, and sawtooth voices with BPM, beat-based loops, notes, and
+  attack/release envelopes. SFX also supports short frequency sweeps and
+  optional white-noise layers. Preview volume is temporary and is not written
+  to the JSON.
 - The generic Asset Browser offers Portrait, Scene, Town Background, Travel
   Panorama, Combat, Character Sprite Sheet, UI, and None/Original profiles. Uploading from an Expedition
   Travel Scene row selects Travel Panorama by default, town backgrounds select
