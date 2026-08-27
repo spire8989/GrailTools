@@ -91,7 +91,7 @@ h2, h3, h4 { margin: 0; }
 .section-heading .button-row { flex-shrink: 0; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(160px, 1fr)); gap: 11px 13px; }
 .form-grid .wide { grid-column: 1 / -1; }
-.asset-selector { display: grid; gap: 6px; }
+.asset-selector { display: grid; gap: 6px; margin-bottom: 12px; }
 .asset-selector-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px; align-items: end; }
 .asset-field-preview-wrap { min-height: 28px; color: var(--muted); }
 .asset-field-preview { display: block; max-width: 180px; max-height: 74px; border: 1px solid var(--border); border-radius: 4px; object-fit: cover; }

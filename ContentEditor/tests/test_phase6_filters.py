@@ -259,6 +259,7 @@ class Phase6FilterBrowserTests(unittest.TestCase):
         self.assertEqual(self.browser.evaluate("document.querySelector('#editor-root [data-field=travelMusicTrackId]').value"), "wisps_of_the_forest")
         self.assertEqual(self.browser.evaluate("document.querySelector('#editor-root [data-field=campMusicTrackId]').value"), "__inherit__")
         self.assertTrue(self.browser.evaluate("Boolean(document.querySelector(\"#editor-root [data-field=travelMusicTrackId] option[value='wisps_of_the_forest']\"))"))
+        self.assertEqual(self.browser.evaluate("getComputedStyle(document.querySelector('#editor-root .asset-selector')).marginBottom"), "12px")
         self.browser.evaluate("(() => { const input=document.querySelector('#editor-root [data-field=travelMusicTrackId]'); input.value='camelot_twilight'; input.dispatchEvent(new Event('change',{bubbles:true})); const camp=document.querySelector('#editor-root [data-field=campMusicTrackId]'); camp.value=''; camp.dispatchEvent(new Event('change',{bubbles:true})); })()")
         self.assertEqual(self.browser.evaluate("state.draft.travelMusicTrackId"), "camelot_twilight")
         self.assertIsNone(self.browser.evaluate("state.draft.campMusicTrackId"))
