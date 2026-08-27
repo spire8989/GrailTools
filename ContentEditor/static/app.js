@@ -1383,6 +1383,34 @@ function renderReferenceChecks(field, ids, values, labels = {}) {
   return `<div class="check-grid compact-check-grid">${values.map((id) => `<label class="check-chip"><input type="checkbox" data-array-toggle="${field}" data-array-value="${escapeHtml(id)}"${checked(ids.includes(id))}>${escapeHtml(labels[id] || id)}</label>`).join("") || `<span class="hint">No known references are available.</span>`}</div>`;
 }
 
+function expeditionCadenceDefaults() {
+  const tuning = state.catalog?.tuning || {};
+  const outboundMinimum = Number(tuning.encounterMinimumDistance);
+  const outboundMaximum = Number(tuning.encounterMaximumDistance);
+  const returnSpeed = Number(tuning.returnSpeedMultiplier);
+  return {
+    outboundMinimum: Number.isFinite(outboundMinimum) && outboundMinimum >= 0 ? outboundMinimum : 7,
+    outboundMaximum: Number.isFinite(outboundMaximum) && outboundMaximum >= outboundMinimum ? outboundMaximum : 10,
+    returnSpeed: Number.isFinite(returnSpeed) && returnSpeed > 0 ? returnSpeed : 4,
+  };
+}
+
+function renderExpeditionCadence(expedition) {
+  const defaults = expeditionCadenceDefaults();
+  const spacing = expedition.encounterSpacing || {};
+  const outbound = spacing.outbound || {};
+  const returning = spacing.returning || {};
+  return `<section class="section"><div class="section-heading"><div><h3>Travel &amp; Encounter Cadence</h3><p>Optional overrides apply only to this expedition. Leave fields blank to use global defaults.</p></div></div>
+    <p class="hint">Global encounter spacing default: ${defaults.outboundMinimum}-${defaults.outboundMaximum} leagues &middot; global return speed default: ${defaults.returnSpeed}x.</p>
+    <div class="section-heading" style="margin-top:14px"><div><h4>Outbound Encounter Spacing</h4></div></div>
+    <div class="form-grid"><label>Minimum leagues<input type="number" min="0" step="any" data-expedition-cadence-field="encounterSpacing.outbound.minimumDistance" value="${escapeHtml(outbound.minimumDistance ?? "")}" placeholder="${defaults.outboundMinimum}"></label><label>Maximum leagues<input type="number" min="0" step="any" data-expedition-cadence-field="encounterSpacing.outbound.maximumDistance" value="${escapeHtml(outbound.maximumDistance ?? "")}" placeholder="${defaults.outboundMaximum}"></label></div>
+    <div class="section-heading" style="margin-top:14px"><div><h4>Return Encounter Spacing</h4></div></div>
+    <div class="form-grid"><label>Minimum leagues<input type="number" min="0" step="any" data-expedition-cadence-field="encounterSpacing.returning.minimumDistance" value="${escapeHtml(returning.minimumDistance ?? "")}" placeholder="${defaults.outboundMinimum}"></label><label>Maximum leagues<input type="number" min="0" step="any" data-expedition-cadence-field="encounterSpacing.returning.maximumDistance" value="${escapeHtml(returning.maximumDistance ?? "")}" placeholder="${defaults.outboundMaximum}"></label></div>
+    <div class="section-heading" style="margin-top:14px"><div><h4>Return Speed Multiplier</h4></div></div>
+    <div class="form-grid"><label>Multiplier<input type="number" min="0.0001" step="any" data-expedition-cadence-field="returnSpeedMultiplier" value="${escapeHtml(expedition.returnSpeedMultiplier ?? "")}" placeholder="${defaults.returnSpeed}"></label></div>
+  </section>`;
+}
+
 function renderExpedition() {
   const expedition = state.draft;
   if (!expedition) return `<div class="empty-state">Choose an expedition to edit.</div>`;
@@ -1392,6 +1420,7 @@ function renderExpedition() {
   const campEventLinks = [...new Set((expedition.campEventTableIds || []).flatMap((tableId) => (state.catalog.campEventTables?.[tableId]?.entries || []).map((entry) => entry.eventId)).filter((eventId) => state.catalog.campEvents?.[eventId]))].map((eventId) => `<button type="button" class="small-button inline-open" data-action="open-reference" data-reference-category="campEvents" data-reference-id="${escapeHtml(eventId)}">Open ${escapeHtml(campEventLabel(eventId))}</button>`).join(" ");
   return `<div class="editor-title"><div><h2>${escapeHtml(expedition.name || expedition.id || "New expedition")}</h2><p>${escapeHtml(expedition.id || "Unsaved ID")}</p></div><span class="schema-badge">Expedition schema</span></div>
      <section class="section"><div class="section-heading"><div><h3>Expedition metadata</h3><p>These fields are authored in <code>js/expedition-data.js</code> and remain the canonical expedition definition.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(expedition.id || "")}"></label><label>Name<input data-field="name" value="${escapeHtml(expedition.name || "")}"></label><label class="wide">Description<textarea data-field="description">${escapeHtml(expedition.description || "")}</textarea></label><label>Danger<input type="number" min="0" step="any" data-field="danger" value="${escapeHtml(expedition.danger ?? "")}"></label><label>Minimum objective distance<input type="number" min="0" step="any" data-field="minimumObjectiveDistance" value="${escapeHtml(expedition.minimumObjectiveDistance ?? "")}"></label><label>Region<select data-field="regionId"><option value="">Select region...</option>${selectOptions(known.regions || [], expedition.regionId)}</select></label><label>Kind<select data-field="kind"><option value="">Select kind...</option>${selectOptions(kinds, expedition.kind)}</select></label><label class="wide">Path${referenceInput("pathId", expedition.pathId, true)}</label></div>${renderAssetSelector("Travel visual", "travelVisualAssetId", expedition.travelVisualAssetId, "image", "expedition", expedition.name || expedition.id, "travel_panorama")}${renderAssetSelector("Travel foreground (aligned)", "travelParallaxAssetId", expedition.travelParallaxAssetId, "image", "expedition", expedition.name || expedition.id, "travel_panorama")}${renderAssetSelector("Travel Transition", "travelTransitionAssetId", expedition.travelTransitionAssetId, "image", "expedition", expedition.name || expedition.id)}${renderAssetSelector("Camp visual", "campVisualAssetId", expedition.campVisualAssetId, "image", "expedition", expedition.name || expedition.id)}${renderAssetSelector("Default Combat Background", "combatVisualAssetId", expedition.combatVisualAssetId, "image", "combat_scene", expedition.name || expedition.id, "scene")}${renderAssetSelector("Travel ambience", "travelAmbienceAssetId", expedition.travelAmbienceAssetId, "audio", "ambience", expedition.name || expedition.id)}${renderAssetSelector("Camp ambience", "campAmbienceAssetId", expedition.campAmbienceAssetId, "audio", "ambience", expedition.name || expedition.id)}</section>
+    ${renderExpeditionCadence(expedition)}
     ${renderTravelScenes(expedition)}
     ${renderRouteBranches(expedition)}
     ${renderAssetSelector("Travel Seam Foreground", "travelSeamForegroundAssetId", expedition.travelSeamForegroundAssetId, "image", "expedition", expedition.name || expedition.id, "none")}
@@ -2465,6 +2494,16 @@ function setPathValue(root, path, value) {
   const key = last.startsWith("[") ? Number(last.slice(1, -1)) : last;
   if (value === undefined || value === "") delete target[key];
   else target[key] = value;
+}
+
+function pruneEmptyObjects(root) {
+  if (!root || typeof root !== "object" || Array.isArray(root)) return;
+  Object.keys(root).forEach((key) => {
+    const value = root[key];
+    if (!value || typeof value !== "object" || Array.isArray(value)) return;
+    pruneEmptyObjects(value);
+    if (!Object.keys(value).length) delete root[key];
+  });
 }
 
 function combatTargetOptions(current) {
@@ -3964,6 +4003,16 @@ function handleInput(input) {
     state.draft.effects ||= {};
     state.draft.effects.combat ||= {};
     setNested(state.draft.effects.combat, input.dataset.itemCombatField, parseInputValue(input, input.dataset.itemCombatField));
+    markDirty();
+    return;
+  }
+  if (input.dataset.expeditionCadenceField) {
+    state.draft.encounterSpacing ||= {};
+    setPathValue(state.draft, input.dataset.expeditionCadenceField, parseInputValue(input, input.dataset.expeditionCadenceField));
+    if (state.draft.encounterSpacing) {
+      pruneEmptyObjects(state.draft.encounterSpacing);
+      if (!Object.keys(state.draft.encounterSpacing).length) delete state.draft.encounterSpacing;
+    }
     markDirty();
     return;
   }

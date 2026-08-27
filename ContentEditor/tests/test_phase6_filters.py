@@ -785,6 +785,19 @@ class Phase6FilterBrowserTests(unittest.TestCase):
         self.browser.evaluate("(() => { const input=document.querySelector('[data-route-branch-field=rejoinDistance]'); input.value='81'; input.dispatchEvent(new Event('input',{bubbles:true})); })()")
         self.assertEqual(self.browser.evaluate("state.draft.routeBranches.overgrown_trail.rejoinDistance"), 81)
 
+    def test_expedition_cadence_fields_use_optional_nested_draft_shape(self) -> None:
+        self.click_category("expeditions")
+        self.browser.evaluate("selectEntry('old_forest_road')")
+        self.assertTrue(self.browser.evaluate("document.querySelector('[data-expedition-cadence-field=\"encounterSpacing.returning.minimumDistance\"]')?.value === '14'"))
+        self.assertTrue(self.browser.evaluate("document.querySelector('[data-expedition-cadence-field=returnSpeedMultiplier]')?.value === '4'"))
+
+        self.browser.evaluate("selectEntry('fountain_of_barenton')")
+        self.assertTrue(self.browser.evaluate("document.querySelector('[data-expedition-cadence-field=\"encounterSpacing.outbound.minimumDistance\"]')?.value === ''"))
+        self.browser.evaluate("(() => { const input=document.querySelector('[data-expedition-cadence-field=\"encounterSpacing.outbound.minimumDistance\"]'); input.value='9'; input.dispatchEvent(new Event('input',{bubbles:true})); input.value=''; input.dispatchEvent(new Event('input',{bubbles:true})); })()")
+        self.assertTrue(self.browser.evaluate("!state.draft.encounterSpacing"))
+        self.browser.evaluate("(() => { const input=document.querySelector('[data-expedition-cadence-field=\"encounterSpacing.returning.maximumDistance\"]'); input.value='18'; input.dispatchEvent(new Event('input',{bubbles:true})); const speed=document.querySelector('[data-expedition-cadence-field=returnSpeedMultiplier]'); speed.value='2.5'; speed.dispatchEvent(new Event('input',{bubbles:true})); })()")
+        self.assertTrue(self.browser.evaluate("JSON.stringify(state.draft.encounterSpacing) === JSON.stringify({returning:{maximumDistance:18}}) && state.draft.returnSpeedMultiplier === 2.5"))
+
     def test_encounter_layout_editor_renders_and_updates_normalized_party_slots(self) -> None:
         self.click_category("encounters")
         self.browser.evaluate("document.querySelector('[data-action=select][data-id=abandoned_camp]').click()")

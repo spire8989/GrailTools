@@ -1304,6 +1304,62 @@ class ContentEditorTests(unittest.TestCase):
             if key != "fountain_of_barenton":
                 self.assertEqual(after_blocks[key], before_blocks[key], key)
 
+    def test_expedition_cadence_overrides_round_trip_and_validate(self) -> None:
+        temp, project = self.temporary_grail()
+        self.addCleanup(temp.cleanup)
+        before = load_catalog(project)
+        old_forest = before["expeditions"]["old_forest_road"]
+        self.assertEqual(old_forest["encounterSpacing"]["outbound"], {"minimumDistance": 7, "maximumDistance": 10})
+        self.assertEqual(old_forest["encounterSpacing"]["returning"], {"minimumDistance": 14, "maximumDistance": 20})
+        self.assertEqual(old_forest["returnSpeedMultiplier"], 4)
+        app = (CONTENT_EDITOR / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("Travel &amp; Encounter Cadence", app)
+        self.assertIn("data-expedition-cadence-field", app)
+
+        expeditions = clone(before["expeditions"])
+        expeditions["fountain_of_barenton"]["encounterSpacing"] = {
+            "outbound": {"minimumDistance": 8, "maximumDistance": 11},
+            "returning": {"minimumDistance": 16, "maximumDistance": 23},
+        }
+        expeditions["fountain_of_barenton"]["returnSpeedMultiplier"] = 2.5
+        validation = validate_catalog({"expeditions": expeditions}, before["known"], before["references"])
+        self.assertEqual(validation["errors"], [])
+        save_catalog(project, {"expeditions": expeditions}, before["sourceHashes"], Path(temp.name) / "backups")
+        after = load_catalog(project)
+        self.assertEqual(after["expeditions"]["fountain_of_barenton"]["encounterSpacing"], expeditions["fountain_of_barenton"]["encounterSpacing"])
+        self.assertEqual(after["expeditions"]["fountain_of_barenton"]["returnSpeedMultiplier"], 2.5)
+
+        partial = clone(after["expeditions"])
+        partial["fountain_of_barenton"]["encounterSpacing"] = {"outbound": {"minimumDistance": 9}}
+        partial["fountain_of_barenton"].pop("returnSpeedMultiplier")
+        validation = validate_catalog({"expeditions": partial}, after["known"], after["references"])
+        self.assertEqual(validation["errors"], [])
+        save_catalog(project, {"expeditions": partial}, after["sourceHashes"], Path(temp.name) / "backups")
+        after_partial = load_catalog(project)
+        self.assertEqual(after_partial["expeditions"]["fountain_of_barenton"]["encounterSpacing"], {"outbound": {"minimumDistance": 9}})
+        self.assertNotIn("returnSpeedMultiplier", after_partial["expeditions"]["fountain_of_barenton"])
+
+        invalid = clone(after_partial["expeditions"])
+        invalid["fountain_of_barenton"]["encounterSpacing"] = {
+            "outbound": {"minimumDistance": -1, "maximumDistance": 0},
+            "returning": {"minimumDistance": 20, "maximumDistance": 10},
+        }
+        invalid["fountain_of_barenton"]["returnSpeedMultiplier"] = 0
+        errors = validate_catalog({"expeditions": invalid}, after_partial["known"], after_partial["references"])["errors"]
+        messages = [issue["message"] for issue in errors]
+        self.assertTrue(any("encounterSpacing.outbound.minimumDistance must be a non-negative number" in message for message in messages))
+        self.assertTrue(any("encounterSpacing.returning.maximumDistance must be greater than or equal to minimumDistance" in message for message in messages))
+        self.assertTrue(any("returnSpeedMultiplier must be a number greater than 0" in message for message in messages))
+
+        unchanged = clone(after_partial["expeditions"])
+        unchanged["fountain_of_barenton"].pop("encounterSpacing")
+        save_catalog(project, {"expeditions": unchanged}, after_partial["sourceHashes"], Path(temp.name) / "backups")
+        final = load_catalog(project)
+        self.assertNotIn("encounterSpacing", final["expeditions"]["fountain_of_barenton"])
+        self.assertNotIn("returnSpeedMultiplier", final["expeditions"]["fountain_of_barenton"])
+        self.assertNotIn("encounterSpacing", final["expeditions"]["val_sans_retour"])
+        self.assertNotIn("returnSpeedMultiplier", final["expeditions"]["val_sans_retour"])
+
     def test_route_branch_fields_round_trip_and_validate_without_moving_encounter_distances(self) -> None:
         temp, project = self.temporary_grail()
         self.addCleanup(temp.cleanup)

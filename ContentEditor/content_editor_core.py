@@ -478,6 +478,7 @@ CONTENT_FILES = {
     "lootTables": ("js/loot-data.js", "LOOT_TABLE_DEFINITIONS"),
     "returnRewards": ("js/loot-data.js", "EXPEDITION_RETURN_REWARD_TIERS"),
 }
+EXPEDITION_TUNING_FILE = ("js/tuning.js", "EXPEDITION_TUNING")
 
 ASSET_IMAGE_CATEGORIES = ("location", "town", "expedition", "encounter", "combat", "combat_scene", "portrait", "ui")
 ASSET_AUDIO_CATEGORIES = ("ambience", "sfx", "music")
@@ -734,6 +735,12 @@ def load_catalog(project_root: Path) -> dict[str, Any]:
         for duplicate in parsed.duplicate_keys:
             parse_duplicates.append({"source": relative, "id": duplicate})
 
+    try:
+        tuning, _source, raw, _parsed = _read_constant(project_root, *EXPEDITION_TUNING_FILE)
+        source_hashes.setdefault(EXPEDITION_TUNING_FILE[0], _source_hash(raw))
+    except (FileNotFoundError, JsParseError):
+        tuning = {}
+
     refs: dict[str, list[dict[str, str]]] = {}
     reference_values: dict[str, Any] = {}
     for category, value in values.items():
@@ -842,6 +849,7 @@ def load_catalog(project_root: Path) -> dict[str, Any]:
         "projectRoot": str(project_root),
         "files": source_paths,
         "sourceHashes": source_hashes,
+        "tuning": tuning,
         "imageAssets": values["imageAssets"],
         "audioAssets": values["audioAssets"],
         "playerCharacter": values["playerCharacter"],
@@ -2404,6 +2412,47 @@ def _validate_return_reward_tiers(tiers: Any, known: dict[str, list[str]], error
                     errors.append(_issue("error", "Return reward source chance must be a number from 0 to 1.", source, f"{source_path}.chance"))
 
 
+def _validate_expedition_cadence(expedition: dict[str, Any], source: str, errors: list[dict[str, str]]) -> None:
+    spacing = expedition.get("encounterSpacing")
+    if spacing is not None:
+        if not isinstance(spacing, dict):
+            errors.append(_issue("error", "encounterSpacing must be an object.", source, "encounterSpacing"))
+        else:
+            for direction in ("outbound", "returning"):
+                if direction not in spacing:
+                    continue
+                direction_path = f"encounterSpacing.{direction}"
+                values = spacing[direction]
+                if not isinstance(values, dict):
+                    errors.append(_issue("error", f"{direction_path} must be an object.", source, direction_path))
+                    continue
+                valid_distances: dict[str, float] = {}
+                for field_name in ("minimumDistance", "maximumDistance"):
+                    if field_name not in values:
+                        continue
+                    value = values[field_name]
+                    field_path = f"{direction_path}.{field_name}"
+                    if not _is_number(value) or not math.isfinite(float(value)) or value < 0:
+                        errors.append(_issue("error", f"{field_path} must be a non-negative number.", source, field_path))
+                    else:
+                        valid_distances[field_name] = float(value)
+                if (
+                    "minimumDistance" in valid_distances
+                    and "maximumDistance" in valid_distances
+                    and valid_distances["maximumDistance"] < valid_distances["minimumDistance"]
+                ):
+                    errors.append(_issue(
+                        "error",
+                        f"{direction_path}.maximumDistance must be greater than or equal to minimumDistance.",
+                        source,
+                        f"{direction_path}.maximumDistance",
+                    ))
+    if "returnSpeedMultiplier" in expedition:
+        value = expedition.get("returnSpeedMultiplier")
+        if not _is_number(value) or not math.isfinite(float(value)) or value <= 0:
+            errors.append(_issue("error", "returnSpeedMultiplier must be a number greater than 0.", source, "returnSpeedMultiplier"))
+
+
 def _validate_expeditions(expeditions: Any, known: dict[str, list[str]], errors: list[dict[str, str]]) -> None:
     """Validate the actual fields in EXPEDITION_DEFINITIONS."""
     if not isinstance(expeditions, dict):
@@ -2434,6 +2483,7 @@ def _validate_expeditions(expeditions: Any, known: dict[str, list[str]], errors:
             objective_distance = expedition.get("minimumObjectiveDistance")
             if not _is_number(objective_distance) or objective_distance < 0:
                 errors.append(_issue("error", "minimumObjectiveDistance must be a non-negative number.", source, "minimumObjectiveDistance"))
+        _validate_expedition_cadence(expedition, source, errors)
         for field_name, label in (("campEventTableIds", "camp event table IDs"), ("prerequisites", "prerequisites")):
             value = expedition.get(field_name)
             if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
