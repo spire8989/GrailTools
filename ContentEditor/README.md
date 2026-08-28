@@ -65,9 +65,11 @@ The default project is discovered as the sibling `../../Grail` relative to
 - Global Settings: the project-wide singleton in
   `Grail/js/global-settings-data.js` edits reward reveal tiers/audio/hold
   timings, first-discovery promotion, provision warning copy, town marker
-  defaults (including text-only Label markers), and future bark behavior.
-  It is intentionally a singleton rather than a fake one-entry content list;
-  the Advanced JSON escape hatch preserves uncommon fields.
+  defaults (including text-only Label markers), bark behavior, and the
+  configurable Combat audio defaults. Combat SFX dropdowns use the synth
+  catalog, preserve stable IDs, and allow None for semantic fallback. It is
+  intentionally a singleton rather than a fake one-entry content list; the
+  Advanced JSON escape hatch preserves uncommon fields.
 
 - Encounters: metadata, path and direction filters, requirements, stages,
   choices, costs, outcomes/effects, pending actions, and advanced raw JSON.

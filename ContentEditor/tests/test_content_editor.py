@@ -513,17 +513,24 @@ class ContentEditorTests(unittest.TestCase):
         catalog = load_catalog(GRAIL)
         settings = clone(catalog["globalSettings"])
         audio = settings["audioDefaults"]
+        combat = audio["combat"]
         self.assertEqual(audio["confirmSfxId"], "pickup_confirm")
         self.assertEqual(audio["transactionSfxId"], "coins_transaction")
         self.assertEqual(audio["restMusicTrackId"], "rest_lullaby")
+        self.assertEqual(combat["playerAttackUseSfxId"], "attack_swing")
+        self.assertEqual(combat["playerAttackImpactSfxId"], "attack_impact")
+        self.assertIsNone(combat["enemyAttackUseSfxId"])
+        self.assertEqual(combat["enemyAttackImpactSfxId"], "attack_impact")
         self.assertEqual(validate_catalog({"globalSettings": settings}, catalog["known"], catalog["references"])["errors"], [])
 
         invalid_settings = clone(settings)
         invalid_settings["audioDefaults"]["confirmSfxId"] = "rest_lullaby"
         invalid_settings["audioDefaults"]["restMusicTrackId"] = "pickup_confirm"
+        invalid_settings["audioDefaults"]["combat"]["playerAttackImpactSfxId"] = "rest_lullaby"
         errors = validate_catalog({"globalSettings": invalid_settings}, catalog["known"], catalog["references"])["errors"]
         self.assertTrue(any("audioDefaults.confirmSfxId" in issue["message"] for issue in errors))
         self.assertTrue(any("audioDefaults.restMusicTrackId" in issue["message"] for issue in errors))
+        self.assertTrue(any("audioDefaults.combat.playerAttackImpactSfxId" in issue["message"] for issue in errors))
 
         recipes = clone(catalog["recipes"])
         self.assertEqual(recipes["bandages"]["craftingSfxId"], "craft_cloth_loop")
@@ -535,9 +542,24 @@ class ContentEditorTests(unittest.TestCase):
 
         app = (CONTENT_EDITOR / "static" / "app.js").read_text(encoding="utf-8")
         self.assertIn("Audio Defaults", app)
+        self.assertIn("Audio Defaults · Combat", app)
         self.assertIn('data-global-music-field="audioDefaults.restMusicTrackId"', app)
         self.assertIn('data-global-sfx-field="audioDefaults.transactionSfxId"', app)
+        for label in ("Player Attack Use SFX", "Player Attack Impact SFX", "Enemy Attack Use SFX", "Enemy Attack Impact SFX", "Block SFX", "Heal SFX", "Status SFX", "Enemy Defeated SFX", "Ally Defeated SFX", "Flee Success SFX", "Flee Failure SFX", "Victory SFX", "Defeat SFX"):
+            self.assertIn(label, app)
         self.assertIn('Recipe crafting SFX override', app)
+
+        temp, project = self.temporary_grail()
+        self.addCleanup(temp.cleanup)
+        before = load_catalog(project)
+        incoming = clone(before["globalSettings"])
+        incoming["audioDefaults"]["combat"]["enemyAttackUseSfxId"] = None
+        incoming["audioDefaults"]["combat"]["victorySfxId"] = "attack_impact"
+        result = save_catalog(project, {"globalSettings": incoming}, before["sourceHashes"], Path(temp.name) / "backups")
+        after = load_catalog(project)
+        self.assertIsNone(after["globalSettings"]["audioDefaults"]["combat"]["enemyAttackUseSfxId"])
+        self.assertEqual(after["globalSettings"]["audioDefaults"]["combat"]["victorySfxId"], "attack_impact")
+        self.assertTrue(any(item["file"] == "js/global-settings-data.js" and item["status"] == "updated" for item in result["saveResults"]))
 
     def test_encounter_layout_round_trip_and_editor_surface(self) -> None:
         catalog = load_catalog(GRAIL)

@@ -3176,6 +3176,7 @@ def _validate_global_settings(value: Any, known: dict[str, list[str]], errors: l
     town = value.get("townDefaults", {})
     dialogue = value.get("dialogueDefaults", {})
     audio = value.get("audioDefaults", {})
+    combat_audio = audio.get("combat", {}) if isinstance(audio, dict) else {}
     for section_name, section in (("rewardPresentation", reward), ("firstDiscovery", first), ("expeditionWarnings", warnings), ("townDefaults", town), ("dialogueDefaults", dialogue), ("audioDefaults", audio)):
         if not isinstance(section, dict):
             errors.append(_issue("error", f"Global Settings {section_name} must be an object.", source, section_name))
@@ -3185,6 +3186,9 @@ def _validate_global_settings(value: Any, known: dict[str, list[str]], errors: l
     town = town if isinstance(town, dict) else {}
     dialogue = dialogue if isinstance(dialogue, dict) else {}
     audio = audio if isinstance(audio, dict) else {}
+    combat_audio = combat_audio if isinstance(combat_audio, dict) else {}
+    if isinstance(audio, dict) and "combat" in audio and not isinstance(audio.get("combat"), dict):
+        errors.append(_issue("error", "Global Settings audioDefaults.combat must be an object.", source, "audioDefaults.combat"))
 
     rarity_ids = set(known.get("rarities", []))
     for field_name in ("fullPopupMinimumRarity", "majorPopupMinimumRarity"):
@@ -3218,6 +3222,14 @@ def _validate_global_settings(value: Any, known: dict[str, list[str]], errors: l
         sfx_id = audio.get(field_name)
         if sfx_id is not None and (not isinstance(sfx_id, str) or sfx_id not in sfx_ids):
             errors.append(_issue("error", f"audioDefaults.{field_name} must be a known synthesized SFX ID or null.", source, f"audioDefaults.{field_name}"))
+    for field_name in (
+        "playerAttackUseSfxId", "playerAttackImpactSfxId", "enemyAttackUseSfxId", "enemyAttackImpactSfxId",
+        "blockSfxId", "healSfxId", "statusSfxId", "enemyDownSfxId", "allyDownSfxId",
+        "fleeSuccessSfxId", "fleeFailSfxId", "victorySfxId", "defeatSfxId",
+    ):
+        sfx_id = combat_audio.get(field_name)
+        if sfx_id is not None and (not isinstance(sfx_id, str) or sfx_id not in sfx_ids):
+            errors.append(_issue("error", f"audioDefaults.combat.{field_name} must be a known synthesized SFX ID or null.", source, f"audioDefaults.combat.{field_name}"))
     rest_track_id = audio.get("restMusicTrackId")
     if rest_track_id is not None and (not isinstance(rest_track_id, str) or rest_track_id not in set(known.get("musicTracks", []))):
         errors.append(_issue("error", "audioDefaults.restMusicTrackId must be a known synthesized music track ID or null.", source, "audioDefaults.restMusicTrackId"))
