@@ -34,6 +34,8 @@ class MinigameEditorBrowserTests(unittest.TestCase):
             && Boolean(document.querySelector('[data-minigame-default-field=biteChance]'))
             && Boolean(document.querySelector('[data-minigame-hotspot-field=radius]'))
             && Boolean(document.querySelector('[data-minigame-tutorial-field=text]'))
+            && Math.abs((() => { const stage=document.querySelector('[data-minigame-stage]').getBoundingClientRect(); return stage.width / stage.height; })() - 2 / 3) < 0.02
+            && Number(document.querySelector('[data-minigame-default-field=hookWindowMs]').value) >= 800
         """))
         self.browser.evaluate("document.querySelector('[data-action=add-minigame-hotspot]').click()")
         self.assertEqual(

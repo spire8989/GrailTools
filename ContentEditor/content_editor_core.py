@@ -2477,8 +2477,8 @@ def _validate_minigames(minigames: Any, known: dict[str, list[str]], errors: lis
             maximum = water.get("biteDelayMax")
             if not _is_number(minimum) or not _is_number(maximum) or minimum < 0 or minimum > maximum:
                 errors.append(_issue("error", "biteDelayMin/Max must be a valid non-negative range.", source, water_path))
-            if not _is_number(water.get("hookWindowMs")) or not 500 <= water.get("hookWindowMs") <= 900:
-                errors.append(_issue("error", "hookWindowMs must be between 500 and 900 milliseconds.", source, f"{water_path}.hookWindowMs"))
+            if not _is_number(water.get("hookWindowMs")) or not 800 <= water.get("hookWindowMs") <= 2500:
+                errors.append(_issue("error", "hookWindowMs must be between 800 and 2500 milliseconds.", source, f"{water_path}.hookWindowMs"))
             if "hookSuccessChance" in water and (
                 not _is_number(water.get("hookSuccessChance"))
                 or not 0 <= water.get("hookSuccessChance") <= 1

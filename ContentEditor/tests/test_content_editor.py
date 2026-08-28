@@ -71,10 +71,12 @@ class ContentEditorTests(unittest.TestCase):
 
         invalid = clone(catalog["minigames"])
         invalid["woodland_stream_fishing"]["hotspots"][0]["radius"] = 0
+        invalid["woodland_stream_fishing"]["defaultWater"]["hookWindowMs"] = 799
         invalid["woodland_stream_fishing"]["defaultWater"]["lootTableId"] = "missing_loot"
         errors = validate_catalog({"minigames": invalid}, catalog["known"], catalog["references"])["errors"]
         messages = [issue["message"] for issue in errors]
         self.assertTrue(any("radius must be between 0 and 1" in message for message in messages))
+        self.assertTrue(any("hookWindowMs must be between 800 and 2500 milliseconds" in message for message in messages))
         self.assertTrue(any("Water lootTableId must reference a known loot table" in message for message in messages))
 
         temp, project = self.temporary_grail()
