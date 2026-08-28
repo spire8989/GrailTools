@@ -576,6 +576,14 @@ def _ref_type_for_key(key: str) -> str | None:
          "sfxId": "sfx",
          "defaultLootSfxId": "sfx",
          "majorLootSfxId": "sfx",
+         "craftingSfxId": "sfx",
+         "confirmSfxId": "sfx",
+         "transactionSfxId": "sfx",
+         "cookingLoopSfxId": "sfx",
+         "blacksmithCraftingSfxId": "sfx",
+         "apothecaryCraftingSfxId": "sfx",
+         "uncommonItemSfxId": "sfx",
+         "restMusicTrackId": "musicTracks",
         "speakerId": "npcs",
         "npcId": "npcs",
         "destinationId": "destinations",
@@ -2845,6 +2853,10 @@ def _validate_recipes(recipes: Any, known: dict[str, list[str]], errors: list[di
             not _is_number(recipe.get("craftingDurationMs")) or recipe.get("craftingDurationMs") <= 0
         ):
             errors.append(_issue("error", "Recipe craftingDurationMs must be a positive number when authored.", source, "craftingDurationMs"))
+        if "craftingSfxId" in recipe and recipe.get("craftingSfxId") is not None:
+            crafting_sfx_id = recipe.get("craftingSfxId")
+            if not isinstance(crafting_sfx_id, str) or crafting_sfx_id not in set(known.get("sfx", [])):
+                errors.append(_issue("error", "Recipe craftingSfxId must be a known synthesized SFX ID or null.", source, "craftingSfxId"))
 
 
 def _validate_dialogues(dialogues: Any, known: dict[str, list[str]], errors: list[dict[str, str]]) -> None:
@@ -3163,7 +3175,8 @@ def _validate_global_settings(value: Any, known: dict[str, list[str]], errors: l
     warnings = value.get("expeditionWarnings", {})
     town = value.get("townDefaults", {})
     dialogue = value.get("dialogueDefaults", {})
-    for section_name, section in (("rewardPresentation", reward), ("firstDiscovery", first), ("expeditionWarnings", warnings), ("townDefaults", town), ("dialogueDefaults", dialogue)):
+    audio = value.get("audioDefaults", {})
+    for section_name, section in (("rewardPresentation", reward), ("firstDiscovery", first), ("expeditionWarnings", warnings), ("townDefaults", town), ("dialogueDefaults", dialogue), ("audioDefaults", audio)):
         if not isinstance(section, dict):
             errors.append(_issue("error", f"Global Settings {section_name} must be an object.", source, section_name))
     reward = reward if isinstance(reward, dict) else {}
@@ -3171,6 +3184,7 @@ def _validate_global_settings(value: Any, known: dict[str, list[str]], errors: l
     warnings = warnings if isinstance(warnings, dict) else {}
     town = town if isinstance(town, dict) else {}
     dialogue = dialogue if isinstance(dialogue, dict) else {}
+    audio = audio if isinstance(audio, dict) else {}
 
     rarity_ids = set(known.get("rarities", []))
     for field_name in ("fullPopupMinimumRarity", "majorPopupMinimumRarity"):
@@ -3199,6 +3213,14 @@ def _validate_global_settings(value: Any, known: dict[str, list[str]], errors: l
     sfx_id = first.get("sfxId")
     if sfx_id is not None and sfx_id not in set(known.get("sfx", [])):
         errors.append(_issue("error", f"Unknown SFX ID {sfx_id!r}.", source, "firstDiscovery.sfxId"))
+    sfx_ids = set(known.get("sfx", []))
+    for field_name in ("confirmSfxId", "transactionSfxId", "cookingLoopSfxId", "craftingSfxId", "blacksmithCraftingSfxId", "apothecaryCraftingSfxId", "uncommonItemSfxId"):
+        sfx_id = audio.get(field_name)
+        if sfx_id is not None and (not isinstance(sfx_id, str) or sfx_id not in sfx_ids):
+            errors.append(_issue("error", f"audioDefaults.{field_name} must be a known synthesized SFX ID or null.", source, f"audioDefaults.{field_name}"))
+    rest_track_id = audio.get("restMusicTrackId")
+    if rest_track_id is not None and (not isinstance(rest_track_id, str) or rest_track_id not in set(known.get("musicTracks", []))):
+        errors.append(_issue("error", "audioDefaults.restMusicTrackId must be a known synthesized music track ID or null.", source, "audioDefaults.restMusicTrackId"))
     for field_name in ("minorHoldDurationMs", "normalHoldDurationMs", "majorHoldDurationMs"):
         duration = reward.get(field_name)
         if not _is_number(duration) or not math.isfinite(duration) or not 0 <= duration <= 120000:

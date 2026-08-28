@@ -509,6 +509,36 @@ class ContentEditorTests(unittest.TestCase):
         self.assertIn('value="label"', app)
         self.assertIn("data-global-array-field", app)
 
+    def test_audio_defaults_and_recipe_crafting_sfx_validate_and_surface_controls(self) -> None:
+        catalog = load_catalog(GRAIL)
+        settings = clone(catalog["globalSettings"])
+        audio = settings["audioDefaults"]
+        self.assertEqual(audio["confirmSfxId"], "pickup_confirm")
+        self.assertEqual(audio["transactionSfxId"], "coins_transaction")
+        self.assertEqual(audio["restMusicTrackId"], "rest_lullaby")
+        self.assertEqual(validate_catalog({"globalSettings": settings}, catalog["known"], catalog["references"])["errors"], [])
+
+        invalid_settings = clone(settings)
+        invalid_settings["audioDefaults"]["confirmSfxId"] = "rest_lullaby"
+        invalid_settings["audioDefaults"]["restMusicTrackId"] = "pickup_confirm"
+        errors = validate_catalog({"globalSettings": invalid_settings}, catalog["known"], catalog["references"])["errors"]
+        self.assertTrue(any("audioDefaults.confirmSfxId" in issue["message"] for issue in errors))
+        self.assertTrue(any("audioDefaults.restMusicTrackId" in issue["message"] for issue in errors))
+
+        recipes = clone(catalog["recipes"])
+        self.assertEqual(recipes["bandages"]["craftingSfxId"], "craft_cloth_loop")
+        recipes["bandages"]["craftingSfxId"] = None
+        self.assertEqual(validate_catalog({"recipes": recipes}, catalog["known"], catalog["references"])["errors"], [])
+        recipes["bandages"]["craftingSfxId"] = "rest_lullaby"
+        errors = validate_catalog({"recipes": recipes}, catalog["known"], catalog["references"])["errors"]
+        self.assertTrue(any("Recipe craftingSfxId" in issue["message"] for issue in errors))
+
+        app = (CONTENT_EDITOR / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("Audio Defaults", app)
+        self.assertIn('data-global-music-field="audioDefaults.restMusicTrackId"', app)
+        self.assertIn('data-global-sfx-field="audioDefaults.transactionSfxId"', app)
+        self.assertIn('Recipe crafting SFX override', app)
+
     def test_encounter_layout_round_trip_and_editor_surface(self) -> None:
         catalog = load_catalog(GRAIL)
         layout = catalog["encounters"]["abandoned_camp"]["encounterLayout"]
