@@ -51,6 +51,46 @@ class ContentEditorTests(unittest.TestCase):
             self.assertEqual(catalog["validation"]["errors"][0]["source"], "encounter:lost_purse")
         self.assertEqual(catalog["validation"]["warnings"], [])
 
+    def test_fishing_minigames_load_validate_and_round_trip_surgically(self) -> None:
+        catalog = load_catalog(GRAIL)
+        self.assertEqual(sorted(catalog["minigames"]), ["fishing_teacher_tutorial", "woodland_stream_fishing"])
+        self.assertEqual(len(catalog["known"]["catchDefinitions"]), 3)
+        self.assertIn("raw_fish", catalog["known"]["materials"])
+        self.assertEqual(catalog["validation"]["errors"], [])
+
+        app = (CONTENT_EDITOR / "static" / "app.js").read_text(encoding="utf-8")
+        styles = (CONTENT_EDITOR / "static" / "styles.css").read_text(encoding="utf-8")
+        for fragment in (
+            '"minigames"',
+            "function renderMinigame()",
+            'data-minigame-stage',
+            'data-action="add-minigame-hotspot"',
+        ):
+            self.assertIn(fragment, app)
+        self.assertIn(".minigame-hotspot-marker", styles)
+
+        invalid = clone(catalog["minigames"])
+        invalid["woodland_stream_fishing"]["hotspots"][0]["radius"] = 0
+        invalid["woodland_stream_fishing"]["defaultWater"]["lootTableId"] = "missing_loot"
+        errors = validate_catalog({"minigames": invalid}, catalog["known"], catalog["references"])["errors"]
+        messages = [issue["message"] for issue in errors]
+        self.assertTrue(any("radius must be between 0 and 1" in message for message in messages))
+        self.assertTrue(any("Water lootTableId must reference a known loot table" in message for message in messages))
+
+        temp, project = self.temporary_grail()
+        self.addCleanup(temp.cleanup)
+        before = load_catalog(project)
+        minigames = clone(before["minigames"])
+        minigames["woodland_stream_fishing"]["tutorial"]["text"] = "Fishing tutorial round trip."
+        minigames["woodland_stream_fishing"]["hotspots"][1]["x"] = 0.76
+        encounters_before = clone(before["encounters"])
+        save_catalog(project, {"minigames": minigames}, before["sourceHashes"], Path(temp.name) / "backups")
+        after = load_catalog(project)
+        self.assertEqual(after["minigames"]["woodland_stream_fishing"]["tutorial"]["text"], "Fishing tutorial round trip.")
+        self.assertEqual(after["minigames"]["woodland_stream_fishing"]["hotspots"][1]["x"], 0.76)
+        self.assertEqual(after["encounters"], encounters_before)
+        self.assertTrue(list((Path(temp.name) / "backups").glob("minigame-data.js.*.bak")))
+
     def test_audio_definitions_load_validate_and_save_to_canonical_grail_source(self) -> None:
         catalog = load_catalog(GRAIL)
         self.assertIn("moonlit_court", catalog["audioDefinitions"]["musicTracks"])
@@ -1142,7 +1182,7 @@ class ContentEditorTests(unittest.TestCase):
         catalog = load_catalog(GRAIL)
         self.assertGreaterEqual(len(catalog["combats"]), 7)
         self.assertEqual(len(catalog["abilities"]), 18)
-        self.assertEqual(len(catalog["lootTables"]), 20)
+        self.assertEqual(len(catalog["lootTables"]), 28)
         self.assertIn("bandit_leader", catalog["combats"])
         self.assertIn("pommel_strike", catalog["abilities"])
         self.assertIn("bandit_leader_loot", catalog["lootTables"])

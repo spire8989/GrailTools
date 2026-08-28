@@ -4,7 +4,7 @@ const COMMON_REQUIREMENT_TYPES = [
   "anyOf", "allOf",
   "ownsItem", "notOwnsItem", "carriedItem", "equippedItem", "availableExpeditionItem",
   "knowledge", "companion", "unlockedCompanion", "notUnlockedCompanion", "runFlag", "notRunFlag",
-  "campaignFlag", "currentPath", "minimumResource", "minimumHealth", "maximumHealth", "minimumDistance", "notKnowledge",
+  "campaignFlag", "currentPath", "minimumResource", "minimumHealth", "maximumHealth", "minimumDistance", "notKnowledge", "encounterFlag", "notEncounterFlag",
 ];
 const COMMON_EFFECT_TYPES = [
   "modifyResource", "consumeExpeditionItem", "gainUnsecuredItem", "gainUniqueUnsecuredItem",
@@ -12,7 +12,7 @@ const COMMON_EFFECT_TYPES = [
   "setRunFlag", "setCampaignFlag", "changePath", "unlockCompanion", "applyInjury", "conditional",
   "setCampaignFlagOnSafeReturn",
   "randomChance", "randomOne", "learnRecipe", "markEncounterSeen",
-  "startDialogue",
+  "startDialogue", "startMinigame", "setEncounterFlag",
 ];
 
 const CONTENT_CATEGORIES = [
@@ -42,11 +42,12 @@ const CONTENT_CATEGORIES = [
   ["abilities", "Abilities"],
   ["combatStatuses", "Combat Statuses"],
   ["lootTables", "Loot Tables"],
+  ["minigames", "Minigames"],
   ["returnRewards", "Return Rewards"],
 ].sort(([, leftLabel], [, rightLabel]) => leftLabel.localeCompare(rightLabel));
 
 const EDITABLE_REFERENCE_SOURCES = new Set([
-  "globalSettings", "playerCharacter", "startingState", "companions", "encounters", "injuries", "campEvents", "dialogues", "expeditions", "recipes", "materials", "craftingProviders", "shops", "npcs", "destinations", "locations", "items", "combats", "abilities", "combatStatuses", "enemyDefinitions", "enemyActions", "lootTables", "returnRewards",
+  "globalSettings", "playerCharacter", "startingState", "companions", "encounters", "injuries", "campEvents", "dialogues", "expeditions", "recipes", "materials", "craftingProviders", "shops", "npcs", "destinations", "locations", "items", "combats", "abilities", "combatStatuses", "enemyDefinitions", "enemyActions", "lootTables", "minigames", "returnRewards",
 ]);
 
 const state = {
@@ -109,6 +110,9 @@ const state = {
   encounterLayoutSelectedSlot: "arthur",
   encounterPreviewCompanions: {},
   outcomeLayoutDrag: null,
+  minigameHotspotDrag: null,
+  minigameHotspotResize: null,
+  minigameHotspotSelectedId: null,
   audioPreviewVolume: 0.7,
   audioJsonEditing: false,
   audioPlayer: window.GrailAudioSynth ? new window.GrailAudioSynth.SynthPlayer() : null,
@@ -2721,13 +2725,17 @@ function lootReferenceOptions(type, current) {
   }
   if (type === "recipe") return selectOptions(known.recipes || [], current, Object.fromEntries((known.recipes || []).map((id) => [id, recipeLabel(id)])));
   if (type === "table") return selectOptions(Object.keys(state.catalog.lootTables || {}).sort(), current);
+  if (type === "catch") {
+    const ids = Object.keys(state.catalog.catchDefinitions || {}).sort();
+    return selectOptions(ids, current, Object.fromEntries(ids.map((id) => [id, `${state.catalog.catchDefinitions[id]?.name || id} (${id})`])));
+  }
   return "";
 }
 
 function renderLootEntry(entry, index) {
   const type = entry?.type || "item";
    const quantity = ["item", "material"].includes(type) ? `<label>Quantity<input type="number" min="1" step="1" data-loot-entry-field="quantity" data-entry-index="${index}" value="${escapeHtml(entry.quantity ?? "")}" placeholder="fixed"></label><label>Minimum<input type="number" min="1" step="1" data-loot-entry-field="minimum" data-entry-index="${index}" value="${escapeHtml(entry.minimum ?? "")}"></label><label>Maximum<input type="number" min="1" step="1" data-loot-entry-field="maximum" data-entry-index="${index}" value="${escapeHtml(entry.maximum ?? "")}"></label>` : "";
-  const referenceKey = type === "table" ? "tableId" : type === "material" ? "materialId" : type === "recipe" ? "recipeId" : "itemId";
+  const referenceKey = type === "table" ? "tableId" : type === "material" ? "materialId" : type === "recipe" ? "recipeId" : type === "catch" ? "catchId" : "itemId";
   const referenceCategory = type === "recipe" ? "recipes" : type === "item" ? "items" : type === "table" ? "lootTables" : null;
   const referenceValue = entry?.[referenceKey];
   const openReference = referenceCategory && referenceValue
@@ -2735,9 +2743,57 @@ function renderLootEntry(entry, index) {
     : "";
   const referenceField = type === "gold"
     ? ""
-    : `<label class="wide">${type === "table" ? "Loot table" : type === "material" ? "Material" : type === "recipe" ? "Recipe" : "Item"}<span class="reference-inline"><select data-loot-entry-field="${referenceKey}" data-entry-index="${index}"><option value="">Select ${type}...</option>${lootReferenceOptions(type, referenceValue)}</select>${openReference}</span></label>`;
+    : `<label class="wide">${type === "table" ? "Loot table" : type === "material" ? "Material" : type === "recipe" ? "Recipe" : type === "catch" ? "Catch definition" : "Item"}<span class="reference-inline"><select data-loot-entry-field="${referenceKey}" data-entry-index="${index}"><option value="">Select ${type}...</option>${lootReferenceOptions(type, referenceValue)}</select>${openReference}</span></label>`;
   const goldFields = type === "gold" ? `<label>Minimum gold<input type="number" min="0" step="1" data-loot-entry-field="minimum" data-entry-index="${index}" value="${escapeHtml(entry.minimum ?? "")}"></label><label>Maximum gold<input type="number" min="0" step="1" data-loot-entry-field="maximum" data-entry-index="${index}" value="${escapeHtml(entry.maximum ?? "")}"></label>` : "";
-  return `<div class="loot-entry-card" data-loot-entry-index="${index}"><div class="loot-entry-heading"><strong>Entry ${index + 1}</strong><select data-loot-entry-type data-entry-index="${index}">${selectOptions(["item", "material", "gold", "recipe", "table"], type)}</select><button type="button" class="small-button" data-action="duplicate-loot-entry" data-entry-index="${index}">Duplicate</button><button type="button" class="small-button danger-outline" data-action="remove-loot-entry" data-entry-index="${index}">Remove</button></div><div class="form-grid three"><label>Weight<input type="number" min="0" step="any" data-loot-entry-field="weight" data-entry-index="${index}" value="${escapeHtml(entry?.weight ?? "")}"></label>${referenceField}${goldFields}${quantity}</div></div>`;
+  return `<div class="loot-entry-card" data-loot-entry-index="${index}"><div class="loot-entry-heading"><strong>Entry ${index + 1}</strong><select data-loot-entry-type data-entry-index="${index}">${selectOptions(["item", "material", "gold", "recipe", "table", "catch"], type)}</select><button type="button" class="small-button" data-action="duplicate-loot-entry" data-entry-index="${index}">Duplicate</button><button type="button" class="small-button danger-outline" data-action="remove-loot-entry" data-entry-index="${index}">Remove</button></div><div class="form-grid three"><label>Weight<input type="number" min="0" step="any" data-loot-entry-field="weight" data-entry-index="${index}" value="${escapeHtml(entry?.weight ?? "")}"></label>${referenceField}${goldFields}${quantity}</div></div>`;
+}
+
+function minigameLootOptions(current) {
+  const ids = Object.keys(state.catalog.lootTables || {}).sort();
+  return selectOptions(ids, current);
+}
+
+function minigameNumberInput(label, field, value, index = null, step = "any", minimum = "", scope = null) {
+  const indexAttribute = index === null ? "" : ` data-minigame-hotspot-index="${index}"`;
+  return `<label>${label}<input type="number" step="${step}"${minimum !== "" ? ` min="${minimum}"` : ""} data-minigame-${scope || (index === null ? "field" : "hotspot-field")}="${field}"${indexAttribute} value="${escapeHtml(value ?? "")}"></label>`;
+}
+
+function renderMinigameHotspot(hotspot, index) {
+  const markerSize = Math.max(4, Number(hotspot.radius) * 200);
+  return `<button type="button" class="minigame-hotspot-marker ${state.minigameHotspotSelectedId === hotspot.id ? "is-selected" : ""}" data-action="select-minigame-hotspot" data-minigame-hotspot-marker data-minigame-hotspot-index="${index}" style="left:${Number(hotspot.x) * 100}%;top:${Number(hotspot.y) * 100}%;width:${markerSize}%" title="${escapeHtml(hotspot.name || hotspot.id || `Hotspot ${index + 1}`)}"><span class="minigame-hotspot-resize" data-minigame-hotspot-resize></span></button>`;
+}
+
+function renderMinigameHotspotCard(hotspot, index) {
+  return `<details class="minigame-hotspot-card" data-minigame-hotspot-card="${index}" open><summary><strong>${escapeHtml(hotspot.name || hotspot.id || `Hotspot ${index + 1}`)}</strong><span class="panel-count">Priority ${escapeHtml(hotspot.priority ?? 0)}</span></summary><div class="form-grid three">
+    <label>ID<input data-minigame-hotspot-field="id" data-minigame-hotspot-index="${index}" value="${escapeHtml(hotspot.id || "")}"></label>
+    <label>Name<input data-minigame-hotspot-field="name" data-minigame-hotspot-index="${index}" value="${escapeHtml(hotspot.name || "")}"></label>
+    ${minigameNumberInput("X", "x", hotspot.x, index, "0.01", "0")}
+    ${minigameNumberInput("Y", "y", hotspot.y, index, "0.01", "0")}
+    ${minigameNumberInput("Radius", "radius", hotspot.radius, index, "0.01", "0.01")}
+    ${minigameNumberInput("Priority", "priority", hotspot.priority, index, "1")}
+    ${minigameNumberInput("Bite chance", "biteChance", hotspot.biteChance, index, "0.01", "0")}
+    ${minigameNumberInput("Min bite delay", "biteDelayMin", hotspot.biteDelayMin, index, "0.05", "0")}
+    ${minigameNumberInput("Max bite delay", "biteDelayMax", hotspot.biteDelayMax, index, "0.05", "0")}
+    ${minigameNumberInput("Hook window (ms)", "hookWindowMs", hotspot.hookWindowMs, index, "1", "1")}
+    <label class="wide">Loot table<select data-minigame-hotspot-field="lootTableId" data-minigame-hotspot-index="${index}">${minigameLootOptions(hotspot.lootTableId)}</select></label>
+  </div><div class="button-row"><button type="button" class="small-button danger-outline" data-action="remove-minigame-hotspot" data-minigame-hotspot-index="${index}">Remove hotspot</button></div></details>`;
+}
+
+function renderMinigame() {
+  const minigame = state.draft;
+  if (!minigame) return `<div class="empty-state">Choose a minigame to edit.</div>`;
+  const hotspots = Array.isArray(minigame.hotspots) ? minigame.hotspots : [];
+  const asset = state.catalog.imageAssets?.[minigame.backgroundAssetId];
+  const bounds = minigame.castBounds || {};
+  const water = minigame.defaultWater || {};
+  const tutorial = minigame.tutorial || {};
+  return `<div class="editor-title"><div><h2>${escapeHtml(minigame.name || minigame.id || "New minigame")}</h2><p>${escapeHtml(minigame.id || "Unsaved ID")} · Fishing</p></div><span class="schema-badge">Minigame schema</span></div>
+    <section class="section"><div class="section-heading"><div><h3>Fishing identity</h3><p>Reusable minigame definitions are data-driven. The runtime reads the type and never hardcodes a particular stream or hotspot.</p></div></div><div class="form-grid"><label>ID<input data-minigame-field="id" value="${escapeHtml(minigame.id || "")}"></label><label>Name<input data-minigame-field="name" value="${escapeHtml(minigame.name || "")}"></label><label class="wide">Description<textarea data-minigame-field="description">${escapeHtml(minigame.description || "")}</textarea></label><label>Type<select data-minigame-field="type"><option value="fishing"${selected("fishing", minigame.type)}>Fishing</option></select></label>${renderAssetSelector("Background artwork", "backgroundAssetId", minigame.backgroundAssetId, "image", "encounter", minigame.name || minigame.id, "encounter_background")}${minigameNumberInput("Attempt limit", "attemptLimit", minigame.attemptLimit, null, "1", "1")}${minigameNumberInput("Time limit (seconds)", "timeLimitSeconds", minigame.timeLimitSeconds, null, "0.1", "0")}<span class="hint wide">Leave time limit empty for no timer. Attempts are consumed only after a cast resolves.</span></div></section>
+    <section class="section"><div class="section-heading"><div><h3>Default water settings</h3><p>Any landing outside a circle uses these settings. Overlapping circles resolve by highest priority, then authored order.</p></div></div><div class="form-grid three">${minigameNumberInput("Bite chance", "biteChance", water.biteChance, null, "0.01", "0", "default-field")}${minigameNumberInput("Min bite delay", "biteDelayMin", water.biteDelayMin, null, "0.05", "0", "default-field")}${minigameNumberInput("Max bite delay", "biteDelayMax", water.biteDelayMax, null, "0.05", "0", "default-field")}${minigameNumberInput("Hook window (ms)", "hookWindowMs", water.hookWindowMs, null, "1", "1", "default-field")}${minigameNumberInput("Hook success chance", "hookSuccessChance", water.hookSuccessChance, null, "0.01", "0", "default-field")}<label class="wide">Loot table<select data-minigame-default-field="lootTableId">${minigameLootOptions(water.lootTableId)}</select></label></div></section>
+    <section class="section"><div class="section-heading"><div><h3>Cast bounds</h3><p>All coordinates are normalized from 0 to 1. The vertical landing point is interpolated between near and far water.</p></div></div><div class="form-grid">${minigameNumberInput("Minimum aim X", "minX", bounds.minX, null, "0.01", "0", "cast-field")}${minigameNumberInput("Maximum aim X", "maxX", bounds.maxX, null, "0.01", "0", "cast-field")}${minigameNumberInput("Near water Y", "nearWaterY", bounds.nearWaterY, null, "0.01", "0", "cast-field")}${minigameNumberInput("Far water Y", "farWaterY", bounds.farWaterY, null, "0.01", "0", "cast-field")}</div></section>
+    <section class="section minigame-hotspot-editor"><div class="section-heading"><div><h3>Fishing water hotspots</h3><p>Drag a circle to move it. Drag its corner handle to resize it. The saved x, y, and radius values remain normalized for every screen size.</p></div><button type="button" class="small-button" data-action="add-minigame-hotspot">Add hotspot</button></div><div class="minigame-stage" data-minigame-stage>${asset ? `<img src="${assetPreviewUrl(asset.path)}" alt="Fishing background preview">` : `<div class="minigame-stage-placeholder">Choose encounter artwork above</div>`}<div class="minigame-hotspot-layer">${hotspots.map((hotspot, index) => renderMinigameHotspot(hotspot, index)).join("")}</div></div><div class="minigame-hotspot-list">${hotspots.map((hotspot, index) => renderMinigameHotspotCard(hotspot, index)).join("") || `<p class="hint">No hotspots yet. Casts will use Default Water until you add a circle.</p>`}</div></section>
+    <section class="section"><div class="section-heading"><div><h3>Tutorial text</h3><p>The tutorial is authored with the minigame and shown by the game runtime when the session begins.</p></div></div><div class="form-grid"><label>Tutorial title<input data-minigame-tutorial-field="title" value="${escapeHtml(tutorial.title || "")}"></label><label class="wide">Tutorial instructions<textarea data-minigame-tutorial-field="text">${escapeHtml(tutorial.text || "")}</textarea></label><label class="wide">Completion text<textarea data-minigame-tutorial-field="completionText">${escapeHtml(tutorial.completionText || "")}</textarea></label></div></section>
+    <section class="section"><details><summary>Raw minigame JSON (advanced)</summary><textarea id="raw-json" class="raw-editor">${jsonText(minigame)}</textarea><div class="button-row"><button type="button" class="small-button" data-action="apply-raw">Apply raw JSON</button></div></details></section>`;
 }
 
 function renderLootTable() {
@@ -2747,13 +2803,13 @@ function renderLootTable() {
   const references = (liveReferences().lootTables || []).filter((reference) => reference.id === table.id);
   return `<div class="editor-title"><div><h2>${escapeHtml(table.id || "New loot table")}</h2><p>${entries.length} entr${entries.length === 1 ? "y" : "ies"}</p></div><span class="schema-badge">Loot table schema</span></div>
     <section class="section"><div class="section-heading"><div><h3>Table metadata</h3><p>Weighted entries are kept in authored order. Nested table entries are reference-aware.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(table.id || "")}"></label><label>Rolls<input type="number" min="1" step="1" data-field="rolls" value="${escapeHtml(table.rolls ?? "")}" placeholder="optional"></label></div></section>
-    <section class="section"><div class="section-heading"><div><h3>Entries</h3><p>Edit item, material, gold, recipe, and nested loot-table entries.</p></div><button type="button" class="small-button" data-action="add-loot-entry">Add entry</button></div>${entries.map((entry, index) => renderLootEntry(entry, index)).join("") || `<div class="empty-state">This table has no entries.</div>`}</section>
+    <section class="section"><div class="section-heading"><div><h3>Entries</h3><p>Edit item, material, gold, recipe, catch, and nested loot-table entries.</p></div><button type="button" class="small-button" data-action="add-loot-entry">Add entry</button></div>${entries.map((entry, index) => renderLootEntry(entry, index)).join("") || `<div class="empty-state">This table has no entries.</div>`}</section>
     <section class="section"><div class="section-heading"><div><h3>Used by</h3><p>Enemies, combats, encounters, and other loot tables that reference this table.</p></div></div><div class="reference-list">${renderReferenceRows(references)}</div></section>
     <section class="section"><details><summary>Raw loot table JSON (advanced)</summary><p class="hint">Use raw JSON for uncommon entry shapes while keeping validation enabled.</p><textarea id="raw-json" class="raw-editor">${jsonText(table)}</textarea><div class="button-row"><button type="button" class="small-button" data-action="apply-raw">Apply raw JSON</button></div></details></section>`;
 }
 
 function assetUsages(assetId) {
-  const fields = new Set(["portraitAssetId", "visualAssetId", "travelVisualAssetId", "travelParallaxAssetId", "travelTransitionAssetId", "travelSeamForegroundAssetId", "campVisualAssetId", "combatVisualAssetId", "assetId"]);
+  const fields = new Set(["portraitAssetId", "visualAssetId", "backgroundAssetId", "travelVisualAssetId", "travelParallaxAssetId", "travelTransitionAssetId", "travelSeamForegroundAssetId", "campVisualAssetId", "combatVisualAssetId", "assetId"]);
   const usages = [];
   const visit = (value, source, path) => {
     if (Array.isArray(value)) {
@@ -3180,8 +3236,10 @@ function render() {
              ? renderAbility()
              : state.category === "combatStatuses"
              ? renderCombatStatus()
-             : state.category === "returnRewards"
+        : state.category === "returnRewards"
                ? renderReturnRewards()
+             : state.category === "minigames"
+               ? renderMinigame()
              : renderLootTable();
    if (state.navigationHistory.length) $("#editor-root").insertAdjacentHTML("afterbegin", renderNavigationControls());
    injectAssetEditors();
@@ -3258,6 +3316,7 @@ function draftSnapshot() {
     enemyDefinitions: clone(state.catalog.enemyDefinitions),
     enemyActions: clone(state.catalog.enemyActions),
     lootTables: clone(state.catalog.lootTables),
+    minigames: clone(state.catalog.minigames),
     returnRewards: clone(state.catalog.returnRewards),
   };
   Object.values(snapshot.recipes || {}).forEach((recipe) => {
@@ -3476,6 +3535,24 @@ function defaultEntry(category) {
     durationActivations: 1,
     refreshBehavior: "refresh",
   };
+  if (category === "minigames") return {
+    id: "new_fishing_minigame",
+    type: "fishing",
+    name: "New Fishing Minigame",
+    description: "",
+    backgroundAssetId: state.catalog.imageAssets?.encounter_woodland_stream
+      ? "encounter_woodland_stream"
+      : Object.keys(state.catalog.imageAssets || {}).find((id) => state.catalog.imageAssets[id]?.category === "encounter") || "",
+    attemptLimit: 3,
+    timeLimitSeconds: null,
+    castBounds: { minX: 0.08, maxX: 0.92, nearWaterY: 0.58, farWaterY: 0.29 },
+    defaultWater: {
+      biteChance: 0.55, biteDelayMin: 0.8, biteDelayMax: 1.6, hookWindowMs: 700,
+      lootTableId: Object.keys(state.catalog.lootTables || {}).sort()[0] || "",
+    },
+    hotspots: [],
+    tutorial: { title: "New Tutorial", text: "", completionText: "" },
+  };
   if (category === "lootTables") return { id: "new_loot_table", entries: [] };
   if (category === "returnRewards") return { id: "new_return_reward_tier", minimumDistance: 0, sources: [] };
   if (category === "materials") return {
@@ -3630,6 +3707,7 @@ function duplicateEntry() {
   else if (state.category === "shops") entry.displayName = `${entry.displayName || "Shop"} Copy`;
   else if (["items", "abilities"].includes(state.category)) entry.name = `${entry.name || "Entry"} Copy`;
   else if (state.category === "companions") entry.name = `${entry.name || "Companion"} Copy`;
+  else if (state.category === "minigames") entry.name = `${entry.name || "Minigame"} Copy`;
   else if (["expeditions", "recipes", "materials", "craftingProviders", "npcs", "destinations", "locations"].includes(state.category)) entry.name = `${entry.name || "Entry"} Copy`;
   map[entry.id] = entry;
   state.selectedId = entry.id;
@@ -3672,7 +3750,7 @@ function deleteEntry() {
     return;
   }
   const id = state.draft.id || state.originalSelectedId;
-  const refType = state.category === "companions" ? "companions" : state.category === "shops" ? "shops" : state.category === "items" ? "items" : state.category === "combats" ? "combats" : state.category === "enemyDefinitions" ? "enemies" : state.category === "enemyActions" ? "enemyActions" : state.category === "abilities" ? "abilities" : state.category === "combatStatuses" ? "combatStatuses" : state.category === "injuries" ? "injuries" : state.category === "campEvents" ? "campEvents" : state.category === "dialogues" ? "dialogues" : state.category === "npcs" ? "npcs" : state.category === "destinations" ? "destinations" : state.category === "locations" ? "locations" : state.category === "lootTables" ? "lootTables" : state.category === "expeditions" ? "expeditions" : state.category === "recipes" ? "recipes" : state.category === "materials" ? "materials" : state.category === "craftingProviders" ? "craftingProviders" : "encounters";
+  const refType = state.category === "companions" ? "companions" : state.category === "shops" ? "shops" : state.category === "items" ? "items" : state.category === "combats" ? "combats" : state.category === "enemyDefinitions" ? "enemies" : state.category === "enemyActions" ? "enemyActions" : state.category === "abilities" ? "abilities" : state.category === "combatStatuses" ? "combatStatuses" : state.category === "injuries" ? "injuries" : state.category === "campEvents" ? "campEvents" : state.category === "dialogues" ? "dialogues" : state.category === "npcs" ? "npcs" : state.category === "destinations" ? "destinations" : state.category === "locations" ? "locations" : state.category === "lootTables" ? "lootTables" : state.category === "minigames" ? "minigames" : state.category === "expeditions" ? "expeditions" : state.category === "recipes" ? "recipes" : state.category === "materials" ? "materials" : state.category === "craftingProviders" ? "craftingProviders" : "encounters";
   const refs = (liveReferences()[refType] || []).filter((reference) => reference.id === id);
   const warning = refs.length ? `\n\nReferences found:\n${refs.map((reference) => `- ${reference.source} (${reference.path})`).join("\n")}\n\nSaving this deletion will be blocked until those references are resolved.` : "";
   if (!window.confirm(`Delete ${id}? This is an in-memory deletion until you explicitly save.${warning}`)) return;
@@ -3862,6 +3940,57 @@ function handleInput(input) {
     return;
   }
   if (!state.draft) return;
+  if (input.dataset.minigameField) {
+    const field = input.dataset.minigameField;
+    const value = parseInputValue(input, field);
+    if (value === undefined || value === "") {
+      if (field === "timeLimitSeconds") state.draft[field] = null;
+      else delete state.draft[field];
+    } else state.draft[field] = value;
+    markDirty();
+    if (["id", "type", "backgroundAssetId"].includes(field)
+      || (state.category === "minigames" && field === "backgroundAssetId")) render();
+    return;
+  }
+  if (input.dataset.minigameDefaultField) {
+    const field = input.dataset.minigameDefaultField;
+    state.draft.defaultWater ||= {};
+    const value = parseInputValue(input, field);
+    if (value === undefined || value === "") delete state.draft.defaultWater[field];
+    else state.draft.defaultWater[field] = value;
+    markDirty();
+    return;
+  }
+  if (input.dataset.minigameCastField) {
+    const field = input.dataset.minigameCastField;
+    state.draft.castBounds ||= {};
+    const value = parseInputValue(input, field);
+    if (value === undefined || value === "") delete state.draft.castBounds[field];
+    else state.draft.castBounds[field] = value;
+    markDirty();
+    return;
+  }
+  if (input.dataset.minigameHotspotField) {
+    const hotspot = state.draft.hotspots?.[Number(input.dataset.minigameHotspotIndex)];
+    if (!hotspot) return;
+    const field = input.dataset.minigameHotspotField;
+    const value = parseInputValue(input, field);
+    if (value === undefined || value === "") delete hotspot[field];
+    else hotspot[field] = value;
+    if (field === "id") state.minigameHotspotSelectedId = hotspot.id;
+    markDirty();
+    if (field === "id" || field === "lootTableId") render();
+    return;
+  }
+  if (input.dataset.minigameTutorialField) {
+    const field = input.dataset.minigameTutorialField;
+    state.draft.tutorial ||= {};
+    const value = parseInputValue(input, field);
+    if (value === undefined || value === "") delete state.draft.tutorial[field];
+    else state.draft.tutorial[field] = value;
+    markDirty();
+    return;
+  }
   if (input.dataset.globalArrayField) {
     setNested(state.draft, input.dataset.globalArrayField, toggleArray(
       pathValue(state.draft, input.dataset.globalArrayField),
@@ -4159,6 +4288,7 @@ function handleInput(input) {
       gold: { type, minimum: 1, maximum: 1, weight: 1 },
       recipe: { type, recipeId: state.catalog.known?.recipes?.[0] || "", weight: 1 },
       table: { type, tableId: state.catalog.known?.lootTables?.[0] || "", weight: 1 },
+      catch: { type, catchId: Object.keys(state.catalog.catchDefinitions || {}).sort()[0] || "", weight: 1 },
     }[type];
     if (first) {
       state.draft.entries[index] = first;
@@ -4449,7 +4579,8 @@ function handleInput(input) {
     markDirty();
     if (["category"].includes(input.dataset.field)
       || (state.category === "locations" && ["visualAssetId", "markerStyle"].includes(input.dataset.field))
-      || (state.category === "encounters" && input.dataset.field === "visualAssetId")) render();
+      || (state.category === "encounters" && input.dataset.field === "visualAssetId")
+      || (state.category === "minigames" && input.dataset.field === "backgroundAssetId")) render();
     return;
   }
   if (input.dataset.arrayField) {
@@ -4773,7 +4904,37 @@ async function uploadSelectedAsset(file) {
 
 function handleAction(button) {
   const action = button.dataset.action;
-  if (action === "audio-category") {
+  if (action === "select-minigame-hotspot") {
+    const hotspot = state.draft?.hotspots?.[Number(button.dataset.minigameHotspotIndex)];
+    state.minigameHotspotSelectedId = hotspot?.id || null;
+    render();
+  } else if (action === "add-minigame-hotspot") {
+    state.draft.hotspots ||= [];
+    const used = Object.fromEntries(state.draft.hotspots.map((hotspot) => [hotspot.id, true]));
+    const id = uniqueId("new_hotspot", used);
+    state.draft.hotspots.push({
+      id,
+      name: "New Water Hotspot",
+      x: 0.5,
+      y: 0.42,
+      radius: 0.1,
+      priority: 1,
+      biteChance: state.draft.defaultWater?.biteChance ?? 0.55,
+      biteDelayMin: state.draft.defaultWater?.biteDelayMin ?? 0.8,
+      biteDelayMax: state.draft.defaultWater?.biteDelayMax ?? 1.6,
+      hookWindowMs: state.draft.defaultWater?.hookWindowMs ?? 700,
+      lootTableId: state.draft.defaultWater?.lootTableId || Object.keys(state.catalog.lootTables || {}).sort()[0] || "",
+    });
+    state.minigameHotspotSelectedId = id;
+    markDirty();
+    render();
+  } else if (action === "remove-minigame-hotspot") {
+    const index = Number(button.dataset.minigameHotspotIndex);
+    const removed = state.draft?.hotspots?.splice(index, 1)?.[0];
+    if (removed?.id === state.minigameHotspotSelectedId) state.minigameHotspotSelectedId = null;
+    markDirty();
+    render();
+  } else if (action === "audio-category") {
     switchAudioCategory(button.dataset.audioCategory);
   } else if (action === "validate-audio" || action === "apply-audio-json") {
     applyAudioJsonFromEditor();
@@ -5490,9 +5651,81 @@ function commitTownLayoutInput(input) {
   markDirty();
 }
 
+function minigamePositionFromPointer(stage, event) {
+  const rect = stage.getBoundingClientRect();
+  return {
+    x: Math.min(1, Math.max(0, (event.clientX - rect.left) / Math.max(1, rect.width))),
+    y: Math.min(1, Math.max(0, (event.clientY - rect.top) / Math.max(1, rect.height))),
+  };
+}
+
+function updateMinigameHotspotMarker(index) {
+  const hotspot = state.draft?.hotspots?.[index];
+  const marker = document.querySelector(`[data-minigame-hotspot-marker][data-minigame-hotspot-index="${index}"]`);
+  if (!hotspot || !marker) return;
+  marker.style.left = `${Number(hotspot.x) * 100}%`;
+  marker.style.top = `${Number(hotspot.y) * 100}%`;
+  const diameter = Math.max(4, Number(hotspot.radius) * 200);
+  marker.style.width = `${diameter}%`;
+}
+
+function finishMinigameHotspotPointer() {
+  if (!state.minigameHotspotDrag && !state.minigameHotspotResize) return;
+  state.minigameHotspotDrag = null;
+  state.minigameHotspotResize = null;
+  markDirty();
+  render();
+}
+
 document.addEventListener("click", (event) => {
   const button = event.target.closest("button[data-action]");
   if (button) handleAction(button);
+});
+document.addEventListener("pointerdown", (event) => {
+  const marker = event.target.closest?.("[data-minigame-hotspot-marker]");
+  if (!marker) return;
+  const stage = marker.closest("[data-minigame-stage]");
+  const index = Number(marker.dataset.minigameHotspotIndex);
+  if (!stage || !Number.isInteger(index) || !state.draft?.hotspots?.[index]) return;
+  event.preventDefault();
+  state.minigameHotspotSelectedId = state.draft.hotspots[index].id;
+  const position = minigamePositionFromPointer(stage, event);
+  if (event.target.closest("[data-minigame-hotspot-resize]")) {
+    state.minigameHotspotResize = { marker, stage, index, pointerId: event.pointerId };
+  } else {
+    state.minigameHotspotDrag = { marker, stage, index, pointerId: event.pointerId };
+  }
+  marker.setPointerCapture?.(event.pointerId);
+  if (state.minigameHotspotDrag) {
+    state.draft.hotspots[index].x = position.x;
+    state.draft.hotspots[index].y = position.y;
+    updateMinigameHotspotMarker(index);
+  }
+});
+document.addEventListener("pointermove", (event) => {
+  const drag = state.minigameHotspotDrag;
+  const resize = state.minigameHotspotResize;
+  const operation = drag || resize;
+  if (!operation || event.pointerId !== operation.pointerId) return;
+  event.preventDefault();
+  const hotspot = state.draft?.hotspots?.[operation.index];
+  if (!hotspot) return;
+  const position = minigamePositionFromPointer(operation.stage, event);
+  if (drag) {
+    hotspot.x = position.x;
+    hotspot.y = position.y;
+  } else {
+    hotspot.radius = Math.min(0.45, Math.max(0.02, Math.hypot(position.x - hotspot.x, position.y - hotspot.y)));
+  }
+  updateMinigameHotspotMarker(operation.index);
+});
+document.addEventListener("pointerup", (event) => {
+  if (state.minigameHotspotDrag?.pointerId === event.pointerId
+    || state.minigameHotspotResize?.pointerId === event.pointerId) finishMinigameHotspotPointer();
+});
+document.addEventListener("pointercancel", (event) => {
+  if (state.minigameHotspotDrag?.pointerId === event.pointerId
+    || state.minigameHotspotResize?.pointerId === event.pointerId) finishMinigameHotspotPointer();
 });
 document.addEventListener("pointerdown", (event) => {
   const marker = event.target.closest?.("[data-outcome-layout-marker]");

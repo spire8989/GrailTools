@@ -476,6 +476,7 @@ CONTENT_FILES = {
     "enemyDefinitions": ("js/combat-data.js", "COMBAT_ENEMY_DEFINITIONS"),
     "enemyActions": ("js/combat-data.js", "COMBAT_ENEMY_ACTION_DEFINITIONS"),
     "lootTables": ("js/loot-data.js", "LOOT_TABLE_DEFINITIONS"),
+    "minigames": ("js/minigame-data.js", "MINIGAME_DEFINITIONS"),
     "returnRewards": ("js/loot-data.js", "EXPEDITION_RETURN_REWARD_TIERS"),
 }
 EXPEDITION_TUNING_FILE = ("js/tuning.js", "EXPEDITION_TUNING")
@@ -508,6 +509,7 @@ REFERENCE_FILES = {
     "locations": ("js/location-data.js", "LOCATION_DEFINITIONS"),
     "knowledge": ("js/data.js", "KNOWLEDGE_DEFINITIONS"),
     "companions": ("js/data.js", "COMPANION_DEFINITIONS"),
+    "catchDefinitions": ("js/minigame-data.js", "MINIGAME_CATCH_DEFINITIONS"),
 }
 
 
@@ -562,6 +564,8 @@ def _ref_type_for_key(key: str) -> str | None:
         "selectedCompanion": "companions",
         "selectedCompanionId": "companions",
         "dialogueId": "dialogues",
+        "minigameId": "minigames",
+        "catchId": "catchDefinitions",
         "dialogueSequenceId": "dialogues",
         "introDialogueSequenceId": "dialogues",
         "musicTrackId": "musicTracks",
@@ -834,6 +838,7 @@ def load_catalog(project_root: Path) -> dict[str, Any]:
     known["enemies"] = sorted(_id_map(values.get("enemyDefinitions")))
     known["enemyActions"] = sorted(_id_map(values.get("enemyActions")))
     known["lootTables"] = sorted(_id_map(values.get("lootTables")))
+    known["minigames"] = sorted(_id_map(values.get("minigames")))
     known["items"] = sorted(item_map)
     known["shops"] = sorted(_id_map(values.get("shops")))
     known["expeditions"] = sorted(_id_map(values.get("expeditions")))
@@ -923,7 +928,9 @@ def load_catalog(project_root: Path) -> dict[str, Any]:
         "enemyDefinitions": values["enemyDefinitions"],
         "enemyActions": values["enemyActions"],
         "lootTables": values["lootTables"],
+        "minigames": values["minigames"],
         "returnRewards": values["returnRewards"],
+        "catchDefinitions": reference_values.get("catchDefinitions", {}),
         "known": {key: sorted(set(items)) for key, items in known.items()},
         "campEventTables": reference_values.get("campEventTables", {}),
         "paths": build_path_index(values["encounters"], values["expeditions"]),
@@ -1139,6 +1146,15 @@ def _validate_resolution_outcome(outcome: Any, known: dict[str, list[str]], sour
             if "outcomes" in branch:
                 _validate_resolution_outcomes(branch.get("outcomes"), known, source, f"{branch_path}.outcomes", errors)
         return
+
+    if outcome_type == "startMinigame":
+        minigame_id = outcome.get("minigameId")
+        if not isinstance(minigame_id, str) or minigame_id not in set(known.get("minigames", [])):
+            errors.append(_issue("error", "startMinigame requires a known minigameId.", source, f"{path}.minigameId"))
+        if "completionEffects" in outcome:
+            _validate_resolution_outcomes(outcome.get("completionEffects"), known, source, f"{path}.completionEffects", errors)
+        if "markEncounterFlag" in outcome and (not isinstance(outcome.get("markEncounterFlag"), str) or not outcome.get("markEncounterFlag")):
+            errors.append(_issue("error", "startMinigame markEncounterFlag must be a non-empty string.", source, f"{path}.markEncounterFlag"))
 
     if outcome_type == "rollLootTable":
         if not isinstance(outcome.get("tableId"), str) or not outcome.get("tableId"):
@@ -2406,12 +2422,95 @@ def _validate_quantity_fields(entry: dict[str, Any], source: str, errors: list[d
         errors.append(_issue("error", "Loot minimum cannot be greater than maximum.", source, "maximum"))
 
 
+def _validate_minigames(minigames: Any, known: dict[str, list[str]], errors: list[dict[str, str]]) -> None:
+    if not isinstance(minigames, dict):
+        errors.append(_issue("error", "Minigame definitions must be an object.", "minigames"))
+        return
+    seen_ids: set[str] = set()
+    for entry_id, definition in minigames.items():
+        source = f"minigame:{entry_id}"
+        if not isinstance(definition, dict):
+            errors.append(_issue("error", "Minigame definition must be an object.", source))
+            continue
+        if definition.get("id") != entry_id:
+            errors.append(_issue("error", "Definition key must match its id field.", source, "id"))
+        if entry_id in seen_ids:
+            errors.append(_issue("error", f"Duplicate minigame ID {entry_id!r}.", source, "id"))
+        seen_ids.add(entry_id)
+        if definition.get("type") != "fishing":
+            errors.append(_issue("error", "The first supported minigame type is fishing.", source, "type"))
+        background_id = definition.get("backgroundAssetId")
+        if not isinstance(background_id, str) or background_id not in set(known.get("imageAssets", [])):
+            errors.append(_issue("error", "Minigame backgroundAssetId must reference a known image asset.", source, "backgroundAssetId"))
+        attempt_limit = definition.get("attemptLimit")
+        if not isinstance(attempt_limit, int) or isinstance(attempt_limit, bool) or attempt_limit <= 0:
+            errors.append(_issue("error", "Minigame attemptLimit must be a positive integer.", source, "attemptLimit"))
+        time_limit = definition.get("timeLimitSeconds")
+        if time_limit is not None and (not _is_number(time_limit) or time_limit <= 0):
+            errors.append(_issue("error", "Minigame timeLimitSeconds must be null or positive.", source, "timeLimitSeconds"))
+        bounds = definition.get("castBounds")
+        if not isinstance(bounds, dict):
+            errors.append(_issue("error", "Minigame castBounds must be an object.", source, "castBounds"))
+        else:
+            for field in ("minX", "maxX", "nearWaterY", "farWaterY"):
+                value = bounds.get(field)
+                if not _is_number(value) or not 0 <= value <= 1:
+                    errors.append(_issue("error", f"castBounds.{field} must be between 0 and 1.", source, f"castBounds.{field}"))
+            if _is_number(bounds.get("minX")) and _is_number(bounds.get("maxX")) and bounds["minX"] > bounds["maxX"]:
+                errors.append(_issue("error", "castBounds minX cannot exceed maxX.", source, "castBounds.maxX"))
+        default_water = definition.get("defaultWater")
+        if not isinstance(default_water, dict):
+            errors.append(_issue("error", "Minigame defaultWater must be an object.", source, "defaultWater"))
+            default_water = {}
+        hotspots = definition.get("hotspots")
+        if not isinstance(hotspots, list):
+            errors.append(_issue("error", "Minigame hotspots must be an array.", source, "hotspots"))
+            hotspots = []
+        for water_path, water in [("defaultWater", default_water), *[(f"hotspots[{i}]", h) for i, h in enumerate(hotspots)]]:
+            if not isinstance(water, dict):
+                errors.append(_issue("error", "Water settings must be objects.", source, water_path))
+                continue
+            bite_chance = water.get("biteChance")
+            if not _is_number(bite_chance) or not 0 <= bite_chance <= 1:
+                errors.append(_issue("error", "biteChance must be between 0 and 1.", source, f"{water_path}.biteChance"))
+            minimum = water.get("biteDelayMin")
+            maximum = water.get("biteDelayMax")
+            if not _is_number(minimum) or not _is_number(maximum) or minimum < 0 or minimum > maximum:
+                errors.append(_issue("error", "biteDelayMin/Max must be a valid non-negative range.", source, water_path))
+            if not _is_number(water.get("hookWindowMs")) or not 500 <= water.get("hookWindowMs") <= 900:
+                errors.append(_issue("error", "hookWindowMs must be between 500 and 900 milliseconds.", source, f"{water_path}.hookWindowMs"))
+            if "hookSuccessChance" in water and (
+                not _is_number(water.get("hookSuccessChance"))
+                or not 0 <= water.get("hookSuccessChance") <= 1
+            ):
+                errors.append(_issue("error", "hookSuccessChance must be between 0 and 1.", source, f"{water_path}.hookSuccessChance"))
+            if water.get("lootTableId") not in set(known.get("lootTables", [])):
+                errors.append(_issue("error", "Water lootTableId must reference a known loot table.", source, f"{water_path}.lootTableId"))
+        hotspot_ids: set[str] = set()
+        for index, hotspot in enumerate(hotspots):
+            hotspot_path = f"hotspots[{index}]"
+            hotspot_id = hotspot.get("id") if isinstance(hotspot, dict) else None
+            if not isinstance(hotspot_id, str) or not hotspot_id or hotspot_id in hotspot_ids:
+                errors.append(_issue("error", "Hotspot IDs must be unique and non-empty.", source, f"{hotspot_path}.id"))
+            hotspot_ids.add(hotspot_id)
+            for field in ("x", "y", "radius"):
+                value = hotspot.get(field) if isinstance(hotspot, dict) else None
+                valid_range = _is_number(value) and ((0 < value <= 1) if field == "radius" else (0 <= value <= 1))
+                if not valid_range:
+                    errors.append(_issue("error", f"{field} must be between 0 and 1.", source, f"{hotspot_path}.{field}"))
+            if isinstance(hotspot, dict) and "priority" in hotspot and (not isinstance(hotspot.get("priority"), int) or isinstance(hotspot.get("priority"), bool)):
+                errors.append(_issue("error", "Hotspot priority must be an integer.", source, f"{hotspot_path}.priority"))
+        tutorial = definition.get("tutorial")
+        if tutorial is not None and (not isinstance(tutorial, dict) or not isinstance(tutorial.get("text"), str)):
+            errors.append(_issue("error", "Minigame tutorial must provide text when authored.", source, "tutorial"))
+
+
 def _validate_loot_tables(tables: Any, known: dict[str, list[str]], errors: list[dict[str, str]]) -> None:
     if not isinstance(tables, dict):
         errors.append(_issue("error", "Loot table definitions must be an object.", "lootTables"))
         return
     seen_ids: set[str] = set()
-    allowed_types = {"gold", "item", "material", "recipe", "table"}
+    allowed_types = {"gold", "item", "material", "recipe", "table", "catch"}
     for entry_id, table in tables.items():
         source = f"lootTable:{entry_id}"
         if not isinstance(table, dict):
@@ -2448,9 +2547,11 @@ def _validate_loot_tables(tables: Any, known: dict[str, list[str]], errors: list
                 errors.append(_issue("error", "Loot entry weight must be a positive number.", entry_source, "weight"))
             _validate_quantity_fields(entry, entry_source, errors)
             _validate_audio_fields(entry, known, entry_source, "", errors, (("sfxId", "sfx"),))
-            required_field = {"item": "itemId", "material": "materialId", "recipe": "recipeId", "table": "tableId"}.get(entry_type)
+            required_field = {"item": "itemId", "material": "materialId", "recipe": "recipeId", "table": "tableId", "catch": "catchId"}.get(entry_type)
             if required_field and (not isinstance(entry.get(required_field), str) or not entry.get(required_field)):
                 errors.append(_issue("error", f"{entry_type} loot entries require {required_field}.", entry_source, required_field))
+            if entry_type == "catch" and entry.get("catchId") not in set(known.get("catchDefinitions", [])):
+                errors.append(_issue("error", f"Unknown catch definition ID {entry.get('catchId')!r}.", entry_source, "catchId"))
     table_ids = set(_id_map(tables))
     for table_id, table in tables.items():
         for index, entry in enumerate(table.get("entries", []) if isinstance(table, dict) else []):
@@ -3441,8 +3542,12 @@ def validate_catalog(values: dict[str, Any], known: dict[str, list[str]], refere
         _validate_enemy_actions(values.get("enemyActions"), effective_known, errors)
     if "abilities" in values:
         _validate_abilities(values.get("abilities"), effective_known, errors)
+    if "minigames" in values:
+        effective_known["minigames"] = sorted(_id_map(values.get("minigames")))
     if "lootTables" in values:
         _validate_loot_tables(values.get("lootTables"), effective_known, errors)
+    if "minigames" in values:
+        _validate_minigames(values.get("minigames"), effective_known, errors)
     if "returnRewards" in values:
         _validate_return_reward_tiers(values.get("returnRewards"), effective_known, errors)
     if "audioDefinitions" in values:
@@ -3474,6 +3579,7 @@ def validate_catalog(values: dict[str, Any], known: dict[str, list[str]], refere
                     "craftingProviders": "crafting provider", "campEvents": "camp event",
                     "dialogues": "dialogue", "npcs": "NPC", "destinations": "destination", "locations": "location",
                     "combatStatuses": "combat status",
+                    "minigames": "minigame", "catchDefinitions": "catch definition",
                     "imageAssets": "image asset", "musicTracks": "music track", "sfx": "SFX",
                 }.get(ref_type, ref_type[:-1] if ref_type.endswith("s") else ref_type)
                 errors.append(_issue("error", f"Unknown {label} ID {entry['id']!r}.", entry["source"], entry["path"]))
@@ -3528,6 +3634,7 @@ def _validation_issue_scope(issue: dict[str, str]) -> tuple[str, str | None] | N
         "ability:": "abilities",
         "injury:": "injuries",
         "lootTable:": "lootTables",
+        "minigame:": "minigames",
         "companion:": "companions",
     }
     for prefix, category in prefixes.items():
