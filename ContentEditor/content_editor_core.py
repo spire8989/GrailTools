@@ -1854,6 +1854,7 @@ def _validate_combat_definitions(combats: Any, known: dict[str, list[str]], erro
         enemy_ids = combat.get("enemyIds")
         if not isinstance(enemy_ids, list) or not enemy_ids or not all(isinstance(enemy_id, str) and enemy_id for enemy_id in enemy_ids):
             errors.append(_issue("error", "enemyIds must be a non-empty array of enemy IDs.", source, "enemyIds"))
+        _validate_audio_fields(combat, known, source, "", errors, (("musicTrackId", "musicTracks"),))
         _validate_loot_sources(
             combat.get("victoryLootSources"),
             known,
@@ -2439,6 +2440,7 @@ def _validate_minigames(minigames: Any, known: dict[str, list[str]], errors: lis
         seen_ids.add(entry_id)
         if definition.get("type") != "fishing":
             errors.append(_issue("error", "The first supported minigame type is fishing.", source, "type"))
+        _validate_audio_fields(definition, known, source, "", errors, (("musicTrackId", "musicTracks"),))
         background_id = definition.get("backgroundAssetId")
         if not isinstance(background_id, str) or background_id not in set(known.get("imageAssets", [])):
             errors.append(_issue("error", "Minigame backgroundAssetId must reference a known image asset.", source, "backgroundAssetId"))
@@ -3290,6 +3292,20 @@ def _validate_global_settings(value: Any, known: dict[str, list[str]], errors: l
     combat_audio = combat_audio if isinstance(combat_audio, dict) else {}
     if isinstance(audio, dict) and "combat" in audio and not isinstance(audio.get("combat"), dict):
         errors.append(_issue("error", "Global Settings audioDefaults.combat must be an object.", source, "audioDefaults.combat"))
+    music_ducking = audio.get("musicDucking")
+    if music_ducking is not None and not isinstance(music_ducking, dict):
+        errors.append(_issue("error", "Global Settings audioDefaults.musicDucking must be an object.", source, "audioDefaults.musicDucking"))
+        music_ducking = {}
+    if isinstance(music_ducking, dict):
+        if "enabled" in music_ducking and not isinstance(music_ducking.get("enabled"), bool):
+            errors.append(_issue("error", "audioDefaults.musicDucking.enabled must be boolean.", source, "audioDefaults.musicDucking.enabled"))
+        multiplier = music_ducking.get("duckMultiplier")
+        if multiplier is not None and (not _is_number(multiplier) or not math.isfinite(float(multiplier)) or not 0 <= multiplier <= 1):
+            errors.append(_issue("error", "audioDefaults.musicDucking.duckMultiplier must be from 0 to 1.", source, "audioDefaults.musicDucking.duckMultiplier"))
+        for field_name in ("attackMs", "holdMs", "releaseMs"):
+            duration = music_ducking.get(field_name)
+            if duration is not None and (not _is_number(duration) or not math.isfinite(float(duration)) or not 0 <= duration <= 120000):
+                errors.append(_issue("error", f"audioDefaults.musicDucking.{field_name} must be from 0 to 120000 milliseconds.", source, f"audioDefaults.musicDucking.{field_name}"))
 
     rarity_ids = set(known.get("rarities", []))
     for field_name in ("fullPopupMinimumRarity", "majorPopupMinimumRarity"):

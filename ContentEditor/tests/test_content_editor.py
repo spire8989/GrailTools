@@ -65,9 +65,11 @@ class ContentEditorTests(unittest.TestCase):
             "function renderMinigame()",
             'data-minigame-stage',
             'data-action="add-minigame-hotspot"',
+            'data-action="duplicate-minigame-hotspot"',
             'data-minigame-tutorial-field="enabled"',
         ):
             self.assertIn(fragment, app)
+        self.assertIn('renderSynthAudioSelector("Minigame music", "musicTrackId"', app)
         self.assertIn(".minigame-hotspot-marker", styles)
 
         invalid = clone(catalog["minigames"])
@@ -79,6 +81,9 @@ class ContentEditorTests(unittest.TestCase):
         self.assertTrue(any("radius must be between 0 and 1" in message for message in messages))
         self.assertTrue(any("hookWindowMs must be between 800 and 2500 milliseconds" in message for message in messages))
         self.assertTrue(any("Water lootTableId must reference a known loot table" in message for message in messages))
+        invalid["woodland_stream_fishing"]["musicTrackId"] = "missing_track"
+        errors = validate_catalog({"minigames": invalid}, catalog["known"], catalog["references"])["errors"]
+        self.assertTrue(any("Unknown music track ID 'missing_track'" in issue["message"] for issue in errors))
 
         temp, project = self.temporary_grail()
         self.addCleanup(temp.cleanup)
@@ -181,6 +186,13 @@ class ContentEditorTests(unittest.TestCase):
 
     def test_synth_audio_selectors_validate_and_surface_across_combat_content(self) -> None:
         catalog = load_catalog(GRAIL)
+        combats = clone(catalog["combats"])
+        combats["wild_boar"]["musicTrackId"] = "camelot_twilight"
+        self.assertEqual(validate_catalog({"combats": combats}, catalog["known"], catalog["references"])["errors"], [])
+        invalid_combat = clone(combats)
+        invalid_combat["wild_boar"]["musicTrackId"] = "missing_track"
+        combat_errors = validate_catalog({"combats": invalid_combat}, catalog["known"], catalog["references"])["errors"]
+        self.assertTrue(any("Unknown music track ID 'missing_track'" in issue["message"] for issue in combat_errors))
         ability_id, ability = next((item for item in catalog["abilities"].items() if item[1].get("kind") == "active"))
         abilities = clone(catalog["abilities"])
         abilities[ability_id]["useSfxId"] = "pickup_confirm"
@@ -197,6 +209,7 @@ class ContentEditorTests(unittest.TestCase):
             self.assertIn(label, app)
         self.assertIn('renderSynthAudioSelect("Use SFX", combat.useSfxId', app)
         self.assertIn('renderSynthAudioSelect("Use SFX", action.useSfxId', app)
+        self.assertIn('renderSynthAudioSelector("Combat music", "musicTrackId"', app)
 
     def test_encounter_milestone_fields_load_validate_and_save_surgically(self) -> None:
         catalog = load_catalog(GRAIL)
@@ -560,9 +573,11 @@ class ContentEditorTests(unittest.TestCase):
         self.assertEqual(audio["confirmSfxId"], "pickup_confirm")
         self.assertEqual(audio["transactionSfxId"], "coins_transaction")
         self.assertEqual(audio["restMusicTrackId"], "rest_lullaby")
+        self.assertEqual(audio["musicDucking"]["duckMultiplier"], 0.62)
+        self.assertEqual(audio["musicDucking"]["holdMs"], 180)
         self.assertEqual(combat["playerAttackUseSfxId"], "attack_swing")
         self.assertEqual(combat["playerAttackImpactSfxId"], "attack_impact")
-        self.assertIsNone(combat["enemyAttackUseSfxId"])
+        self.assertEqual(combat["enemyAttackUseSfxId"], "attack_swing")
         self.assertEqual(combat["enemyAttackImpactSfxId"], "attack_impact")
         self.assertEqual(validate_catalog({"globalSettings": settings}, catalog["known"], catalog["references"])["errors"], [])
 
@@ -570,10 +585,14 @@ class ContentEditorTests(unittest.TestCase):
         invalid_settings["audioDefaults"]["confirmSfxId"] = "rest_lullaby"
         invalid_settings["audioDefaults"]["restMusicTrackId"] = "pickup_confirm"
         invalid_settings["audioDefaults"]["combat"]["playerAttackImpactSfxId"] = "rest_lullaby"
+        invalid_settings["audioDefaults"]["musicDucking"]["duckMultiplier"] = 1.1
+        invalid_settings["audioDefaults"]["musicDucking"]["releaseMs"] = -1
         errors = validate_catalog({"globalSettings": invalid_settings}, catalog["known"], catalog["references"])["errors"]
         self.assertTrue(any("audioDefaults.confirmSfxId" in issue["message"] for issue in errors))
         self.assertTrue(any("audioDefaults.restMusicTrackId" in issue["message"] for issue in errors))
         self.assertTrue(any("audioDefaults.combat.playerAttackImpactSfxId" in issue["message"] for issue in errors))
+        self.assertTrue(any("audioDefaults.musicDucking.duckMultiplier" in issue["message"] for issue in errors))
+        self.assertTrue(any("audioDefaults.musicDucking.releaseMs" in issue["message"] for issue in errors))
 
         recipes = clone(catalog["recipes"])
         self.assertEqual(recipes["bandages"]["craftingSfxId"], "craft_cloth_loop")
@@ -588,6 +607,7 @@ class ContentEditorTests(unittest.TestCase):
         self.assertIn("Audio Defaults · Combat", app)
         self.assertIn('data-global-music-field="audioDefaults.restMusicTrackId"', app)
         self.assertIn('data-global-sfx-field="audioDefaults.transactionSfxId"', app)
+        self.assertIn('data-field="audioDefaults.musicDucking.enabled"', app)
         for label in ("Player Attack Use SFX", "Player Attack Impact SFX", "Enemy Attack Use SFX", "Enemy Attack Impact SFX", "Block SFX", "Heal SFX", "Status SFX", "Enemy Defeated SFX", "Ally Defeated SFX", "Flee Success SFX", "Flee Failure SFX", "Victory SFX", "Defeat SFX"):
             self.assertIn(label, app)
         self.assertIn('Recipe crafting SFX override', app)
