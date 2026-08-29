@@ -37,6 +37,14 @@ class MinigameEditorBrowserTests(unittest.TestCase):
             && Math.abs((() => { const stage=document.querySelector('[data-minigame-stage]').getBoundingClientRect(); return stage.width / stage.height; })() - 2 / 3) < 0.02
             && Number(document.querySelector('[data-minigame-default-field=hookWindowMs]').value) >= 800
         """))
+        self.browser.evaluate(
+            "document.querySelector('[data-action=select][data-id=fishing_teacher_tutorial]').click()",
+        )
+        self.assertTrue(self.browser.evaluate("""
+            document.querySelector('[data-minigame-tutorial-field=enabled]').checked
+            && document.querySelector('[data-minigame-tutorial-field=title]').value === 'Read the Water'
+        """))
+        self.browser.evaluate("document.querySelector('[data-action=select][data-id=woodland_stream_fishing]').click()")
         self.browser.evaluate("document.querySelector('[data-action=add-minigame-hotspot]').click()")
         self.assertEqual(
             self.browser.evaluate("state.draft.hotspots.length"),

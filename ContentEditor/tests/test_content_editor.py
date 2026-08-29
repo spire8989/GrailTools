@@ -65,6 +65,7 @@ class ContentEditorTests(unittest.TestCase):
             "function renderMinigame()",
             'data-minigame-stage',
             'data-action="add-minigame-hotspot"',
+            'data-minigame-tutorial-field="enabled"',
         ):
             self.assertIn(fragment, app)
         self.assertIn(".minigame-hotspot-marker", styles)
@@ -607,6 +608,10 @@ class ContentEditorTests(unittest.TestCase):
         catalog = load_catalog(GRAIL)
         layout = catalog["encounters"]["abandoned_camp"]["encounterLayout"]
         self.assertEqual(layout["arthur"], {"x": 0.609375, "y": 0.7990451388888888})
+        fisher_layout = catalog["encounters"]["old_road_fisher"]["encounterLayout"]
+        self.assertEqual(set(fisher_layout), {"arthur", "companion1", "companion2"})
+        self.assertEqual(fisher_layout["arthur"]["facing"], "right")
+        self.assertEqual(fisher_layout["arthur"]["scale"], 0.75)
         app = (CONTENT_EDITOR / "static" / "app.js").read_text(encoding="utf-8")
         self.assertIn("data-encounter-layout-editor", app)
         self.assertIn("data-encounter-layout-marker", app)
