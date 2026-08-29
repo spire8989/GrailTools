@@ -2319,7 +2319,10 @@ function syncCharacterVisualPreviews() {
   if (!state.draft || !["playerCharacter", "companions", "enemyDefinitions"].includes(state.category)) return;
   document.querySelectorAll("[data-character-preview]").forEach((root) => {
     if (root.dataset.previewEncounterLayout === "true") return;
-    const visual = state.draft.visuals?.[root.dataset.previewSlot] || {};
+    const previewSlot = root.dataset.previewSlot;
+    const visual = ["idle", "walk", "attack"].includes(previewSlot)
+      ? state.draft.visuals?.[previewSlot] || {}
+      : state.draft.visuals?.animations?.[previewSlot] || {};
     const assetId = visual.assetId || "";
     root.dataset.previewAssetId = assetId;
     root.dataset.previewFrameCount = String(Number(visual.frameCount) > 0 ? Number(visual.frameCount) : 1);
@@ -2374,6 +2377,17 @@ function renderCharacterVisuals(definition, context) {
     const impactFrame = slot === "attack" ? `<label>Impact frame<input type="number" min="0" step="1" data-field="visuals.${slot}.impactFrame" value="${escapeHtml(visual.impactFrame ?? "")}" placeholder="default"><span class="hint">default: about 60% of frames</span></label>` : "";
     return `<div class="section-card"><h4>${label}</h4>${renderCharacterVisualPreview(slot, label, visual, { characterId: definition?.id })}${renderAssetSelector(`${label} visual`, `visuals.${slot}.assetId`, visual.assetId, "image", "combat", `${context} ${slot}`, "sprite_sheet")}<div class="form-grid four"><label>Frames<input type="number" min="1" step="1" data-field="visuals.${slot}.frameCount" value="${escapeHtml(visual.frameCount ?? "")}" placeholder="optional"></label><label>Columns<input type="number" min="1" step="1" data-field="visuals.${slot}.columns" value="${escapeHtml(visual.columns ?? "")}" placeholder="optional"></label><label>FPS<input type="number" min="0" step="any" data-field="visuals.${slot}.fps" value="${escapeHtml(visual.fps ?? "")}" placeholder="default"></label><label>Scale<input type="number" min="0.25" max="3" step="0.05" data-field="visuals.${slot}.scale" value="${escapeHtml(visual.scale ?? "")}" placeholder="1"></label>${impactFrame}<label>Offset X<input type="number" step="1" data-field="visuals.${slot}.offsetX" value="${escapeHtml(visual.offsetX ?? "")}" placeholder="0"><span class="hint">normalized px; + right</span></label><label>Offset Y<input type="number" step="1" data-field="visuals.${slot}.offsetY" value="${escapeHtml(visual.offsetY ?? "")}" placeholder="0"><span class="hint">normalized px; + down</span></label></div></div>`;
   }).join("")}</section>`;
+}
+
+function renderEnemySpecialAnimations(definition, context) {
+  const animations = definition?.visuals?.animations || {};
+  const rows = Object.entries(animations).map(([animationId, visual]) => {
+    const entry = visual && typeof visual === "object" ? visual : {};
+    const impactFrame = `<label>Impact frame<input type="number" min="0" step="1" data-special-animation-field="impactFrame" data-special-animation-id="${escapeHtml(animationId)}" value="${escapeHtml(entry.impactFrame ?? "")}" placeholder="default"><span class="hint">default: about 60% of frames</span></label>`;
+    const path = `visuals.animations.${animationId}`;
+    return `<div class="section-card"><h4>${escapeHtml(animationId)}</h4>${renderCharacterVisualPreview(animationId, `Special: ${animationId}`, entry, { characterId: definition?.id })}${renderAssetSelector("Sprite sheet", `${path}.assetId`, entry.assetId, "image", "combat", `${context} ${animationId}`, "sprite_sheet")}<div class="form-grid four"><label>Animation ID<input data-special-animation-id="${escapeHtml(animationId)}" value="${escapeHtml(animationId)}" pattern="[a-z][a-z0-9_]*"><span class="hint">lowercase letters, numbers, and underscores</span></label><label>Frames<input type="number" min="1" step="1" data-special-animation-field="frameCount" data-special-animation-id="${escapeHtml(animationId)}" value="${escapeHtml(entry.frameCount ?? "")}" placeholder="optional"></label><label>Columns<input type="number" min="1" step="1" data-special-animation-field="columns" data-special-animation-id="${escapeHtml(animationId)}" value="${escapeHtml(entry.columns ?? "")}" placeholder="optional"></label><label>FPS<input type="number" min="0" step="any" data-special-animation-field="fps" data-special-animation-id="${escapeHtml(animationId)}" value="${escapeHtml(entry.fps ?? "")}" placeholder="default"></label><label>Scale<input type="number" min="0.25" max="3" step="0.05" data-special-animation-field="scale" data-special-animation-id="${escapeHtml(animationId)}" value="${escapeHtml(entry.scale ?? "")}" placeholder="1"></label>${impactFrame}<label>Offset X<input type="number" step="1" data-special-animation-field="offsetX" data-special-animation-id="${escapeHtml(animationId)}" value="${escapeHtml(entry.offsetX ?? "")}" placeholder="0"><span class="hint">normalized px; + right</span></label><label>Offset Y<input type="number" step="1" data-special-animation-field="offsetY" data-special-animation-id="${escapeHtml(animationId)}" value="${escapeHtml(entry.offsetY ?? "")}" placeholder="0"><span class="hint">normalized px; + down</span></label></div><div class="button-row"><button type="button" class="small-button danger-outline" data-action="remove-enemy-special-animation" data-enemy-special-animation-id="${escapeHtml(animationId)}">Remove</button></div></div>`;
+  }).join("");
+  return `<section class="section character-visuals enemy-special-animations"><div class="section-heading"><div><h3>Special Animations</h3><p>Optional named enemy sprite-sheet animations. Enemy actions reference these IDs and fall back to the default Attack animation when unavailable.</p></div><button type="button" class="small-button" data-action="add-enemy-special-animation">Add animation</button></div>${rows || `<p class="hint">No special animations. Enemy actions will use Attack.</p>`}</section>`;
 }
 
 function startingItemIds() {
@@ -2522,6 +2536,7 @@ function renderEnemy() {
   return `<div class="editor-title"><div><h2>${escapeHtml(enemy.name || enemy.id || "New enemy")}</h2><p>${escapeHtml(enemy.id || "Unsaved ID")}</p></div><span class="schema-badge">Enemy schema</span></div>
     <section class="section"><div class="section-heading"><div><h3>Enemy identity and combat stats</h3><p>Enemies are reusable definitions authored in <code>COMBAT_ENEMY_DEFINITIONS</code>.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(enemy.id || "")}"></label><label>Name<input data-enemy-field="name" value="${escapeHtml(enemy.name || "")}"></label><label>Maximum HP<input type="number" min="1" step="1" data-enemy-field="maxHp" value="${escapeHtml(enemy.maxHp ?? "")}"></label><label>Speed<input type="number" min="1" step="any" data-enemy-field="speed" value="${escapeHtml(enemy.speed ?? "")}"></label><label>Defense<input type="number" min="0" step="any" data-enemy-field="defense" value="${escapeHtml(enemy.defense ?? "")}"></label><label>Visual scale<input type="number" min="0.25" max="3" step="0.05" data-field="visualScale" value="${escapeHtml(enemy.visualScale ?? 1)}"></label><label>Combat visual scale<input type="number" min="0.25" max="3" step="0.05" data-field="combatVisualScale" value="${escapeHtml(enemy.combatVisualScale ?? "")}" placeholder="optional"></label>${renderAssetSelector("Combat visual", "combatVisualAssetId", enemy.combatVisualAssetId ?? enemy.visualAssetId, "image", "combat", enemy.name || enemy.id, "combat")}</div></section>
     ${renderCharacterVisuals(enemy, enemy.name || enemy.id)}
+    ${renderEnemySpecialAnimations(enemy, enemy.name || enemy.id)}
     <section class="section"><div class="section-heading"><div><h3>Action pattern</h3><p>Choose reusable Enemy Actions in their authored order. Repeated action IDs remain meaningful.</p></div><button type="button" class="small-button" data-action="add-enemy-action-pattern">Add action</button></div>${renderEnemyPatternRows(enemy) || `<p class="hint">No actions. Add an action to author this enemy's pattern.</p>`}</section>
     <section class="section"><div class="section-heading"><div><h3>Traits</h3><p>Traits are generic runtime behaviors. Regeneration may be suppressed by authored combat statuses.</p></div><button type="button" class="small-button" data-action="add-enemy-trait">Add trait</button></div>${renderEnemyTraitRows(enemy) || `<p class="hint">No traits. Add one to author a reusable enemy behavior.</p>`}</section>
     <section class="section"><div class="section-heading"><div><h3>Loot Sources</h3><p>Intrinsic drops resolve once per defeated enemy instance after the entire combat is won.</p></div><button type="button" class="small-button" data-action="add-loot-source" data-loot-source-field="lootSources">Add source</button></div>${renderLootSourceRows(enemy.lootSources, "lootSources", "No intrinsic loot sources. Add a loot table when this enemy should carry a drop.")}</section>
@@ -2539,7 +2554,7 @@ function renderEnemyActionDefinition() {
   const references = (liveReferences().enemyActions || []).filter((reference) => reference.id === action.id);
   return `<div class="editor-title"><div><h2>${escapeHtml(action.name || action.id || "New enemy action")}</h2><p>${escapeHtml(action.id || "Unsaved ID")}</p></div><span class="schema-badge">Enemy Action schema</span></div>
     <section class="section"><div class="section-heading"><div><h3>Action identity and damage</h3><p>Enemy Actions are reusable definitions authored in <code>COMBAT_ENEMY_ACTION_DEFINITIONS</code>.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(action.id || "")}"></label><label>Name / intent text<input data-enemy-action-field="name" value="${escapeHtml(action.name || "")}"></label><label>Damage minimum<input type="number" min="0" step="any" data-enemy-action-field="damage.minimum" value="${escapeHtml(damage.minimum ?? "")}"></label><label>Damage maximum<input type="number" min="0" step="any" data-enemy-action-field="damage.maximum" value="${escapeHtml(damage.maximum ?? "")}"></label><label>Target mode<select data-enemy-action-field="target"><option value="">Select target...</option>${selectOptions(targetModes, action.target)}</select></label></div></section>
-    <section class="section"><div class="section-heading"><div><h3>Injury effect</h3><p>Optional injury references use the live Injury catalog.</p></div></div><div class="form-grid"><label>Injury${referenceInput("injuryId", action.injuryId, true)}</label><label>Injury chance<input type="number" min="0" max="1" step="any" data-enemy-action-field="injuryChance" value="${escapeHtml(action.injuryChance ?? "")}"></label><label class="check-chip"><input type="checkbox" data-enemy-action-field="telegraphed"${action.telegraphed ? " checked" : ""}>Telegraphed heavy attack</label></div>${renderSynthAudioSelect("Use SFX", action.useSfxId, "sfx", "data-enemy-action-field=\"useSfxId\"")}${renderSynthAudioSelect("Impact SFX", action.impactSfxId, "sfx", "data-enemy-action-field=\"impactSfxId\"")}</section>
+    <section class="section"><div class="section-heading"><div><h3>Injury effect</h3><p>Optional injury references use the live Injury catalog.</p></div></div><div class="form-grid"><label>Injury${referenceInput("injuryId", action.injuryId, true)}</label><label>Injury chance<input type="number" min="0" max="1" step="any" data-enemy-action-field="injuryChance" value="${escapeHtml(action.injuryChance ?? "")}"></label><label>Animation<input data-enemy-action-field="animationId" value="${escapeHtml(action.animationId ?? "")}" placeholder="bell_ring"><span class="hint">Optional named enemy animation. Falls back to the enemy's default Attack animation.</span></label><label class="check-chip"><input type="checkbox" data-enemy-action-field="telegraphed"${action.telegraphed ? " checked" : ""}>Telegraphed heavy attack</label></div>${renderSynthAudioSelect("Use SFX", action.useSfxId, "sfx", "data-enemy-action-field=\"useSfxId\"")}${renderSynthAudioSelect("Impact SFX", action.impactSfxId, "sfx", "data-enemy-action-field=\"impactSfxId\"")}</section>
     <section class="section"><div class="section-heading"><div><h3>Used by</h3><p>Enemy action patterns that reference this action.</p></div></div><div class="reference-list">${renderReferenceRows(references, "No enemy currently uses this action.")}</div></section>
     <section class="section"><details><summary>Raw Enemy Action JSON (advanced)</summary><p class="hint">Use this for uncommon future effect, weight, or presentation fields.</p><textarea id="raw-json" class="raw-editor">${jsonText(action)}</textarea><div class="button-row"><button type="button" class="small-button" data-action="apply-raw">Apply raw JSON</button></div></details></section>`;
 }
@@ -3804,6 +3819,24 @@ function setNested(object, path, value) {
   else target[key] = value;
 }
 
+function commitEnemySpecialAnimationId(input) {
+  const oldId = input.dataset.specialAnimationId;
+  const newId = input.value.trim();
+  const animations = state.draft?.visuals?.animations || {};
+  if (!newId || newId === oldId || !/^[a-z][a-z0-9_]*$/.test(newId)
+    || Object.prototype.hasOwnProperty.call(animations, newId)) {
+    input.value = oldId;
+    return;
+  }
+  const nextAnimations = {};
+  Object.entries(animations).forEach(([id, visual]) => {
+    nextAnimations[id === oldId ? newId : id] = visual;
+  });
+  state.draft.visuals.animations = nextAnimations;
+  markDirty();
+  render();
+}
+
 function toggleArray(array, value, on) {
   const result = Array.isArray(array) ? [...array] : [];
   const index = result.indexOf(value);
@@ -4385,6 +4418,15 @@ function handleInput(input) {
       if (!action) return;
       setNested(action, input.dataset.enemyActionField, value);
     }
+    markDirty();
+    return;
+  }
+  if (input.dataset.specialAnimationField) {
+    const animation = state.draft.visuals?.animations?.[input.dataset.specialAnimationId];
+    if (!animation) return;
+    const value = parseInputValue(input, input.dataset.specialAnimationField);
+    if (value === undefined || value === "") delete animation[input.dataset.specialAnimationField];
+    else animation[input.dataset.specialAnimationField] = value;
     markDirty();
     return;
   }
@@ -5299,6 +5341,17 @@ function handleAction(button) {
     state.draft.traits.push({ type: "regeneration", amount: 1, trigger: "activation", suppressedByStatuses: [] });
     markDirty();
     render();
+  } else if (action === "add-enemy-special-animation") {
+    state.draft.visuals ||= {};
+    state.draft.visuals.animations ||= {};
+    const animationId = uniqueId("new_animation", state.draft.visuals.animations);
+    state.draft.visuals.animations[animationId] = {};
+    markDirty();
+    render();
+  } else if (action === "remove-enemy-special-animation") {
+    if (state.draft.visuals?.animations) delete state.draft.visuals.animations[button.dataset.enemySpecialAnimationId];
+    markDirty();
+    render();
   } else if (action === "remove-enemy-trait") {
     state.draft.traits?.splice(Number(button.dataset.enemyTraitIndex), 1);
     markDirty();
@@ -5861,6 +5914,7 @@ document.addEventListener("change", (event) => {
   }
   else if (event.target.matches("[data-town-hotspot-input]")) commitTownLayoutInput(event.target);
   else if (event.target.matches("[data-route-branch-id-field]")) commitRouteBranchId(event.target);
+  else if (event.target.matches("[data-special-animation-id]")) commitEnemySpecialAnimationId(event.target);
   else if (event.target.matches("textarea[data-object-json]")) handleObjectJson(event.target);
   else if (event.target.matches("textarea[data-dialogue-choice-json]")) {
     try {

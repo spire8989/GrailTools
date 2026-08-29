@@ -379,6 +379,10 @@ class ContentEditorTests(unittest.TestCase):
         self.assertIn("Impact frame", app)
         self.assertIn('Scale Comparison', app)
         self.assertIn('character-scale-comparison-grid', app)
+        self.assertIn("Special Animations", app)
+        self.assertIn('data-action="add-enemy-special-animation"', app)
+        self.assertIn('data-action="remove-enemy-special-animation"', app)
+        self.assertIn('data-enemy-action-field="animationId"', app)
         image_assets = {"character_pass_combat": {"id": "character_pass_combat", "category": "combat", "path": "assets/images/combat/character_pass_combat.webp"}}
         player = clone(catalog["playerCharacter"])
         player["combatVisualAssetId"] = None
@@ -408,6 +412,12 @@ class ContentEditorTests(unittest.TestCase):
         errors = validate_catalog(values, catalog["known"])["errors"]
         self.assertTrue(any("impactFrame" in issue["message"] for issue in errors))
         player["visuals"]["idle"].pop("impactFrame")
+        player["visuals"]["animations"] = {"bell_ring": {"assetId": "character_pass_combat", "frameCount": 12, "columns": 12, "fps": 12, "impactFrame": 7, "scale": 1, "offsetX": 0, "offsetY": 0}}
+        self.assertEqual(validate_catalog(values, catalog["known"])["errors"], [])
+        player["visuals"]["animations"]["bell_ring"]["impactFrame"] = 12
+        errors = validate_catalog(values, catalog["known"])["errors"]
+        self.assertTrue(any("impactFrame" in issue["message"] for issue in errors))
+        player["visuals"]["animations"]["bell_ring"]["impactFrame"] = 7
         player["visualScale"] = 3.5
         errors = validate_catalog(values, catalog["known"])["errors"]
         self.assertTrue(any("visualScale" in issue["message"] for issue in errors))
@@ -2143,6 +2153,9 @@ class ContentEditorTests(unittest.TestCase):
         blocks = constant_property_blocks(source, parsed)
         enemies = clone(before["enemyDefinitions"])
         enemies["bandit_leader"]["maxHp"] += 1
+        enemies["bandit_leader"].setdefault("visuals", {})["animations"] = {
+            "bell_ring": {**enemies["bandit_leader"]["visuals"]["attack"], "impactFrame": 7},
+        }
         added_id = "__phase7_enemy"
         enemies[added_id] = {
             "id": added_id,
@@ -2156,6 +2169,7 @@ class ContentEditorTests(unittest.TestCase):
         after = load_catalog(project)
         self.assertEqual(after["enemyDefinitions"]["bandit_leader"]["maxHp"], before["enemyDefinitions"]["bandit_leader"]["maxHp"] + 1)
         self.assertEqual(after["enemyDefinitions"][added_id]["actionPattern"], ["wolf_bite"])
+        self.assertEqual(after["enemyDefinitions"]["bandit_leader"]["visuals"]["animations"]["bell_ring"]["impactFrame"], 7)
 
         after_parsed, after_source, _ = parse_file_constant(enemy_path, "COMBAT_ENEMY_DEFINITIONS")
         after_blocks = constant_property_blocks(after_source, after_parsed)
@@ -2177,6 +2191,7 @@ class ContentEditorTests(unittest.TestCase):
         before = load_catalog(project)
         actions = clone(before["enemyActions"])
         actions["leader_strike"]["damage"]["maximum"] += 1
+        actions["leader_strike"]["animationId"] = "bell_ring"
         added_id = "__phase7_enemy_action"
         actions[added_id] = {
             "id": added_id,
@@ -2190,6 +2205,7 @@ class ContentEditorTests(unittest.TestCase):
         after = load_catalog(project)
         self.assertEqual(after["enemyActions"]["leader_strike"]["damage"]["maximum"], before["enemyActions"]["leader_strike"]["damage"]["maximum"] + 1)
         self.assertEqual(after["enemyActions"][added_id]["injuryId"], "deep_cut")
+        self.assertEqual(after["enemyActions"]["leader_strike"]["animationId"], "bell_ring")
 
         deleting = {"enemyActions": clone(after["enemyActions"])}
         del deleting["enemyActions"]["wolf_bite"]

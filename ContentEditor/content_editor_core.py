@@ -1890,16 +1890,13 @@ def _validate_character_visuals(definition: Any, known: dict[str, list[str]], so
         errors.append(_issue("error", "visuals must be an object or null.", source, "visuals"))
         return
     known_assets = set(known.get("imageAssets", []))
-    for slot, visual in visuals.items():
-        path = f"visuals.{slot}"
-        if slot not in CHARACTER_VISUAL_SLOTS:
-            errors.append(_issue("error", f"Unknown character visual slot {slot!r}.", source, path))
-            continue
+
+    def validate_visual(visual: Any, path: str) -> None:
         if visual is None:
-            continue
+            return
         if not isinstance(visual, dict):
             errors.append(_issue("error", "Character visual slots must be objects or null.", source, path))
-            continue
+            return
         if "assetId" in visual:
             asset_id = visual.get("assetId")
             if asset_id is not None and (not isinstance(asset_id, str) or not asset_id):
@@ -1930,6 +1927,23 @@ def _validate_character_visuals(definition: Any, known: dict[str, list[str]], so
         for offset in ("offsetX", "offsetY"):
             if offset in visual and visual.get(offset) is not None and not _is_number(visual.get(offset)):
                 errors.append(_issue("error", f"Character visual {offset} must be a finite number in normalized pixels.", source, f"{path}.{offset}"))
+
+    for slot, visual in visuals.items():
+        path = f"visuals.{slot}"
+        if slot == "animations":
+            if not isinstance(visual, dict):
+                errors.append(_issue("error", "visuals.animations must be an object or null.", source, path))
+                continue
+            for animation_id, animation in visual.items():
+                animation_path = f"{path}.{animation_id}"
+                if not isinstance(animation_id, str) or not re.fullmatch(r"[a-z][a-z0-9_]*", animation_id):
+                    errors.append(_issue("error", "Named character animation IDs must use simple lowercase content IDs.", source, animation_path))
+                validate_visual(animation, animation_path)
+            continue
+        if slot not in CHARACTER_VISUAL_SLOTS:
+            errors.append(_issue("error", f"Unknown character visual slot {slot!r}.", source, path))
+            continue
+        validate_visual(visual, path)
 
 
 def _validate_character_scale(definition: Any, source: str, errors: list[dict[str, str]]) -> None:
