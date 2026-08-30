@@ -249,6 +249,12 @@ function locationLabel(locationId) {
   return location?.name || state.catalog?.locationLabels?.[locationId] || locationId;
 }
 
+function minigameLabel(minigameId) {
+  const minigame = state.catalog?.minigames?.[minigameId];
+  const label = minigame?.name || minigame?.title || state.catalog?.minigameLabels?.[minigameId];
+  return label ? `${label} (${minigameId})` : minigameId;
+}
+
 function assetPreviewUrl(path) {
   return `/api/assets/file?path=${encodeURIComponent(path || "")}`;
 }
@@ -1035,9 +1041,9 @@ function referenceInput(field, value, rootField = false) {
       : "";
     return `<span class="reference-inline"><input list="loot-table-options" ${fieldAttribute} value="${escapeHtml(value || "")}" placeholder="loot table ID">${openButton}</span>`;
   }
-  const map = { combatId: "combats", enemyId: "enemyDefinitions", enemyActionId: "enemyActions", abilityId: "abilities", injuryId: "injuries", treatmentItemId: "items", tableId: "lootTables", pathId: "paths", expeditionId: "expeditions", recipeId: "recipes", materialId: "materials", craftingProvider: "craftingProviders", craftingProviderId: "craftingProviders", shopId: "shops", regionId: "regions", eventId: "campEvents", campEventId: "campEvents", knowledgeId: "knowledge", companionId: "companions", dialogueId: "dialogues", dialogueSequenceId: "dialogues", introDialogueSequenceId: "dialogues", speakerId: "npcs", npcId: "npcs", destinationId: "destinations", locationId: "locations" };
+  const map = { combatId: "combats", enemyId: "enemyDefinitions", enemyActionId: "enemyActions", abilityId: "abilities", injuryId: "injuries", treatmentItemId: "items", tableId: "lootTables", pathId: "paths", expeditionId: "expeditions", recipeId: "recipes", materialId: "materials", craftingProvider: "craftingProviders", craftingProviderId: "craftingProviders", shopId: "shops", regionId: "regions", eventId: "campEvents", campEventId: "campEvents", knowledgeId: "knowledge", companionId: "companions", dialogueId: "dialogues", dialogueSequenceId: "dialogues", introDialogueSequenceId: "dialogues", speakerId: "npcs", npcId: "npcs", destinationId: "destinations", locationId: "locations", minigameId: "minigames" };
   if (!map[field]) return `<input ${fieldAttribute} value="${escapeHtml(value || "")}">`;
-  let values = ["items", "combats", "enemyDefinitions", "enemyActions", "abilities", "injuries", "campEvents", "lootTables", "paths", "expeditions", "recipes", "materials", "craftingProviders", "dialogues", "npcs", "destinations", "locations", "shops", "companions"].includes(map[field])
+  let values = ["items", "combats", "enemyDefinitions", "enemyActions", "abilities", "injuries", "campEvents", "lootTables", "paths", "expeditions", "recipes", "materials", "craftingProviders", "dialogues", "npcs", "destinations", "locations", "shops", "companions", "minigames"].includes(map[field])
     ? Object.keys(state.catalog?.[map[field]] || {}).sort()
     : known[map[field]] || [];
   if (field === "speakerId" && value === "arthur" && !values.includes("arthur")) values = ["arthur", ...values];
@@ -1073,15 +1079,17 @@ function referenceInput(field, value, rootField = false) {
                   ? Object.fromEntries(values.map((id) => [id, destinationLabel(id)]))
                   : map[field] === "locations"
                     ? Object.fromEntries(values.map((id) => [id, locationLabel(id)]))
+                    : map[field] === "minigames"
+                      ? Object.fromEntries(values.map((id) => [id, minigameLabel(id)]))
     : {};
-  const openCategory = map[field] === "items" ? "items" : map[field] === "combats" ? "combats" : map[field] === "enemyDefinitions" ? "enemyDefinitions" : map[field] === "enemyActions" ? "enemyActions" : map[field] === "abilities" ? "abilities" : map[field] === "injuries" ? "injuries" : map[field] === "campEvents" ? "campEvents" : map[field] === "lootTables" ? "lootTables" : map[field] === "paths" ? "paths" : map[field] === "expeditions" ? "expeditions" : map[field] === "recipes" ? "recipes" : map[field] === "materials" ? "materials" : map[field] === "craftingProviders" ? "craftingProviders" : map[field] === "dialogues" ? "dialogues" : map[field] === "npcs" ? "npcs" : map[field] === "destinations" ? "destinations" : map[field] === "locations" ? "locations" : map[field] === "companions" ? "companions" : null;
+  const openCategory = map[field] === "items" ? "items" : map[field] === "combats" ? "combats" : map[field] === "enemyDefinitions" ? "enemyDefinitions" : map[field] === "enemyActions" ? "enemyActions" : map[field] === "abilities" ? "abilities" : map[field] === "injuries" ? "injuries" : map[field] === "campEvents" ? "campEvents" : map[field] === "lootTables" ? "lootTables" : map[field] === "paths" ? "paths" : map[field] === "expeditions" ? "expeditions" : map[field] === "recipes" ? "recipes" : map[field] === "materials" ? "materials" : map[field] === "craftingProviders" ? "craftingProviders" : map[field] === "dialogues" ? "dialogues" : map[field] === "npcs" ? "npcs" : map[field] === "destinations" ? "destinations" : map[field] === "locations" ? "locations" : map[field] === "companions" ? "companions" : map[field] === "minigames" ? "minigames" : null;
   const openButton = openCategory && value
     ? ` <button type="button" class="small-button inline-open" data-action="open-reference" data-reference-category="${openCategory}" data-reference-id="${escapeHtml(value)}">Open</button>`
     : "";
   return `<span class="reference-inline"><select ${fieldAttribute}><option value="">Select ${field.replace("Id", "")}...</option>${selectOptions(values, value, labels)}</select>${openButton}</span>`;
 }
 
-function quickObjectFields(object) {
+function quickObjectFields(object, requirements = false) {
   const type = object.type || "";
   const fields = [];
   const add = (field, label, kind = "text") => {
@@ -1094,6 +1102,8 @@ function quickObjectFields(object) {
   if ("injuryId" in object || type === "applyInjury") add("injuryId", "Injury reference", "reference");
   if ("recipeId" in object || type === "learnRecipe") add("recipeId", "Recipe reference", "reference");
   if ("dialogueId" in object || type === "startDialogue") add("dialogueId", "Dialogue reference", "reference");
+  if ("minigameId" in object || type === "startMinigame") add("minigameId", "Minigame", "reference");
+  if ("markEncounterFlag" in object || type === "startMinigame") add("markEncounterFlag", "Encounter flag");
   if ("tableId" in object || type === "rollLootTable") add("tableId", "Loot table", "reference");
   if ("pathId" in object || ["changePath", "currentPath"].includes(type)) add("pathId", "Path", "reference");
   if ("chance" in object || type === "randomChance") add("chance", "Chance", "number");
@@ -1110,7 +1120,7 @@ function quickObjectFields(object) {
   if ("value" in object || ["runFlag", "notRunFlag", "setRunFlag", "setCampaignFlag", "setCampaignFlagOnSafeReturn", "campaignFlag"].includes(type)) add("value", "Value");
   if ("resultText" in object || ["randomChance", "conditional"].includes(type)) add("resultText", type === "randomChance" ? "Success result text" : "Result text");
   if ("elseResultText" in object || type === "randomChance") add("elseResultText", type === "randomChance" ? "Failure result text" : "Else result text");
-  if ("lockedLabel" in object || type === "emptyCompanionSlot") add("lockedLabel", "Locked label");
+  if (requirements || "lockedLabel" in object || type === "emptyCompanionSlot") add("lockedLabel", "Locked label");
   if ("source" in object) add("source", "Source");
   return fields;
 }
@@ -1220,7 +1230,7 @@ function renderObjectCollection(label, collection, owner, stageId, choiceIndex, 
   const nestedPath = parentPath === null ? null : collectionPath(parentPath, collectionName);
   const contextAttributes = parentPath === null ? "" : ` data-parent-path="${escapeHtml(parentPath)}" data-collection-name="${escapeHtml(collectionName)}"`;
   const rows = values.map((object, index) => {
-    const fields = quickObjectFields(object || {});
+    const fields = quickObjectFields(object || {}, requirements);
     const quick = fields.map((field) => {
       const value = object?.[field.field];
       let control;
@@ -1269,7 +1279,7 @@ function renderChoice(stageId, choice, index) {
     ${renderObjectCollection("Requirements", choice.requirements, "requirements", stageId, index, choicePath)}
     ${renderObjectCollection("Costs", choice.costs, "costs", stageId, index, choicePath)}
     ${renderObjectCollection("Outcomes / effects", choice.outcomes, "outcomes", stageId, index, choicePath)}
-    <div class="button-row"><button type="button" class="small-button danger-outline" data-action="remove-choice" data-stage="${escapeHtml(stageId)}" data-choice-index="${index}">Remove choice</button></div>
+    <div class="button-row"><button type="button" class="small-button" data-action="move-choice" data-stage="${escapeHtml(stageId)}" data-choice-index="${index}" data-direction="up">Up</button><button type="button" class="small-button danger-outline" data-action="remove-choice" data-stage="${escapeHtml(stageId)}" data-choice-index="${index}">Remove choice</button></div>
   </details>`;
 }
 
@@ -5553,6 +5563,14 @@ function handleAction(button) {
   } else if (action === "remove-choice") {
     const stage = state.draft.stages[button.dataset.stage];
     stage.choices.splice(Number(button.dataset.choiceIndex), 1);
+    markDirty();
+    render();
+  } else if (action === "move-choice") {
+    const stage = state.draft.stages[button.dataset.stage];
+    const index = Number(button.dataset.choiceIndex);
+    const nextIndex = button.dataset.direction === "up" ? index - 1 : index + 1;
+    if (!stage?.choices || nextIndex < 0 || nextIndex >= stage.choices.length) return;
+    [stage.choices[index], stage.choices[nextIndex]] = [stage.choices[nextIndex], stage.choices[index]];
     markDirty();
     render();
   } else if (action === "add-object") {

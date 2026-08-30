@@ -278,6 +278,25 @@ class Phase6FilterBrowserTests(unittest.TestCase):
         self.browser.evaluate(f"document.querySelector('[data-action=select][data-id={target_provider}]').click()")
         self.assertIn(recipe_name, self.browser.evaluate("document.querySelector('#editor-root').innerText"))
 
+    def test_encounter_choices_can_move_up(self) -> None:
+        self.click_category("encounters")
+        self.browser.evaluate("document.querySelector('[data-action=select][data-id=woodland_stream]').click()")
+        self.assertEqual(self.browser.evaluate("state.draft.stages.start.choices[0].id"), "fish_the_stream")
+        self.browser.evaluate("document.querySelectorAll('[data-action=move-choice][data-direction=up]')[1].click()")
+        self.assertEqual(self.browser.evaluate("state.draft.stages.start.choices.slice(0, 2).map(choice => choice.id)"), ["wade_across", "fish_the_stream"])
+        self.assertIn("Unsaved changes", self.browser.evaluate("document.querySelector('#dirty-indicator').textContent"))
+
+    def test_encounter_requirements_always_expose_locked_label(self) -> None:
+        self.click_category("encounters")
+        self.browser.evaluate("document.querySelector('[data-action=select][data-id=broken_bridge]').click()")
+        self.assertTrue(self.browser.evaluate("""
+            (() => {
+                const requirements = [...document.querySelectorAll('[data-object-row][data-owner=requirements]')];
+                return requirements.length >= 2
+                    && requirements.every(row => Boolean(row.querySelector('[data-object-field=lockedLabel]')));
+            })()
+        """))
+
     def test_encounter_outcome_type_refreshes_schema_fields(self) -> None:
         self.click_category("encounters")
         self.browser.evaluate("document.querySelector('[data-action=select][data-id=wild_boar]').click()")

@@ -68,6 +68,45 @@ class MinigameEditorBrowserTests(unittest.TestCase):
             && state.draft.hotspots[1].lootTableId === window.__duplicateSource.lootTableId
         """))
 
+    def test_encounter_minigame_outcome_exposes_reference_and_flag_fields(self) -> None:
+        self.browser.evaluate("document.querySelector('[data-category=encounters]').click()")
+        self.browser.evaluate("document.querySelector('[data-action=select][data-id=woodland_stream]').click()")
+        self.assertTrue(self.browser.evaluate("""
+            (() => {
+                const row = [...document.querySelectorAll('[data-object-row]')]
+                    .find(candidate => candidate.querySelector('[data-object-field=type]')?.value === 'startMinigame');
+                const select = row?.querySelector('[data-object-field=minigameId]');
+                return Boolean(select)
+                    && select.value === 'woodland_stream_fishing'
+                    && [...select.options].some(option => option.value === 'fishing_teacher_tutorial')
+                    && Boolean(row.querySelector('[data-object-field=markEncounterFlag]'));
+            })()
+        """))
+        self.browser.evaluate("""
+            (() => {
+                const row = [...document.querySelectorAll('[data-object-row]')]
+                    .find(candidate => candidate.querySelector('[data-object-field=type]')?.value === 'startMinigame');
+                const select = row.querySelector('[data-object-field=minigameId]');
+                select.value = 'fishing_teacher_tutorial';
+                select.dispatchEvent(new Event('change', { bubbles: true }));
+                const flag = row.querySelector('[data-object-field=markEncounterFlag]');
+                flag.value = 'tutorial_seen';
+                flag.dispatchEvent(new Event('input', { bubbles: true }));
+            })()
+        """)
+        self.assertTrue(self.browser.evaluate("""
+            (() => {
+                const row = [...document.querySelectorAll('[data-object-row]')]
+                    .find(candidate => candidate.querySelector('[data-object-field=type]')?.value === 'startMinigame');
+                return row.querySelector('[data-object-field=minigameId]').value === 'fishing_teacher_tutorial'
+                    && row.querySelector('[data-object-field=markEncounterFlag]').value === 'tutorial_seen'
+                    && state.draft.stages.start.choices.some(choice => choice.outcomes?.some(outcome =>
+                        outcome.type === 'startMinigame'
+                        && outcome.minigameId === 'fishing_teacher_tutorial'
+                        && outcome.markEncounterFlag === 'tutorial_seen'));
+            })()
+        """))
+
 
 if __name__ == "__main__":
     unittest.main()
