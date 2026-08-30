@@ -303,12 +303,15 @@ class ContentEditorTests(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         before = load_catalog(project)
         self.assertEqual(before["playerCharacter"]["id"], "arthur")
+        self.assertEqual(before["playerCharacter"]["materialBagCapacity"], 15)
         self.assertIn("sir_kay", before["companions"])
         incoming = {"playerCharacter": clone(before["playerCharacter"])}
         incoming["playerCharacter"]["name"] = "Arthur (Character Pass Test)"
+        incoming["playerCharacter"]["materialBagCapacity"] = 21
         save_catalog(project, incoming, before["sourceHashes"], Path(temp.name) / "backups")
         after = load_catalog(project)
         self.assertEqual(after["playerCharacter"]["name"], "Arthur (Character Pass Test)")
+        self.assertEqual(after["playerCharacter"]["materialBagCapacity"], 21)
         self.assertEqual(after["companions"], before["companions"])
 
     def test_starting_state_round_trips_resources_materials_and_items(self) -> None:
@@ -365,6 +368,8 @@ class ContentEditorTests(unittest.TestCase):
     def test_character_visual_slots_validate_optional_shape_and_combat_category(self) -> None:
         catalog = load_catalog(GRAIL)
         app = (CONTENT_EDITOR / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertIn('data-field="materialBagCapacity"', app)
+        self.assertIn("Material Bag Capacity", app)
         self.assertIn('renderAssetSelector("Combat visual", "combatVisualAssetId"', app)
         self.assertIn('renderAssetSelector(`${label} visual`, `visuals.${slot}.assetId`, visual.assetId, "image", "combat"', app)
         self.assertIn('"sprite_sheet"', app)
@@ -392,6 +397,10 @@ class ContentEditorTests(unittest.TestCase):
         player["visuals"] = {"idle": {"assetId": "character_pass_combat", "frameCount": 4, "columns": 2, "fps": 0, "scale": 1.1, "offsetX": -3, "offsetY": 2}}
         values = {"imageAssets": image_assets, "playerCharacter": player}
         self.assertEqual(validate_catalog(values, catalog["known"])["errors"], [])
+        player["materialBagCapacity"] = 0
+        errors = validate_catalog(values, catalog["known"])["errors"]
+        self.assertTrue(any("materialBagCapacity must be a positive integer" in issue["message"] for issue in errors))
+        player["materialBagCapacity"] = 15
         player["visuals"]["idle"]["columns"] = 5
         errors = validate_catalog(values, catalog["known"])["errors"]
         self.assertTrue(any("columns" in issue["message"] for issue in errors))

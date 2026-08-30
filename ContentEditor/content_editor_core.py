@@ -1971,6 +1971,12 @@ def _validate_player_character(player: Any, known: dict[str, list[str]], errors:
     for field_name in ("provisionCapacity", "provisionConsumptionMultiplier"):
         if field_name in player and (not _is_number(player[field_name]) or player[field_name] < 0):
             errors.append(_issue("error", f"Player character {field_name} must be a non-negative number.", source, field_name))
+    if "materialBagCapacity" in player and (
+        not isinstance(player["materialBagCapacity"], int)
+        or isinstance(player["materialBagCapacity"], bool)
+        or player["materialBagCapacity"] <= 0
+    ):
+        errors.append(_issue("error", "Player character materialBagCapacity must be a positive integer.", source, "materialBagCapacity"))
     combat = player.get("combat")
     if not isinstance(combat, dict):
         errors.append(_issue("error", "Player character combat must be an object.", source, "combat"))
