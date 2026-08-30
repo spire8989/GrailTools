@@ -51,6 +51,34 @@ class ContentEditorTests(unittest.TestCase):
             self.assertEqual(catalog["validation"]["errors"][0]["source"], "encounter:lost_purse")
         self.assertEqual(catalog["validation"]["warnings"], [])
 
+    def test_companion_capacity_bonuses_load_validate_and_round_trip(self) -> None:
+        catalog = load_catalog(GRAIL)
+        llamrei = catalog["companions"]["llamrei"]
+        self.assertEqual(llamrei["provisionCapacityBonus"], 10)
+        self.assertEqual(llamrei["materialBagCapacityBonus"], 10)
+        app = (CONTENT_EDITOR / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertIn("Provision Capacity Bonus", app)
+        self.assertIn("Material Bag Capacity Bonus", app)
+        self.assertIn('data-field="materialBagCapacityBonus"', app)
+
+        invalid = clone(catalog["companions"])
+        invalid["llamrei"]["materialBagCapacityBonus"] = 1.5
+        errors = validate_catalog({"companions": invalid}, catalog["known"], catalog["references"])["errors"]
+        self.assertTrue(any("materialBagCapacityBonus must be a non-negative integer" in issue["message"] for issue in errors))
+
+        temp, project = self.temporary_grail()
+        self.addCleanup(temp.cleanup)
+        before = load_catalog(project)
+        companions = clone(before["companions"])
+        companions["llamrei"]["materialBagCapacityBonus"] = 12
+        companions["sir_kay"]["provisionCapacityBonus"] = 11
+        save_catalog(project, {"companions": companions}, before["sourceHashes"], Path(temp.name) / "backups")
+        after = load_catalog(project)
+        self.assertEqual(after["companions"]["llamrei"]["materialBagCapacityBonus"], 12)
+        self.assertEqual(after["companions"]["sir_kay"]["provisionCapacityBonus"], 11)
+        self.assertEqual(after["items"], before["items"])
+        self.assertTrue(list((Path(temp.name) / "backups").glob("data.js.*.bak")))
+
     def test_fishing_minigames_load_validate_and_round_trip_surgically(self) -> None:
         catalog = load_catalog(GRAIL)
         self.assertEqual(sorted(catalog["minigames"]), ["fishing_teacher_tutorial", "woodland_stream_fishing"])

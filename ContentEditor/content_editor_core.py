@@ -2116,7 +2116,14 @@ def _validate_companions(companions: Any, known: dict[str, list[str]], errors: l
                 errors.append(_issue("error", f"Companion {field_name} must be a string.", source, field_name))
         if "tags" in companion and (not isinstance(companion["tags"], list) or not all(isinstance(tag, str) for tag in companion["tags"])):
             errors.append(_issue("error", "Companion tags must be an array of strings.", source, "tags"))
-        for field_name in ("provisionCapacityBonus", "provisionConsumptionBonus", "travelSpeedMultiplier"):
+        for field_name in ("provisionCapacityBonus", "materialBagCapacityBonus"):
+            if field_name in companion and (
+                not isinstance(companion[field_name], int)
+                or isinstance(companion[field_name], bool)
+                or companion[field_name] < 0
+            ):
+                errors.append(_issue("error", f"Companion {field_name} must be a non-negative integer.", source, field_name))
+        for field_name in ("provisionConsumptionBonus", "travelSpeedMultiplier"):
             if field_name in companion and (not _is_number(companion[field_name]) or companion[field_name] < 0):
                 errors.append(_issue("error", f"Companion {field_name} must be a non-negative number.", source, field_name))
         capabilities = companion.get("capabilities")
