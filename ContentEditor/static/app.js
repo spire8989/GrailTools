@@ -5,6 +5,7 @@ const COMMON_REQUIREMENT_TYPES = [
   "ownsItem", "notOwnsItem", "carriedItem", "equippedItem", "availableExpeditionItem",
   "knowledge", "companion", "unlockedCompanion", "notUnlockedCompanion", "runFlag", "notRunFlag",
   "campaignFlag", "currentPath", "minimumResource", "minimumHealth", "maximumHealth", "minimumDistance", "notKnowledge", "encounterFlag", "notEncounterFlag",
+  "emptyCompanionSlot",
 ];
 const COMMON_EFFECT_TYPES = [
   "modifyResource", "consumeExpeditionItem", "gainUnsecuredItem", "gainUniqueUnsecuredItem",
@@ -1109,7 +1110,7 @@ function quickObjectFields(object) {
   if ("value" in object || ["runFlag", "notRunFlag", "setRunFlag", "setCampaignFlag", "setCampaignFlagOnSafeReturn", "campaignFlag"].includes(type)) add("value", "Value");
   if ("resultText" in object || ["randomChance", "conditional"].includes(type)) add("resultText", type === "randomChance" ? "Success result text" : "Result text");
   if ("elseResultText" in object || type === "randomChance") add("elseResultText", type === "randomChance" ? "Failure result text" : "Else result text");
-  if ("lockedLabel" in object) add("lockedLabel", "Locked label");
+  if ("lockedLabel" in object || type === "emptyCompanionSlot") add("lockedLabel", "Locked label");
   if ("source" in object) add("source", "Source");
   return fields;
 }
@@ -1941,11 +1942,26 @@ function enemyActionOptions(current) {
   return `<option value="">Select an enemy action...</option>${selectOptions(ids, current, Object.fromEntries(ids.map((id) => [id, enemyActionLabel(id)])))}`;
 }
 
+function enemyAnimationOptions(enemy) {
+  const named = Object.keys(enemy?.visuals?.animations || {}).sort();
+  const mapped = Object.values(enemy?.actionAnimations || {}).filter((value) => typeof value === "string" && value);
+  const ids = [...new Set(["attack", ...named, ...mapped])];
+  const labels = Object.fromEntries(ids.map((id) => [id, id === "attack" ? "Default Attack" : id]));
+  return ids.map((id) => `<option value="${escapeHtml(id)}">${escapeHtml(labels[id])}</option>`).join("");
+}
+
 function renderEnemyPatternRows(enemy) {
   const pattern = Array.isArray(enemy.actionPattern) ? enemy.actionPattern : [];
-  return pattern.map((actionId, index) => `<div class="reference-row" data-enemy-pattern-row>
-    <span class="panel-count">${index + 1}</span><select data-enemy-pattern-field="actionId" data-enemy-pattern-index="${index}">${enemyActionOptions(actionId)}</select><button type="button" class="small-button inline-open" data-action="open-reference" data-reference-category="enemyActions" data-reference-id="${escapeHtml(actionId)}">Open Action</button><button type="button" class="small-button" data-action="move-enemy-action" data-enemy-pattern-index="${index}" data-direction="up"${index === 0 ? " disabled" : ""}>↑</button><button type="button" class="small-button" data-action="move-enemy-action" data-enemy-pattern-index="${index}" data-direction="down"${index === pattern.length - 1 ? " disabled" : ""}>↓</button><button type="button" class="small-button danger-outline" data-action="remove-enemy-action-pattern" data-enemy-pattern-index="${index}">Remove</button>
-  </div>`).join("");
+  return pattern.map((actionId, index) => {
+    const animationId = typeof enemy.actionAnimations?.[actionId] === "string" ? enemy.actionAnimations[actionId] : "";
+    return `<div class="reference-row" data-enemy-pattern-row>
+    <span class="panel-count">${index + 1}</span><select data-enemy-pattern-field="actionId" data-enemy-pattern-index="${index}">${enemyActionOptions(actionId)}</select><label>Animation<input list="enemy-animation-options" data-enemy-pattern-field="animationId" data-enemy-pattern-index="${index}" value="${escapeHtml(animationId)}" placeholder="default Attack"><span class="hint">Optional enemy visual slot</span></label><button type="button" class="small-button inline-open" data-action="open-reference" data-reference-category="enemyActions" data-reference-id="${escapeHtml(actionId)}">Open Action</button><button type="button" class="small-button" data-action="move-enemy-action" data-enemy-pattern-index="${index}" data-direction="up"${index === 0 ? " disabled" : ""}>↑</button><button type="button" class="small-button" data-action="move-enemy-action" data-enemy-pattern-index="${index}" data-direction="down"${index === pattern.length - 1 ? " disabled" : ""}>↓</button><button type="button" class="small-button danger-outline" data-action="remove-enemy-action-pattern" data-enemy-pattern-index="${index}">Remove</button>
+  </div>`;
+  }).join("");
+}
+
+function renderEnemyAnimationDatalist(enemy) {
+  return `<datalist id="enemy-animation-options">${enemyAnimationOptions(enemy)}</datalist>`;
 }
 
 function renderEnemyTraitRows(enemy) {
@@ -2537,7 +2553,7 @@ function renderEnemy() {
     <section class="section"><div class="section-heading"><div><h3>Enemy identity and combat stats</h3><p>Enemies are reusable definitions authored in <code>COMBAT_ENEMY_DEFINITIONS</code>.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(enemy.id || "")}"></label><label>Name<input data-enemy-field="name" value="${escapeHtml(enemy.name || "")}"></label><label>Maximum HP<input type="number" min="1" step="1" data-enemy-field="maxHp" value="${escapeHtml(enemy.maxHp ?? "")}"></label><label>Speed<input type="number" min="1" step="any" data-enemy-field="speed" value="${escapeHtml(enemy.speed ?? "")}"></label><label>Defense<input type="number" min="0" step="any" data-enemy-field="defense" value="${escapeHtml(enemy.defense ?? "")}"></label><label>Visual scale<input type="number" min="0.25" max="3" step="0.05" data-field="visualScale" value="${escapeHtml(enemy.visualScale ?? 1)}"></label><label>Combat visual scale<input type="number" min="0.25" max="3" step="0.05" data-field="combatVisualScale" value="${escapeHtml(enemy.combatVisualScale ?? "")}" placeholder="optional"></label>${renderAssetSelector("Combat visual", "combatVisualAssetId", enemy.combatVisualAssetId ?? enemy.visualAssetId, "image", "combat", enemy.name || enemy.id, "combat")}</div></section>
     ${renderCharacterVisuals(enemy, enemy.name || enemy.id)}
     ${renderEnemySpecialAnimations(enemy, enemy.name || enemy.id)}
-    <section class="section"><div class="section-heading"><div><h3>Action pattern</h3><p>Choose reusable Enemy Actions in their authored order. Repeated action IDs remain meaningful.</p></div><button type="button" class="small-button" data-action="add-enemy-action-pattern">Add action</button></div>${renderEnemyPatternRows(enemy) || `<p class="hint">No actions. Add an action to author this enemy's pattern.</p>`}</section>
+    <section class="section"><div class="section-heading"><div><h3>Action pattern</h3><p>Choose reusable Enemy Actions in their authored order. Select an optional animation from this enemy's own visual slots; blank uses Attack.</p></div><button type="button" class="small-button" data-action="add-enemy-action-pattern">Add action</button></div>${renderEnemyPatternRows(enemy) || `<p class="hint">No actions. Add an action to author this enemy's pattern.</p>`}${renderEnemyAnimationDatalist(enemy)}</section>
     <section class="section"><div class="section-heading"><div><h3>Traits</h3><p>Traits are generic runtime behaviors. Regeneration may be suppressed by authored combat statuses.</p></div><button type="button" class="small-button" data-action="add-enemy-trait">Add trait</button></div>${renderEnemyTraitRows(enemy) || `<p class="hint">No traits. Add one to author a reusable enemy behavior.</p>`}</section>
     <section class="section"><div class="section-heading"><div><h3>Loot Sources</h3><p>Intrinsic drops resolve once per defeated enemy instance after the entire combat is won.</p></div><button type="button" class="small-button" data-action="add-loot-source" data-loot-source-field="lootSources">Add source</button></div>${renderLootSourceRows(enemy.lootSources, "lootSources", "No intrinsic loot sources. Add a loot table when this enemy should carry a drop.")}</section>
     <section class="section"><div class="section-heading"><div><h3>Referenced loot tables</h3><p>These are the tables currently used by this enemy.</p></div></div><div class="reference-list">${renderLootTableReferenceRows(lootReferences, "No loot tables referenced by this enemy.")}</div></section>
@@ -2552,8 +2568,9 @@ function renderEnemyActionDefinition() {
   const injuries = state.catalog.known?.injuries || [];
   const targetModes = uniqueSorted(["arthur", ...Object.values(state.catalog.enemyActions || {}).map((value) => value?.target), action.target]);
   const references = (liveReferences().enemyActions || []).filter((reference) => reference.id === action.id);
+  const targetModeLabels = { singleAlly: "Single party member", allAllies: "Entire active party" };
   return `<div class="editor-title"><div><h2>${escapeHtml(action.name || action.id || "New enemy action")}</h2><p>${escapeHtml(action.id || "Unsaved ID")}</p></div><span class="schema-badge">Enemy Action schema</span></div>
-    <section class="section"><div class="section-heading"><div><h3>Action identity and damage</h3><p>Enemy Actions are reusable definitions authored in <code>COMBAT_ENEMY_ACTION_DEFINITIONS</code>.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(action.id || "")}"></label><label>Name / intent text<input data-enemy-action-field="name" value="${escapeHtml(action.name || "")}"></label><label>Damage minimum<input type="number" min="0" step="any" data-enemy-action-field="damage.minimum" value="${escapeHtml(damage.minimum ?? "")}"></label><label>Damage maximum<input type="number" min="0" step="any" data-enemy-action-field="damage.maximum" value="${escapeHtml(damage.maximum ?? "")}"></label><label>Target mode<select data-enemy-action-field="target"><option value="">Select target...</option>${selectOptions(targetModes, action.target)}</select></label></div></section>
+    <section class="section"><div class="section-heading"><div><h3>Action identity and damage</h3><p>Enemy Actions are reusable definitions authored in <code>COMBAT_ENEMY_ACTION_DEFINITIONS</code>.</p></div></div><div class="form-grid"><label>ID<input data-field="id" value="${escapeHtml(action.id || "")}"></label><label>Name / intent text<input data-enemy-action-field="name" value="${escapeHtml(action.name || "")}"></label><label>Damage minimum<input type="number" min="0" step="any" data-enemy-action-field="damage.minimum" value="${escapeHtml(damage.minimum ?? "")}"></label><label>Damage maximum<input type="number" min="0" step="any" data-enemy-action-field="damage.maximum" value="${escapeHtml(damage.maximum ?? "")}"></label><label>Target rule<select data-enemy-action-field="target"><option value="">Select target...</option>${selectOptions(targetModes, action.target)}</select></label><label>Target mode<select data-enemy-action-field="targetMode">${selectOptions(["singleAlly", "allAllies"], action.targetMode || "singleAlly", targetModeLabels)}</select><span class="hint">Missing means the existing single party member behavior.</span></label></div></section>
     <section class="section"><div class="section-heading"><div><h3>Injury effect</h3><p>Optional injury references use the live Injury catalog.</p></div></div><div class="form-grid"><label>Injury${referenceInput("injuryId", action.injuryId, true)}</label><label>Injury chance<input type="number" min="0" max="1" step="any" data-enemy-action-field="injuryChance" value="${escapeHtml(action.injuryChance ?? "")}"></label><label>Animation<input data-enemy-action-field="animationId" value="${escapeHtml(action.animationId ?? "")}" placeholder="bell_ring"><span class="hint">Optional named enemy animation. Falls back to the enemy's default Attack animation.</span></label><label class="check-chip"><input type="checkbox" data-enemy-action-field="telegraphed"${action.telegraphed ? " checked" : ""}>Telegraphed heavy attack</label></div>${renderSynthAudioSelect("Use SFX", action.useSfxId, "sfx", "data-enemy-action-field=\"useSfxId\"")}${renderSynthAudioSelect("Impact SFX", action.impactSfxId, "sfx", "data-enemy-action-field=\"impactSfxId\"")}</section>
     <section class="section"><div class="section-heading"><div><h3>Used by</h3><p>Enemy action patterns that reference this action.</p></div></div><div class="reference-list">${renderReferenceRows(references, "No enemy currently uses this action.")}</div></section>
     <section class="section"><details><summary>Raw Enemy Action JSON (advanced)</summary><p class="hint">Use this for uncommon future effect, weight, or presentation fields.</p><textarea id="raw-json" class="raw-editor">${jsonText(action)}</textarea><div class="button-row"><button type="button" class="small-button" data-action="apply-raw">Apply raw JSON</button></div></details></section>`;
@@ -2703,7 +2720,7 @@ function renderAbility() {
       <label>Kind<select data-ability-field="kind"><option value="active"${selected("active", ability.kind || "active")}>Active</option><option value="passive"${selected("passive", ability.kind)}>Passive</option></select></label>
       <label class="wide">Tags<input data-ability-tags value="${escapeHtml(tags)}" placeholder="martial, faith, control"></label>
       <label>Target<select data-ability-field="target">${selectOptions(["enemy", "ally", "self", "menu", "none"], ability.target || "none")}</select></label>
-      <label>Target mode<select data-ability-field="targetMode">${selectOptions(["self", "singleEnemy", "singleAlly", "allEnemies", "allAllies", "none"], ability.targetMode || "none")}</select></label>
+      <label>Target mode<select data-ability-field="targetMode">${selectOptions(["self", "singleEnemy", "singleAlly", "allEnemies", "allAllies", "none"], ability.targetMode || "none", { self: "Self", singleEnemy: "One enemy", singleAlly: "One ally", allEnemies: "All enemies", allAllies: "All allies", none: "No target" })}</select></label>
       <label class="wide">Selection prompt<input data-ability-field="selectionPrompt" value="${escapeHtml(ability.selectionPrompt || "")}"></label>
       ${ability.kind === "active" ? `${renderSynthAudioSelect("Use SFX", ability.useSfxId, "sfx", "data-ability-field=\"useSfxId\"")}${renderSynthAudioSelect("Impact SFX", ability.impactSfxId, "sfx", "data-ability-field=\"impactSfxId\"")}` : ""}
     </div></section>
@@ -3607,6 +3624,7 @@ function defaultEntry(category) {
     name: "New Enemy Action",
     damage: { minimum: 1, maximum: 2 },
     target: "arthur",
+    targetMode: "singleAlly",
     telegraphed: false,
   };
   if (category === "recipes") return {
@@ -3833,6 +3851,11 @@ function commitEnemySpecialAnimationId(input) {
     nextAnimations[id === oldId ? newId : id] = visual;
   });
   state.draft.visuals.animations = nextAnimations;
+  if (state.draft.actionAnimations) {
+    Object.entries(state.draft.actionAnimations).forEach(([actionId, animationId]) => {
+      if (animationId === oldId) state.draft.actionAnimations[actionId] = newId;
+    });
+  }
   markDirty();
   render();
 }
@@ -4436,6 +4459,19 @@ function handleInput(input) {
     return;
   }
   if (input.dataset.enemyPatternField) {
+    if (input.dataset.enemyPatternField === "animationId") {
+      const actionId = state.draft.actionPattern?.[Number(input.dataset.enemyPatternIndex)];
+      if (!actionId) return;
+      if (input.value.trim()) {
+        state.draft.actionAnimations ||= {};
+        state.draft.actionAnimations[actionId] = input.value.trim();
+      } else if (state.draft.actionAnimations) {
+        delete state.draft.actionAnimations[actionId];
+        if (Object.keys(state.draft.actionAnimations).length === 0) delete state.draft.actionAnimations;
+      }
+      markDirty();
+      return;
+    }
     state.draft.actionPattern ||= [];
     state.draft.actionPattern[Number(input.dataset.enemyPatternIndex)] = input.value;
     markDirty();
@@ -5349,7 +5385,14 @@ function handleAction(button) {
     markDirty();
     render();
   } else if (action === "remove-enemy-special-animation") {
-    if (state.draft.visuals?.animations) delete state.draft.visuals.animations[button.dataset.enemySpecialAnimationId];
+    const removedId = button.dataset.enemySpecialAnimationId;
+    if (state.draft.visuals?.animations) delete state.draft.visuals.animations[removedId];
+    if (state.draft.actionAnimations) {
+      Object.entries(state.draft.actionAnimations).forEach(([actionId, animationId]) => {
+        if (animationId === removedId) delete state.draft.actionAnimations[actionId];
+      });
+      if (Object.keys(state.draft.actionAnimations).length === 0) delete state.draft.actionAnimations;
+    }
     markDirty();
     render();
   } else if (action === "remove-enemy-trait") {

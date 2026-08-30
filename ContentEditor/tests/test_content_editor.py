@@ -2217,6 +2217,47 @@ class ContentEditorTests(unittest.TestCase):
         validation = validate_catalog(invalid, after["known"], after["references"])
         self.assertTrue(any("Unknown injury ID 'missing_injury'" in issue["message"] for issue in validation["errors"]))
 
+    def test_phase8_enemy_target_modes_and_local_animation_mapping_round_trip(self) -> None:
+        temp, project = self.temporary_grail()
+        self.addCleanup(temp.cleanup)
+        before = load_catalog(project)
+        app = (CONTENT_EDITOR / "static" / "app.js").read_text(encoding="utf-8")
+        self.assertIn('data-enemy-pattern-field="animationId"', app)
+        self.assertIn('data-enemy-action-field="targetMode"', app)
+        self.assertIn('"emptyCompanionSlot"', app)
+        self.assertIn("allEnemies: \"All enemies\"", app)
+        self.assertIn("allAllies: \"All allies\"", app)
+
+        enemy = clone(before["enemyDefinitions"]["briar_knight"])
+        action_id = enemy["actionPattern"][0]
+        enemy["actionAnimations"] = {action_id: "thorn_surge"}
+        enemies = clone(before["enemyDefinitions"])
+        enemies["briar_knight"] = enemy
+        actions = clone(before["enemyActions"])
+        actions[action_id]["targetMode"] = "allAllies"
+        valid = validate_catalog(
+            {"imageAssets": before["imageAssets"], "enemyDefinitions": enemies, "enemyActions": actions},
+            before["known"],
+            before["references"],
+        )
+        self.assertEqual(valid["errors"], [])
+        self.assertFalse(valid["warnings"])
+        save_catalog(project, {"enemyDefinitions": enemies, "enemyActions": actions}, before["sourceHashes"], Path(temp.name) / "backups")
+        after = load_catalog(project)
+        self.assertEqual(after["enemyDefinitions"]["briar_knight"]["actionAnimations"], {action_id: "thorn_surge"})
+        self.assertEqual(after["enemyActions"][action_id]["targetMode"], "allAllies")
+
+        invalid = clone(after["enemyDefinitions"])
+        invalid["briar_knight"]["actionAnimations"] = {"not_in_pattern": "missing_animation"}
+        validation = validate_catalog({"imageAssets": after["imageAssets"], "enemyDefinitions": invalid}, after["known"], after["references"])
+        self.assertEqual(validation["errors"], [])
+        self.assertTrue(any("not in actionPattern" in issue["message"] for issue in validation["warnings"]))
+        self.assertTrue(any("missing visual slot" in issue["message"] for issue in validation["warnings"]))
+
+        encounter = clone(after["encounters"]["lost_purse"])
+        encounter["requirements"] = [{"type": "emptyCompanionSlot", "lockedLabel": "Requires an empty companion slot"}]
+        self.assertEqual(validate_catalog({"encounters": {"lost_purse": encounter}}, after["known"], after["references"])["errors"], [])
+
     def test_phase7_dialogue_npc_destination_location_round_trip_and_links(self) -> None:
         temp, project = self.temporary_grail()
         self.addCleanup(temp.cleanup)

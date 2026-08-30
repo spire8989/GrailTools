@@ -2137,7 +2137,8 @@ def _validate_companions(companions: Any, known: dict[str, list[str]], errors: l
         _validate_character_scale(companion, source, errors)
 
 
-def _validate_enemy_definitions(enemies: Any, known: dict[str, list[str]], errors: list[dict[str, str]]) -> None:
+def _validate_enemy_definitions(enemies: Any, known: dict[str, list[str]], errors: list[dict[str, str]], warnings: list[dict[str, str]] | None = None) -> None:
+    warnings = warnings if warnings is not None else []
     if not isinstance(enemies, dict):
         errors.append(_issue("error", "Enemy definitions must be an object.", "enemyDefinitions"))
         return
@@ -2171,6 +2172,24 @@ def _validate_enemy_definitions(enemies: Any, known: dict[str, list[str]], error
         pattern = enemy.get("actionPattern")
         if not isinstance(pattern, list) or not pattern or not all(isinstance(action_id, str) and action_id for action_id in pattern):
             errors.append(_issue("error", "Enemy actionPattern must be a non-empty array of action IDs.", source, "actionPattern"))
+        action_animations = enemy.get("actionAnimations")
+        if action_animations is not None:
+            if not isinstance(action_animations, dict):
+                errors.append(_issue("error", "Enemy actionAnimations must be an object or null.", source, "actionAnimations"))
+            else:
+                pattern_ids = {action_id for action_id in pattern if isinstance(action_id, str)} if isinstance(pattern, list) else set()
+                visuals = enemy.get("visuals") if isinstance(enemy.get("visuals"), dict) else {}
+                visual_slots = set(CHARACTER_VISUAL_SLOTS)
+                named_visuals = visuals.get("animations")
+                if isinstance(named_visuals, dict):
+                    visual_slots.update(named_visuals)
+                for action_id, animation_id in action_animations.items():
+                    mapping_path = f"actionAnimations.{action_id}"
+                    if action_id not in pattern_ids:
+                        warnings.append(_issue("warning", f"Enemy actionAnimations references action ID {action_id!r}, which is not in actionPattern.", source, mapping_path))
+                    normalized_animation_id = animation_id.strip() if isinstance(animation_id, str) else ""
+                    if not normalized_animation_id or normalized_animation_id not in visual_slots:
+                        warnings.append(_issue("warning", f"Enemy actionAnimations selects missing visual slot {animation_id!r}.", source, mapping_path))
         _validate_loot_sources(enemy.get("lootSources"), known, source, "lootSources", errors, "Enemy lootSources")
         _validate_character_asset_fields(enemy, known, source, errors)
         _validate_character_visuals(enemy, known, source, errors)
@@ -2237,6 +2256,8 @@ def _validate_enemy_actions(actions: Any, known: dict[str, list[str]], errors: l
                 errors.append(_issue("error", "Enemy action injuryChance must be between 0 and 1.", source, "injuryChance"))
         if "telegraphed" in action and not isinstance(action.get("telegraphed"), bool):
             errors.append(_issue("error", "Enemy action telegraphed must be boolean.", source, "telegraphed"))
+        if "targetMode" in action and action.get("targetMode") not in {"singleAlly", "allAllies"}:
+            errors.append(_issue("error", "Enemy action targetMode must be 'singleAlly' or 'allAllies'.", source, "targetMode"))
         _validate_audio_fields(action, known, source, "", errors, (("useSfxId", "sfx"), ("impactSfxId", "sfx")))
 
 
@@ -3561,7 +3582,7 @@ def validate_catalog(values: dict[str, Any], known: dict[str, list[str]], refere
     if "combats" in values:
         _validate_combat_definitions(values.get("combats"), effective_known, errors)
     if "enemyDefinitions" in values:
-        _validate_enemy_definitions(values.get("enemyDefinitions"), effective_known, errors)
+        _validate_enemy_definitions(values.get("enemyDefinitions"), effective_known, errors, warnings)
     if "playerCharacter" in values:
         _validate_player_character(values.get("playerCharacter"), effective_known, errors)
     if "startingState" in values:
